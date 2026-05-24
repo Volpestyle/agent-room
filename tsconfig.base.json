@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@agentroom/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@agentroom/storage-memory": [
+        "packages/storage-memory/src/index.ts"
+      ],
+      "@agentroom/storage-jsonl": [
+        "packages/storage-jsonl/src/index.ts"
+      ],
+      "@agentroom/runtime-fake": [
+        "packages/runtime-fake/src/index.ts"
+      ],
+      "@agentroom/runtime-herdr": [
+        "packages/runtime-herdr/src/index.ts"
+      ],
+      "@agentroom/runtime-tmux": [
+        "packages/runtime-tmux/src/index.ts"
+      ],
+      "@agentroom/worktracker-linear": [
+        "packages/integrations/worktracker-linear/src/index.ts"
+      ],
+      "@agentroom/codehost-github": [
+        "packages/integrations/codehost-github/src/index.ts"
+      ],
+      "@agentroom/design-figma": [
+        "packages/integrations/design-figma/src/index.ts"
+      ],
+      "@agentroom/notify-telegram": [
+        "packages/integrations/notify-telegram/src/index.ts"
+      ],
+      "@agentroom/notify-discord": [
+        "packages/integrations/notify-discord/src/index.ts"
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+id: lead
+role: lead
+harness:
+  kind: claude-code
+  command: claude
+  args: []
+permissions:
+  - room:read_all
+  - room:post_all
+  - task:assign
+  - runtime:read_recent
+  - human:escalate
+startupPrompt: |
+  You are the lead coding agent for this AgentRoom.
+  Coordinate the other agents, track blockers, and escalate only when needed.

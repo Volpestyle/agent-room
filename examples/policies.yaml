@@ -1,0 +1,16 @@
+approvals:
+  required:
+    - action: github.merge_pr
+      approver: human
+    - action: deploy.production
+      approver: human
+    - action: runtime.send_to_other_agent
+      approver: lead
+
+gateways:
+  telegram:
+    fullTranscripts: false
+    maxContextLines: 40
+  customApp:
+    fullTranscripts: true
+    terminalInput: true

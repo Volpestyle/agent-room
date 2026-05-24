@@ -1,0 +1,27 @@
+{
+  "name": "agentroom-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "agentroom": "pnpm --filter @agentroom/cli dev --",
+    "build": "pnpm -r --sort build",
+    "clean": "pnpm -r --parallel clean && rm -rf coverage",
+    "dev:daemon": "pnpm --filter @agentroom/daemon dev",
+    "dev:cli": "pnpm --filter @agentroom/cli dev --",
+    "test": "pnpm -r --sort test",
+    "typecheck": "pnpm -r --sort typecheck",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "prettier": "^3.6.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

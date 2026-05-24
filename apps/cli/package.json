@@ -1,0 +1,35 @@
+{
+  "name": "@agentroom/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "agentroom": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agentroom/core": "workspace:*",
+    "@agentroom/runtime-fake": "workspace:*",
+    "@agentroom/runtime-herdr": "workspace:*",
+    "@agentroom/runtime-tmux": "workspace:*",
+    "@agentroom/storage-jsonl": "workspace:*",
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

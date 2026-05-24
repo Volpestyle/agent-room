@@ -1,0 +1,19 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/storage-memory" },
+    { "path": "packages/storage-jsonl" },
+    { "path": "packages/runtime-fake" },
+    { "path": "packages/runtime-herdr" },
+    { "path": "packages/runtime-tmux" },
+    { "path": "packages/integrations/worktracker-linear" },
+    { "path": "packages/integrations/codehost-github" },
+    { "path": "packages/integrations/design-figma" },
+    { "path": "packages/integrations/notify-telegram" },
+    { "path": "packages/integrations/notify-discord" },
+    { "path": "apps/daemon" },
+    { "path": "apps/cli" },
+    { "path": "apps/mcp-server" }
+  ]
+}

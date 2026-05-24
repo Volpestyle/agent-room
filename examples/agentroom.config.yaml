@@ -1,0 +1,26 @@
+room:
+  id: my-project
+  name: My Project
+
+runtimeProviders:
+  default: local-herdr
+  providers:
+    local-herdr:
+      type: herdr
+      session: my-project
+      cli: herdr
+    local-tmux:
+      type: tmux
+      sessionPrefix: agentroom
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl
+
+channels:
+  - announcements
+  - planning
+  - implementation
+  - review
+  - human
+  - scratch
