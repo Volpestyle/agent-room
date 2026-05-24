@@ -20,6 +20,9 @@
     },
     {
       "path": "../../packages/runtime-tmux"
+    },
+    {
+      "path": "../../packages/integrations/worktracker-linear"
     }
   ],
   "include": [

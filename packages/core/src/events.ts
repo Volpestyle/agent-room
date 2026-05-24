@@ -1,4 +1,4 @@
-import type { Agent, AgentState, ApprovalRequest, HumanEscalation, Id, Message, RuntimeBinding, Task } from './domain.js';
+import type { ActorRef, Agent, AgentState, ApprovalRequest, HumanEscalation, Id, Message, Ref, RuntimeBinding, Task, TaskStatus } from './domain.js';
 
 export type RoomEventType =
   | 'message.posted'
@@ -6,6 +6,7 @@ export type RoomEventType =
   | 'reaction.added'
   | 'task.created'
   | 'task.assigned'
+  | 'task.ref_added'
   | 'task.status_changed'
   | 'agent.joined'
   | 'agent.left'
@@ -40,8 +41,9 @@ export interface BaseEvent<T extends RoomEventType, P> {
 export type RoomEvent =
   | BaseEvent<'message.posted', { message: Message }>
   | BaseEvent<'task.created', { task: Task }>
-  | BaseEvent<'task.assigned', { taskId: Id; assigneeId: Id }>
-  | BaseEvent<'task.status_changed', { taskId: Id; status: string; previousStatus?: string }>
+  | BaseEvent<'task.assigned', { taskId: Id; assignee: ActorRef }>
+  | BaseEvent<'task.ref_added', { taskId: Id; ref: Ref }>
+  | BaseEvent<'task.status_changed', { taskId: Id; status: TaskStatus; previousStatus?: TaskStatus; actor?: ActorRef; reason?: string; summary?: string }>
   | BaseEvent<'agent.joined', { agent: Agent }>
   | BaseEvent<'agent.left', { agentId: Id; reason?: string }>
   | BaseEvent<'agent.heartbeat', { agentId: Id; state: AgentState; status?: string }>
@@ -56,5 +58,6 @@ export type RoomEvent =
   | BaseEvent<'runtime.output_observed', { agentId: Id; text: string; lineCount?: number }>
   | BaseEvent<'runtime.input_sent', { agentId: Id; text: string; source: string }>
   | BaseEvent<'runtime.state_observed', { agentId: Id; state: AgentState; source: string }>
+  | BaseEvent<'linear.issue_event', { issueId: Id; action: 'linked' | 'commented' | 'status_updated' | 'tracker_update_skipped'; taskId?: Id; body?: string; status?: string; reason?: string }>
   | BaseEvent<'decision.recorded', { decision: string; refs?: unknown[] }>
   | BaseEvent<'handoff.created', { taskId: Id; fromAgentId: Id; toAgentId: Id; summary: string }>;

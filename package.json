@@ -9,12 +9,12 @@
   },
   "scripts": {
     "agentroom": "pnpm --filter @agentroom/cli dev --",
-    "build": "pnpm -r --sort build",
+    "build": "tsc -b",
     "clean": "pnpm -r --parallel clean && rm -rf coverage",
     "dev:daemon": "pnpm --filter @agentroom/daemon dev",
     "dev:cli": "pnpm --filter @agentroom/cli dev --",
-    "test": "pnpm -r --sort test",
-    "typecheck": "pnpm -r --sort typecheck",
+    "test": "vitest run",
+    "typecheck": "tsc -b",
     "format": "prettier --write ."
   },
   "devDependencies": {
