@@ -5,7 +5,9 @@
 - Runtime provider port
 - Fake runtime provider
 - JSONL event store
-- CLI `init`, `post`, `task create`, `events`
+- Native channel/DM messages
+- Local task shadows with Linear refs
+- CLI `init`, `post`, `dm`, `messages`, `task create`, `task link-linear`, `task comment`, `events`
 - Hono daemon `/health`, `/v1/events`, `/v1/messages`, `/v1/tasks`
 
 ## MVP 1: Herdr-backed local orchestration
@@ -15,26 +17,33 @@
 - Detect Herdr socket/session health
 - Skill-installed opted-in agent behavior
 
-## MVP 2: human escalation
+## MVP 2: Linear-first work tracking
+
+- Linear MCP setup guidance
+- Tracker comments/status updates delegated to Linear MCP/CLI/skills
+- Explicit `tracker_update_skipped` events when tracker tools are unavailable
+- Local task projections that stay secondary to linked Linear issues
+
+## MVP 3: human escalation
 
 - `ask-human`
 - approvals
 - phone gateway skeleton
 - digest command
 
-## MVP 3: tool integrations
+## MVP 4: tool integrations
 
-- Linear issue sync
 - GitHub PR sync
 - Figma design refs
+- notification gateways
 
-## MVP 4: custom app
+## MVP 5: custom app
 
 - Web UI first
 - iOS/React Native or native Swift later
 - Push notification gateway
 
-## MVP 5: remote/hosted runtime
+## MVP 6: remote/hosted runtime
 
 - Single remote host
 - SSH provider

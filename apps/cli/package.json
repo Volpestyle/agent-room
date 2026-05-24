@@ -24,6 +24,7 @@
     "@agentroom/runtime-herdr": "workspace:*",
     "@agentroom/runtime-tmux": "workspace:*",
     "@agentroom/storage-jsonl": "workspace:*",
+    "@agentroom/worktracker-linear": "workspace:*",
     "commander": "^14.0.0"
   },
   "devDependencies": {

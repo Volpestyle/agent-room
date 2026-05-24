@@ -1,4 +1,4 @@
-import type { ActorRef, Id, Importance, Ref, Task, TaskStatus } from '../domain.js';
+import type { ActorRef, Id, Importance, Ref, Task } from '../domain.js';
 
 export interface WorkTrackerIssue {
   id: string;
@@ -14,7 +14,7 @@ export interface WorkTrackerProvider {
   kind: 'linear' | 'github-issues' | 'jira' | 'custom';
   health(): Promise<{ ok: boolean; message?: string }>;
   createIssue(task: Task): Promise<WorkTrackerIssue>;
-  updateIssueStatus(issueId: string, status: TaskStatus): Promise<void>;
+  updateIssueStatus(issueId: string, status: string): Promise<void>;
   comment(issueId: string, body: string, author?: ActorRef): Promise<void>;
 }
 

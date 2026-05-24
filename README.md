@@ -20,7 +20,7 @@ packages/
   runtime-fake/    fake runtime provider used by tests
   runtime-herdr/   Herdr runtime provider adapter shell
   runtime-tmux/    working minimal tmux runtime provider
-  integrations/    connector port placeholders for GitHub/Linear/Figma/etc.
+  integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/etc.
 skills/
   agentroom/       agent-facing skill instructions
 examples/
@@ -35,7 +35,8 @@ examples/
 - Hono for the daemon HTTP API.
 - Vitest for contract and unit tests.
 - Zod for schemas at process and network boundaries.
-- SQLite should be added as the durable store after the JSONL event log MVP is validated.
+- Linear MCP is the preferred durable work tracker integration; AgentRoom keeps local room/audit state.
+- SQLite should be added as the durable local event store after the JSONL event log MVP is validated.
 
 See `docs/ADR/0001-tech-stack.md` for the rationale.
 
@@ -56,9 +57,12 @@ Initialize a project room:
 ```bash
 pnpm agentroom init --room my-project
 pnpm agentroom post "hello from the room" --channel announcements
-pnpm agentroom task create "Implement auth callback" --assignee api-impl
+pnpm agentroom dm api-impl "Can you take auth callback?"
+pnpm agentroom task create "Implement auth callback" --assignee api-impl --linear ENG-123
 pnpm agentroom events --limit 20
 ```
+
+AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, active handoffs, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
 
 Run the local API daemon:
 
@@ -89,10 +93,11 @@ Herdr support starts behind `@agentroom/runtime-herdr`. The adapter is intention
 2. Every agent opt-in is explicit.
 3. The event log is source of truth.
 4. Terminal input/output is privileged and auditable.
-5. Agents coordinate through structured room commands, not only free-form chat.
-6. Third-party chat systems are gateways, not the core state store.
-7. The MVP should run locally on one machine, but the ports should survive a hosted/AWS version.
+5. Agents coordinate through structured room commands plus lightweight channel/DM messages.
+6. Linear is the canonical work tracker; AgentRoom keeps local execution context and audit events.
+7. Third-party chat systems are gateways, not the core state store.
+8. The MVP should run locally on one machine, but the ports should survive a hosted/AWS version.
 
 ## Current maturity
 
-This is a scaffold, not a complete product. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, and starter implementations. The next useful build step is to wire the daemon to a persistent SQLite store and complete Herdr provider contract tests against a real Herdr server.
+This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, complete Herdr provider contract tests against a real Herdr server, and make the Linear MCP/bridge path ergonomic.
