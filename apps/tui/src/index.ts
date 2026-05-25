@@ -28,6 +28,25 @@ import type {
 } from "./types.js";
 
 type ViewName = "overview" | "agents" | "tasks" | "messages" | "events";
+type MouseAction =
+  | { type: "view"; view: ViewName }
+  | { type: "provider"; providerId: string }
+  | { type: "agent"; agentId: string }
+  | { type: "task"; taskId: string };
+
+interface HitZone {
+  row: number;
+  startCol: number;
+  endCol: number;
+  action: MouseAction;
+}
+
+interface MouseEvent {
+  kind: "press" | "release" | "wheel-up" | "wheel-down";
+  button: "left" | "middle" | "right" | "wheel" | "unknown";
+  row: number;
+  col: number;
+}
 
 export interface AgentRoomTuiOptions {
   baseUrl?: string;
@@ -46,6 +65,8 @@ interface Snapshot {
 }
 
 const VIEWS: ViewName[] = ["overview", "agents", "tasks", "messages", "events"];
+const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
+const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
 const TASK_STATUSES: TaskStatus[] = [
   "planned",
   "assigned",
@@ -122,8 +143,8 @@ export async function runAgentRoomTui(
   });
 
   await app.refresh();
-  app.start();
   tui.start();
+  app.start();
 }
 
 class AgentRoomTuiApp implements Component {
@@ -135,8 +156,10 @@ class AgentRoomTuiApp implements Component {
   private selectedAgentIndex = 0;
   private selectedTaskIndex = 0;
   private isRefreshing = false;
+  private mouseEnabled = false;
   private lastError: string | undefined;
   private notices: string[] = [];
+  private hitZones: HitZone[] = [];
   private snapshot: Snapshot = {
     providers: [],
     providerAgents: {},
@@ -166,10 +189,12 @@ class AgentRoomTuiApp implements Component {
     this.refreshTimer = setInterval(() => {
       void this.refresh();
     }, this.refreshMs);
+    this.enableMouse();
   }
 
   dispose(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.disableMouse();
   }
 
   invalidate(): void {
@@ -177,6 +202,11 @@ class AgentRoomTuiApp implements Component {
   }
 
   handleGlobalInput(data: string): { consume?: boolean } | undefined {
+    const mouseEvent = parseMouseEvent(data);
+    if (mouseEvent) {
+      this.handleMouse(mouseEvent);
+      return { consume: true };
+    }
     if (matchesKey(data, "ctrl+r")) {
       void this.refresh();
       return { consume: true };
@@ -252,10 +282,12 @@ class AgentRoomTuiApp implements Component {
   }
 
   render(width: number): string[] {
+    this.hitZones = [];
     const fullWidth = Math.max(40, width);
     const editorLines = this.editor.render(fullWidth);
     const headerLines = this.renderHeader(fullWidth);
-    const navLines = [this.renderNav(fullWidth)];
+    const navRow = headerLines.length + 1;
+    const navLines = [this.renderNav(fullWidth, navRow)];
     const noticeLines = this.renderNotices(fullWidth);
     const footerLines = this.renderFooter(fullWidth);
     const reserved =
@@ -265,7 +297,12 @@ class AgentRoomTuiApp implements Component {
       footerLines.length +
       editorLines.length;
     const contentHeight = Math.max(4, this.terminal.rows - reserved);
-    const contentLines = this.renderCurrentView(fullWidth, contentHeight);
+    const contentStartRow = headerLines.length + navLines.length + 1;
+    const contentLines = this.renderCurrentView(
+      fullWidth,
+      contentHeight,
+      contentStartRow,
+    );
     const lines = [
       ...headerLines,
       ...navLines,
@@ -293,23 +330,35 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderNav(width: number): string {
+  private renderNav(width: number, row: number): string {
+    let col = 1;
     const parts = VIEWS.map((view, index) => {
       const label = ` ${view} `;
+      this.addHitZone({
+        row,
+        startCol: col,
+        endCol: col + label.length - 1,
+        action: { type: "view", view },
+      });
+      col += label.length + 1;
       return index === this.viewIndex ? style.inverse(label) : style.dim(label);
     });
     return truncateToWidth(parts.join(" "), width, "");
   }
 
-  private renderCurrentView(width: number, height: number): string[] {
+  private renderCurrentView(
+    width: number,
+    height: number,
+    startRow: number,
+  ): string[] {
     const view = VIEWS[this.viewIndex] ?? "overview";
     const lines =
       view === "overview"
-        ? this.renderOverview(width)
+        ? this.renderOverview(width, startRow)
         : view === "agents"
-          ? this.renderAgents(width)
+          ? this.renderAgents(width, startRow)
           : view === "tasks"
-            ? this.renderTasks(width)
+            ? this.renderTasks(width, startRow)
             : view === "messages"
               ? this.renderMessages(width)
               : this.renderEvents(width);
@@ -317,7 +366,7 @@ class AgentRoomTuiApp implements Component {
     return fitLines(lines, width, height);
   }
 
-  private renderOverview(width: number): string[] {
+  private renderOverview(width: number, startRow: number): string[] {
     const activeTasks = this.snapshot.tasks.filter((task) =>
       ["assigned", "claimed", "working", "ready-for-review", "blocked"].includes(
         task.status,
@@ -330,8 +379,8 @@ class AgentRoomTuiApp implements Component {
     const providerLines =
       this.snapshot.providers.length === 0
         ? [style.dim("no runtime providers loaded")]
-        : this.snapshot.providers.map((provider) =>
-            this.renderProviderLine(provider, width),
+        : this.snapshot.providers.map((provider, index) =>
+            this.renderProviderLine(provider, width, startRow + 5 + index),
           );
 
     return [
@@ -351,11 +400,17 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderAgents(width: number): string[] {
+  private renderAgents(width: number, startRow: number): string[] {
     const providerLabel = this.selectedProviderId ?? "none";
     const selectedAgent = this.selectedAgent();
     const agents = this.snapshot.agents.length
       ? this.snapshot.agents.map((agent, index) => {
+          this.addHitZone({
+            row: startRow + this.snapshot.providers.length + 4 + index,
+            startCol: 1,
+            endCol: width,
+            action: { type: "agent", agentId: agent.id },
+          });
           const prefix = index === this.selectedAgentIndex ? "> " : "  ";
           const state = renderState(agent.state);
           const name = agent.displayName ?? agent.id;
@@ -369,8 +424,8 @@ class AgentRoomTuiApp implements Component {
 
     return [
       section(`provider ${providerLabel}`),
-      ...this.snapshot.providers.map((provider) =>
-        this.renderProviderLine(provider, width),
+      ...this.snapshot.providers.map((provider, index) =>
+        this.renderProviderLine(provider, width, startRow + 1 + index),
       ),
       "",
       section("agents"),
@@ -388,7 +443,14 @@ class AgentRoomTuiApp implements Component {
   private renderProviderLine(
     provider: RuntimeProviderSummary,
     width: number,
+    row: number,
   ): string {
+    this.addHitZone({
+      row,
+      startCol: 1,
+      endCol: width,
+      action: { type: "provider", providerId: provider.id },
+    });
     const agents = this.snapshot.providerAgents[provider.id] ?? [];
     const selected = provider.id === this.selectedProviderId;
     const marker = selected ? "> " : "  ";
@@ -412,9 +474,15 @@ class AgentRoomTuiApp implements Component {
     );
   }
 
-  private renderTasks(width: number): string[] {
+  private renderTasks(width: number, startRow: number): string[] {
     const tasks = this.snapshot.tasks.length
       ? this.snapshot.tasks.map((task, index) => {
+          this.addHitZone({
+            row: startRow + 1 + index,
+            startCol: 1,
+            endCol: width,
+            action: { type: "task", taskId: task.id },
+          });
           const prefix = index === this.selectedTaskIndex ? "> " : "  ";
           const assignee = task.assignee?.id ?? "unassigned";
           return `${prefix}${renderTaskStatus(task.status)} ${truncateToWidth(task.title, Math.max(18, width - 44), "")} ${style.dim(`${task.id} ${assignee}`)}`;
@@ -478,7 +546,7 @@ class AgentRoomTuiApp implements Component {
       rule(width),
       truncateToWidth(
         style.dim(
-          `ctrl+n/p view  alt+up/down select  ctrl+r refresh  selected agent ${selectedAgent} task ${selectedTask}`,
+          `click nav/provider/agent/task  wheel select  ctrl+n/p view  ctrl+r refresh  selected agent ${selectedAgent} task ${selectedTask}`,
         ),
         width,
         "",
@@ -635,6 +703,83 @@ class AgentRoomTuiApp implements Component {
     } catch {
       return undefined;
     }
+  }
+
+  private handleMouse(event: MouseEvent): void {
+    if (event.kind === "wheel-up") {
+      this.changeSelection(-1);
+      return;
+    }
+    if (event.kind === "wheel-down") {
+      this.changeSelection(1);
+      return;
+    }
+    if (event.kind !== "press" || event.button !== "left") return;
+
+    const zone = this.hitZones.find(
+      (candidate) =>
+        candidate.row === event.row &&
+        event.col >= candidate.startCol &&
+        event.col <= candidate.endCol,
+    );
+    if (!zone) return;
+
+    this.activateMouseAction(zone.action);
+  }
+
+  private activateMouseAction(action: MouseAction): void {
+    switch (action.type) {
+      case "view":
+        this.viewIndex = VIEWS.indexOf(action.view);
+        this.tui.requestRender();
+        return;
+      case "provider":
+        this.selectedProviderId = action.providerId;
+        this.selectedAgentIndex = 0;
+        this.snapshot.agents = this.snapshot.providerAgents[action.providerId] ?? [];
+        void this.refresh();
+        this.tui.requestRender();
+        return;
+      case "agent": {
+        const index = this.snapshot.agents.findIndex(
+          (agent) => agent.id === action.agentId,
+        );
+        if (index >= 0) {
+          this.selectedAgentIndex = index;
+          this.viewIndex = VIEWS.indexOf("agents");
+          void this.refresh();
+          this.tui.requestRender();
+        }
+        return;
+      }
+      case "task": {
+        const index = this.snapshot.tasks.findIndex(
+          (task) => task.id === action.taskId,
+        );
+        if (index >= 0) {
+          this.selectedTaskIndex = index;
+          this.viewIndex = VIEWS.indexOf("tasks");
+          this.tui.requestRender();
+        }
+        return;
+      }
+    }
+  }
+
+  private addHitZone(zone: HitZone): void {
+    this.hitZones.push(zone);
+  }
+
+  private enableMouse(): void {
+    if (this.mouseEnabled) return;
+    this.terminal.write(ENABLE_MOUSE);
+    this.mouseEnabled = true;
+  }
+
+  private disableMouse(): void {
+    if (!this.mouseEnabled) return;
+    this.terminal.write(DISABLE_MOUSE);
+    this.mouseEnabled = false;
   }
 
   private async loadProviderAgents(
@@ -930,6 +1075,40 @@ function clamp(value: number, min: number, max: number): number {
 
 function mod(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
+}
+
+function parseMouseEvent(data: string): MouseEvent | undefined {
+  const match = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
+  if (!match) return undefined;
+
+  const code = Number(match[1]);
+  const col = Number(match[2]);
+  const row = Number(match[3]);
+  if (!Number.isFinite(code) || !Number.isFinite(col) || !Number.isFinite(row)) {
+    return undefined;
+  }
+
+  if (code === 64) {
+    return { kind: "wheel-up", button: "wheel", row, col };
+  }
+  if (code === 65) {
+    return { kind: "wheel-down", button: "wheel", row, col };
+  }
+
+  if (match[4] === "m") {
+    return { kind: "release", button: "unknown", row, col };
+  }
+
+  const buttonCode = code & 3;
+  const button =
+    buttonCode === 0
+      ? "left"
+      : buttonCode === 1
+        ? "middle"
+        : buttonCode === 2
+          ? "right"
+          : "unknown";
+  return { kind: "press", button, row, col };
 }
 
 const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) : "";
