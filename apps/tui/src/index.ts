@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Editor,
@@ -955,11 +957,7 @@ class AgentRoomTuiApp implements Component {
       }
       case "operator": {
         const [agentId = "operator", ...commandParts] = args;
-        await this.launchAgent(agentId, "lead", {
-          kind: "pi",
-          command: commandParts[0] ?? "pi",
-          ...(commandParts.length > 1 ? { args: commandParts.slice(1) } : {}),
-        });
+        await this.launchAgent(agentId, "lead", operatorHarness(commandParts));
         return;
       }
       default:
@@ -1735,11 +1733,23 @@ class AgentRoomTuiApp implements Component {
   }
 
   private hasAgent(agentId: string): boolean {
-    return this.snapshot.agents.some((agent) => agent.id === agentId);
+    return this.knownAgentIds().has(agentId);
   }
 
   private hasTask(taskId: string): boolean {
     return this.snapshot.tasks.some((task) => task.id === taskId);
+  }
+
+  private knownAgentIds(): Set<string> {
+    const ids = new Set(this.snapshot.agents.map((agent) => agent.id));
+    for (const event of this.snapshot.events) {
+      if (event.type === "runtime.bound") {
+        ids.add(event.payload.agentId);
+      } else if (event.type === "agent.joined") {
+        ids.add(event.payload.agent.id);
+      }
+    }
+    return ids;
   }
 
   private resolveTaskCommandTarget(
@@ -1990,6 +2000,79 @@ function isHarnessKind(
     value === "shell" ||
     value === "custom"
   );
+}
+
+function operatorHarness(commandParts: string[]): HarnessSpec {
+  if (commandParts.length > 0) {
+    const [command, ...args] = commandParts;
+    return {
+      kind: "pi",
+      command: command ?? "pi",
+      ...(args.length > 0 ? { args } : {}),
+    };
+  }
+
+  const configured = process.env.AGENTROOM_OPERATOR_COMMAND?.trim();
+  if (configured) {
+    const [command, ...args] = splitArgs(configured);
+    if (command) {
+      return {
+        kind: "pi",
+        command,
+        ...(args.length > 0 ? { args } : {}),
+      };
+    }
+  }
+
+  const pi = findExecutableInPath("pi");
+  if (pi) {
+    return {
+      kind: "pi",
+      command: pi,
+      args: ["--session-dir", ".agentroom/pi-sessions"],
+      cwd: process.cwd(),
+    };
+  }
+
+  const localPi = findSiblingPiCheckout();
+  const node = findExecutableInPath("node");
+  if (localPi && node) {
+    return {
+      kind: "pi",
+      command: node,
+      args: [
+        resolve(localPi, "node_modules/tsx/dist/cli.mjs"),
+        resolve(localPi, "packages/coding-agent/src/cli.ts"),
+        "--session-dir",
+        ".agentroom/pi-sessions",
+      ],
+      cwd: process.cwd(),
+    };
+  }
+
+  return {
+    kind: "pi",
+    command: "pi",
+    args: ["--session-dir", ".agentroom/pi-sessions"],
+    cwd: process.cwd(),
+  };
+}
+
+function findSiblingPiCheckout(): string | undefined {
+  const root = resolve(process.cwd(), "..", "pi");
+  return existsSync(resolve(root, "packages/coding-agent/src/cli.ts")) &&
+    existsSync(resolve(root, "node_modules/tsx/dist/cli.mjs"))
+    ? root
+    : undefined;
+}
+
+function findExecutableInPath(name: string): string | undefined {
+  for (const directory of (process.env.PATH ?? "").split(":")) {
+    if (!directory) continue;
+    const candidate = resolve(directory, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function clamp(value: number, min: number, max: number): number {
