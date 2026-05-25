@@ -642,7 +642,7 @@ function bindingFor(provider: RuntimeProvider, bindingId: string): RuntimeBindin
   return {
     providerId: provider.id,
     bindingId,
-    kind: provider.kind === 'tmux' ? 'pane' : provider.kind === 'herdr' ? 'remote-session' : 'process'
+    kind: provider.kind === 'tmux' || provider.kind === 'herdr' ? 'pane' : 'process'
   };
 }
 
