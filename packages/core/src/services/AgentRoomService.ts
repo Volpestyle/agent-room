@@ -247,6 +247,19 @@ export class AgentRoomService {
     await this.events.append(this.event('runtime.bound', { agentId: input.agentId, runtime: input.runtime }));
   }
 
+  async getRuntimeBinding(agentId: Id): Promise<RuntimeBinding | undefined> {
+    const events = await this.events.list({ roomId: this.roomId });
+    let binding: RuntimeBinding | undefined;
+
+    for (const event of events) {
+      if (event.type === 'runtime.bound' && event.payload.agentId === agentId) {
+        binding = event.payload.runtime;
+      }
+    }
+
+    return binding;
+  }
+
   async recordRuntimeOutput(input: { agentId: Id; text: string; lineCount?: number }): Promise<void> {
     await this.events.append(
       this.event('runtime.output_observed', {

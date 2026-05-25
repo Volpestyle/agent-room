@@ -89,4 +89,24 @@ describe('AgentRoomService', () => {
       'agent.done'
     ]);
   });
+
+  it('returns the latest runtime binding for an agent', async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: 'room-test' });
+
+    await service.bindRuntime({
+      agentId: 'impl',
+      runtime: { providerId: 'herdr', bindingId: 'w1-1', kind: 'pane' }
+    });
+    await service.bindRuntime({
+      agentId: 'impl',
+      runtime: { providerId: 'herdr', bindingId: 'w1-2', kind: 'pane' }
+    });
+
+    await expect(service.getRuntimeBinding('impl')).resolves.toEqual({
+      providerId: 'herdr',
+      bindingId: 'w1-2',
+      kind: 'pane'
+    });
+  });
 });

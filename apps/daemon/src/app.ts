@@ -187,7 +187,7 @@ export function createApp(options: CreateAppOptions = {}) {
 
     await service.bindRuntime({
       agentId: body.agentId,
-      runtime: bindingFor(provider, agent.bindingId)
+      runtime: bindingFor(provider, agent.bindingId, agent.metadata)
     });
 
     return c.json({ agent }, 201);
@@ -195,10 +195,17 @@ export function createApp(options: CreateAppOptions = {}) {
 
   app.get('/v1/runtime/:providerId/agents/:agentId/output', async (c) => {
     const provider = registry.runtime(c.req.param('providerId'));
+    const agentId = c.req.param('agentId');
+    const binding = await service.getRuntimeBinding(agentId);
     const lines = Number(c.req.query('lines') ?? '80');
-    const output = await provider.readAgent({ agentId: c.req.param('agentId'), lines });
+    const bindingId = bindingIdFor(provider, binding);
+    const output = await provider.readAgent({
+      agentId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
+      lines
+    });
     await service.recordRuntimeOutput({
-      agentId: c.req.param('agentId'),
+      agentId,
       text: output.text,
       ...(output.lineCount !== undefined ? { lineCount: output.lineCount } : {})
     });
@@ -207,15 +214,19 @@ export function createApp(options: CreateAppOptions = {}) {
 
   app.post('/v1/runtime/:providerId/agents/:agentId/input', async (c) => {
     const provider = registry.runtime(c.req.param('providerId'));
+    const agentId = c.req.param('agentId');
+    const binding = await service.getRuntimeBinding(agentId);
     const body = (await c.req.json()) as { text?: string; submit?: boolean };
     if (!body.text) return c.json({ error: 'text is required' }, 400);
+    const bindingId = bindingIdFor(provider, binding);
     await provider.sendInput({
-      agentId: c.req.param('agentId'),
+      agentId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
       text: body.text,
       ...(body.submit !== undefined ? { submit: body.submit } : {})
     });
     await service.recordRuntimeInput({
-      agentId: c.req.param('agentId'),
+      agentId,
       text: body.text,
       source: { kind: 'human', id: 'api' }
     });
@@ -225,12 +236,21 @@ export function createApp(options: CreateAppOptions = {}) {
   return app;
 }
 
-function bindingFor(provider: RuntimeProvider, bindingId: string): RuntimeBinding {
+function bindingFor(
+  provider: RuntimeProvider,
+  bindingId: string,
+  metadata?: Record<string, unknown>
+): RuntimeBinding {
   return {
     providerId: provider.id,
     bindingId,
-    kind: provider.kind === 'tmux' || provider.kind === 'herdr' ? 'pane' : 'process'
+    kind: provider.kind === 'tmux' || provider.kind === 'herdr' ? 'pane' : 'process',
+    ...(metadata !== undefined ? { metadata } : {})
   };
+}
+
+function bindingIdFor(provider: RuntimeProvider, binding?: RuntimeBinding): string | undefined {
+  return binding?.providerId === provider.id ? binding.bindingId : undefined;
 }
 
 function actorKind(value: string): 'human' | 'agent' | 'system' | 'connector' {

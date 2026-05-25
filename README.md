@@ -100,6 +100,7 @@ Launch an agent using the configured default runtime:
 agent-room launch demo --harness shell --command "bash" --cwd .
 agent-room send demo "echo hello from AgentRoom"
 agent-room read demo --lines 40
+agent-room stop demo
 ```
 
 Override the runtime per command when needed:
@@ -108,7 +109,21 @@ Override the runtime per command when needed:
 agent-room launch demo-tmux --runtime tmux --harness shell --command "bash" --cwd .
 ```
 
+For Herdr, `launch` can also override placement without editing config:
+
+```bash
+agent-room launch lead --placement workspace --harness shell --command "bash"
+agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash"
+agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash"
+```
+
 Herdr support lives behind `@agentroom/runtime-herdr`, and tmux support lives behind `@agentroom/runtime-tmux`. Runtime selection is config-driven, but each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform.
+
+Herdr layout is config-driven:
+
+- `workspace-per-agent`: each agent gets a dedicated Herdr workspace.
+- `tab-per-agent`: agents share a Herdr workspace, with one tab per agent.
+- `pane-grid`: agents share a Herdr workspace, filling tabs up to `panesPerTab`. The default generated config uses two panes per tab, splits the existing agent pane to the right, and balances the tab.
 
 Example `.agentroom/config.yaml`:
 
@@ -125,6 +140,12 @@ runtimes:
     type: herdr
     session: my-project
     cli: herdr
+    layout:
+      mode: pane-grid
+      workspace: my-project
+      panesPerTab: 2
+      split: largest
+      balance: true
   tmux:
     type: tmux
     sessionPrefix: agentroom

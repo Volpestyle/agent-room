@@ -43,7 +43,8 @@ function providerForConfig(id: string, runtime: RuntimeConfig): RuntimeProvider 
       return new HerdrRuntimeProvider({
         id,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
-        ...(session !== undefined ? { session } : {})
+        ...(session !== undefined ? { session } : {}),
+        ...(runtime.layout !== undefined ? { layout: runtime.layout } : {})
       });
     }
     case 'tmux':

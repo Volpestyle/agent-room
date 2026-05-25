@@ -123,6 +123,172 @@ describe("HerdrRuntimeProvider", () => {
     ]);
   });
 
+  it("starts an agent in a dedicated tab inside a shared Herdr workspace", async () => {
+    const calls: string[][] = [];
+    const runtime = new HerdrRuntimeProvider({
+      layout: { mode: "tab-per-agent", workspace: "room" },
+      runner: async (args) => {
+        calls.push(args);
+        if (matches(args, ["workspace", "list"])) {
+          return envelope({
+            type: "workspace_list",
+            workspaces: [{ workspace_id: "w1", label: "room" }],
+          });
+        }
+        if (
+          matches(args, [
+            "tab",
+            "create",
+            "--workspace",
+            "w1",
+            "--cwd",
+            "/tmp/project",
+            "--label",
+            "reviewer",
+            "--no-focus",
+          ])
+        ) {
+          return envelope({
+            type: "tab_info",
+            tab: { tab_id: "w1:2", workspace_id: "w1", label: "reviewer" },
+            root_pane: {
+              pane_id: "w1-2",
+              workspace_id: "w1",
+              tab_id: "w1:2",
+            },
+          });
+        }
+        if (args[0] === "pane" && args[1] === "run") return "";
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    });
+
+    const agent = await runtime.startAgent({
+      agentId: "reviewer",
+      roomId: "room",
+      role: "reviewer",
+      harness: { kind: "shell", command: "bash" },
+      cwd: "/tmp/project",
+    });
+
+    expect(agent).toEqual(
+      expect.objectContaining({
+        id: "reviewer",
+        bindingId: "w1-2",
+        sessionId: "w1",
+        metadata: expect.objectContaining({
+          workspaceId: "w1",
+          tabId: "w1:2",
+          layoutMode: "tab-per-agent",
+        }),
+      }),
+    );
+    expect(calls).toContainEqual(["pane", "run", "w1-2", expect.any(String)]);
+  });
+
+  it("places pane-grid agents two per tab by reusing the first pane then splitting and balancing", async () => {
+    const calls: string[][] = [];
+    const runtime = new HerdrRuntimeProvider({
+      layout: { mode: "pane-grid", workspace: "room", panesPerTab: 2 },
+      runner: async (args) => {
+        calls.push(args);
+        const runCount = calls.filter(
+          (call) => call[0] === "pane" && call[1] === "run",
+        ).length;
+        if (matches(args, ["workspace", "list"])) {
+          return envelope({
+            type: "workspace_list",
+            workspaces: [{ workspace_id: "w1", label: "room" }],
+          });
+        }
+        if (matches(args, ["tab", "list", "--workspace", "w1"])) {
+          return envelope({
+            type: "tab_list",
+            tabs: [
+              {
+                tab_id: "w1:1",
+                workspace_id: "w1",
+                label: runCount === 0 ? "1" : "impl",
+                pane_count: 1,
+              },
+            ],
+          });
+        }
+        if (matches(args, ["pane", "list", "--workspace", "w1"])) {
+          return envelope({
+            type: "pane_list",
+            panes: [
+              {
+                pane_id: "w1-1",
+                workspace_id: "w1",
+                tab_id: "w1:1",
+                focused: true,
+                ...(runCount > 0 ? { agent: "bash" } : {}),
+              },
+            ],
+          });
+        }
+        if (matches(args, ["tab", "rename", "w1:1", "impl"])) return "";
+        if (matches(args, ["tab", "rename", "w1:1", "impl/reviewer"])) return "";
+        if (
+          matches(args, [
+            "pane",
+            "split",
+            "w1-1",
+            "--direction",
+            "right",
+            "--cwd",
+            "/tmp/project",
+            "--no-focus",
+          ])
+        ) {
+          return envelope({
+            type: "pane_info",
+            pane: {
+              pane_id: "w1-2",
+              workspace_id: "w1",
+              tab_id: "w1:1",
+            },
+          });
+        }
+        if (matches(args, ["tab", "balance", "w1:1"])) return "";
+        if (args[0] === "pane" && args[1] === "run") return "";
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    });
+
+    const first = await runtime.startAgent({
+      agentId: "impl",
+      roomId: "room",
+      role: "implementer",
+      harness: { kind: "shell", command: "bash" },
+      cwd: "/tmp/project",
+    });
+    const second = await runtime.startAgent({
+      agentId: "reviewer",
+      roomId: "room",
+      role: "reviewer",
+      harness: { kind: "shell", command: "bash" },
+      cwd: "/tmp/project",
+    });
+
+    expect(first.bindingId).toBe("w1-1");
+    expect(second.bindingId).toBe("w1-2");
+    expect(calls).toContainEqual(["tab", "rename", "w1:1", "impl"]);
+    expect(calls).toContainEqual(["tab", "rename", "w1:1", "impl/reviewer"]);
+    expect(calls).toContainEqual([
+      "pane",
+      "split",
+      "w1-1",
+      "--direction",
+      "right",
+      "--cwd",
+      "/tmp/project",
+      "--no-focus",
+    ]);
+    expect(calls).toContainEqual(["tab", "balance", "w1:1"]);
+  });
+
   it("resolves AgentRoom ids to Herdr pane ids for read and send", async () => {
     const calls: string[][] = [];
     const runtime = new HerdrRuntimeProvider({

@@ -26,8 +26,19 @@ export interface AgentRoomConfig {
 
 export type RuntimeConfig =
   | { type: 'fake' }
-  | { type: 'herdr'; session?: string; cli?: string }
+  | { type: 'herdr'; session?: string; cli?: string; layout?: HerdrLayoutConfig }
   | { type: 'tmux'; sessionPrefix?: string; cli?: string };
+
+export type HerdrLayoutMode = 'workspace-per-agent' | 'tab-per-agent' | 'pane-grid';
+export type HerdrSplitStrategy = 'largest' | 'focused';
+
+export interface HerdrLayoutConfig {
+  mode?: HerdrLayoutMode;
+  workspace?: string;
+  panesPerTab?: number;
+  split?: HerdrSplitStrategy;
+  balance?: boolean;
+}
 
 export interface CreateDefaultConfigOptions {
   roomId: string;
@@ -58,7 +69,18 @@ export function createDefaultAgentRoomConfig(options: CreateDefaultConfigOptions
     },
     runtimes: {
       fake: { type: 'fake' },
-      herdr: { type: 'herdr', session, cli: 'herdr' },
+      herdr: {
+        type: 'herdr',
+        session,
+        cli: 'herdr',
+        layout: {
+          mode: 'pane-grid',
+          workspace: options.roomId,
+          panesPerTab: 2,
+          split: 'largest',
+          balance: true
+        }
+      },
       tmux: { type: 'tmux', sessionPrefix: session, cli: 'tmux' }
     },
     storage: {
@@ -133,7 +155,17 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
       return { type: 'fake' };
     case 'herdr':
     case 'local-herdr':
-      return { type: 'herdr', ...(process.env.HERDR_SESSION !== undefined ? { session: process.env.HERDR_SESSION } : {}), cli: 'herdr' };
+      return {
+        type: 'herdr',
+        ...(process.env.HERDR_SESSION !== undefined ? { session: process.env.HERDR_SESSION } : {}),
+        cli: 'herdr',
+        layout: {
+          mode: 'pane-grid',
+          panesPerTab: 2,
+          split: 'largest',
+          balance: true
+        }
+      };
     case 'tmux':
     case 'local-tmux':
       return { type: 'tmux', sessionPrefix: 'agentroom', cli: 'tmux' };
@@ -194,6 +226,14 @@ function formatRuntime(name: string, runtime: RuntimeConfig): string[] {
   if (runtime.type === 'herdr') {
     if (runtime.session !== undefined) lines.push(`    session: ${yamlScalar(runtime.session)}`);
     if (runtime.cli !== undefined) lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
+    if (runtime.layout !== undefined) {
+      lines.push('    layout:');
+      if (runtime.layout.mode !== undefined) lines.push(`      mode: ${yamlScalar(runtime.layout.mode)}`);
+      if (runtime.layout.workspace !== undefined) lines.push(`      workspace: ${yamlScalar(runtime.layout.workspace)}`);
+      if (runtime.layout.panesPerTab !== undefined) lines.push(`      panesPerTab: ${yamlScalar(runtime.layout.panesPerTab)}`);
+      if (runtime.layout.split !== undefined) lines.push(`      split: ${yamlScalar(runtime.layout.split)}`);
+      if (runtime.layout.balance !== undefined) lines.push(`      balance: ${yamlScalar(runtime.layout.balance)}`);
+    }
   }
   if (runtime.type === 'tmux') {
     if (runtime.sessionPrefix !== undefined) lines.push(`    sessionPrefix: ${yamlScalar(runtime.sessionPrefix)}`);
@@ -215,10 +255,12 @@ function parseRuntimeConfigs(input: Record<string, unknown>): Record<string, Run
         {
           const session = stringAt(runtime, 'session');
           const cli = stringAt(runtime, 'cli');
+          const layout = parseHerdrLayoutConfig(objectAt(runtime, 'layout'));
           runtimes[name] = {
             type,
             ...(session !== undefined ? { session } : {}),
-            ...(cli !== undefined ? { cli } : {})
+            ...(cli !== undefined ? { cli } : {}),
+            ...(layout !== undefined ? { layout } : {})
           };
         }
         break;
@@ -238,6 +280,36 @@ function parseRuntimeConfigs(input: Record<string, unknown>): Record<string, Run
     }
   }
   return runtimes;
+}
+
+function parseHerdrLayoutConfig(input: Record<string, unknown>): HerdrLayoutConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+
+  const mode = stringAt(input, 'mode');
+  const workspace = stringAt(input, 'workspace');
+  const panesPerTab = numberAt(input, 'panesPerTab');
+  const split = stringAt(input, 'split');
+  const balance = booleanAt(input, 'balance');
+
+  if (
+    mode !== undefined &&
+    mode !== 'workspace-per-agent' &&
+    mode !== 'tab-per-agent' &&
+    mode !== 'pane-grid'
+  ) {
+    throw new Error(`Unsupported Herdr layout mode '${mode}'`);
+  }
+  if (split !== undefined && split !== 'largest' && split !== 'focused') {
+    throw new Error(`Unsupported Herdr split strategy '${split}'`);
+  }
+
+  return {
+    ...(mode !== undefined ? { mode } : {}),
+    ...(workspace !== undefined ? { workspace } : {}),
+    ...(panesPerTab !== undefined ? { panesPerTab } : {}),
+    ...(split !== undefined ? { split } : {}),
+    ...(balance !== undefined ? { balance } : {})
+  };
 }
 
 function parseSimpleYaml(text: string): Record<string, unknown> {
@@ -271,14 +343,18 @@ function parseSimpleYaml(text: string): Record<string, unknown> {
   return root;
 }
 
-function parseScalar(value: string): string {
+function parseScalar(value: string): string | number | boolean {
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1);
   }
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
   return value;
 }
 
-function yamlScalar(value: string): string {
+function yamlScalar(value: string | number | boolean): string {
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (/^[A-Za-z0-9_.:/@-]+$/.test(value)) return value;
   return JSON.stringify(value);
 }
@@ -294,6 +370,14 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringAt(value: Record<string, unknown>, key: string): string | undefined {
   return typeof value[key] === 'string' ? value[key] : undefined;
+}
+
+function numberAt(value: Record<string, unknown>, key: string): number | undefined {
+  return typeof value[key] === 'number' ? value[key] : undefined;
+}
+
+function booleanAt(value: Record<string, unknown>, key: string): boolean | undefined {
+  return typeof value[key] === 'boolean' ? value[key] : undefined;
 }
 
 function required(value: string | undefined, name: string): string {

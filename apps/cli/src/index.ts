@@ -18,6 +18,7 @@ import {
   withDefaultRuntime,
   writeAgentRoomConfig,
   type AgentRoomConfig,
+  type HerdrLayoutConfig,
   type RuntimeConfig
 } from '@agentroom/config';
 import { JsonlEventStore } from '@agentroom/storage-jsonl';
@@ -452,15 +453,27 @@ program
   .description('Launch an opted-in agent through a runtime provider')
   .argument('<agentId>', 'agent id')
   .option('--runtime <runtime>', 'runtime provider; defaults to .agentroom/config.yaml')
+  .option('--placement <placement>', 'Herdr placement: workspace|tab|pane')
+  .option('--workspace <label>', 'Herdr workspace label for tab/pane placement')
+  .option('--panes-per-tab <number>', 'max panes per Herdr tab for pane placement', parseInteger)
+  .option('--split <strategy>', 'Herdr pane split strategy: largest|focused')
   .option('--role <role>', 'agent role', 'implementer')
   .option('--harness <kind>', 'harness kind', 'claude-code')
   .option('--command <command>', 'command to run', 'claude')
   .option('--cwd <cwd>', 'working directory', process.cwd())
   .option('--json', 'print JSON')
-  .action(async (agentId: string, options: { runtime?: string; role: string; harness: string; command: string; cwd: string; json?: boolean }) => {
+  .action(async (agentId: string, options: { runtime?: string; placement?: string; workspace?: string; panesPerTab?: number; split?: string; role: string; harness: string; command: string; cwd: string; json?: boolean }) => {
     const { store, config } = await storeForCwd();
     const service = new AgentRoomService(store, { roomId: config.roomId });
-    const { provider } = await runtimeProviderForCwd(options.runtime);
+    const { provider } = await runtimeProviderForCwd(
+      options.runtime,
+      herdrLayoutOverride({
+        ...(options.placement !== undefined ? { placement: options.placement } : {}),
+        ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
+        ...(options.panesPerTab !== undefined ? { panesPerTab: options.panesPerTab } : {}),
+        ...(options.split !== undefined ? { split: options.split } : {})
+      })
+    );
     const harness: HarnessSpec = {
       kind: options.harness as never,
       command: options.command,
@@ -480,7 +493,7 @@ program
     });
     await service.bindRuntime({
       agentId,
-      runtime: bindingFor(provider, agent.bindingId)
+      runtime: bindingFor(provider, agent.bindingId, agent.metadata)
     });
     output(agent, options.json);
   });
@@ -493,9 +506,15 @@ program
   .option('--lines <number>', 'line count', parseInteger, 80)
   .option('--json', 'print JSON')
   .action(async (agentId: string, options: { runtime?: string; lines: number; json?: boolean }) => {
-    const { provider } = await runtimeProviderForCwd(options.runtime);
-    const result = await provider.readAgent({ agentId, lines: options.lines });
     const service = await maybeServiceForCwd();
+    const binding = await service?.getRuntimeBinding(agentId);
+    const { provider } = await runtimeProviderForCwd(options.runtime ?? binding?.providerId);
+    const bindingId = bindingIdFor(provider, binding);
+    const result = await provider.readAgent({
+      agentId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
+      lines: options.lines
+    });
     await service?.recordRuntimeOutput({
       agentId,
       text: result.text,
@@ -513,15 +532,18 @@ program
   .option('--no-submit', 'do not press Enter after input')
   .option('--json', 'print JSON')
   .action(async (agentId: string, text: string, options: { runtime?: string; submit?: boolean; json?: boolean }) => {
-    const { provider } = await runtimeProviderForCwd(options.runtime);
+    const service = await maybeServiceForCwd();
+    const binding = await service?.getRuntimeBinding(agentId);
+    const { provider } = await runtimeProviderForCwd(options.runtime ?? binding?.providerId);
+    const bindingId = bindingIdFor(provider, binding);
     const source = currentActor();
     await provider.sendInput({
       agentId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
       text,
       source,
       ...(options.submit !== undefined ? { submit: options.submit } : {})
     });
-    const service = await maybeServiceForCwd();
     await service?.recordRuntimeInput({
       agentId,
       text,
@@ -530,27 +552,54 @@ program
     output({ ok: true, agentId, text }, options.json);
   });
 
+program
+  .command('stop')
+  .description('Stop a runtime-backed agent')
+  .argument('<agentId>', 'agent id')
+  .option('--runtime <runtime>', 'runtime provider; defaults to bound runtime or .agentroom/config.yaml')
+  .option('--json', 'print JSON')
+  .action(async (agentId: string, options: { runtime?: string; json?: boolean }) => {
+    const service = await maybeServiceForCwd();
+    const binding = await service?.getRuntimeBinding(agentId);
+    const { provider } = await runtimeProviderForCwd(options.runtime ?? binding?.providerId);
+    const target =
+      provider.kind === 'herdr' && binding?.providerId === provider.id
+        ? binding.bindingId
+        : agentId;
+    await provider.stopAgent(target);
+    output({ ok: true, agentId, runtime: provider.id }, options.json);
+  });
+
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
 
-async function runtimeProviderForCwd(runtimeName?: string): Promise<{ name: string; provider: RuntimeProvider; config?: AgentRoomConfig }> {
+async function runtimeProviderForCwd(
+  runtimeName?: string,
+  herdrLayout?: HerdrLayoutConfig
+): Promise<{ name: string; provider: RuntimeProvider; config?: AgentRoomConfig }> {
   const config = await maybeLoadAgentRoomConfig();
   const name = config ? runtimeNameFor(config, runtimeName) : runtimeName ?? 'herdr';
   const runtime = config ? ensureRuntimeConfig(config, name) : builtInRuntimeConfig(name);
   return {
     name,
-    provider: makeRuntimeProvider(name, runtime),
+    provider: makeRuntimeProvider(name, runtime, herdrLayout),
     ...(config !== undefined ? { config } : {})
   };
 }
 
-function makeRuntimeProvider(name: string, runtime: RuntimeConfig): RuntimeProvider {
+function makeRuntimeProvider(
+  name: string,
+  runtime: RuntimeConfig,
+  herdrLayout?: HerdrLayoutConfig
+): RuntimeProvider {
   switch (runtime.type) {
     case 'fake':
+      if (herdrLayout !== undefined) throw new Error('Herdr layout options require a Herdr runtime');
       return new FakeRuntimeProvider({ id: name });
     case 'tmux':
+      if (herdrLayout !== undefined) throw new Error('Herdr layout options require a Herdr runtime');
       return new TmuxRuntimeProvider({
         id: name,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
@@ -558,10 +607,14 @@ function makeRuntimeProvider(name: string, runtime: RuntimeConfig): RuntimeProvi
       });
     case 'herdr': {
       const session = process.env.HERDR_SESSION ?? runtime.session;
+      const layout = herdrLayout
+        ? { ...(runtime.layout ?? {}), ...herdrLayout }
+        : runtime.layout;
       return new HerdrRuntimeProvider({
         id: name,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
-        ...(session !== undefined ? { session } : {})
+        ...(session !== undefined ? { session } : {}),
+        ...(layout !== undefined ? { layout } : {})
       });
     }
   }
@@ -698,6 +751,60 @@ function linearIssueIdForTask(task: { refs?: Ref[] }): string | undefined {
   return task.refs?.find((ref) => ref.kind === 'linear-issue')?.id;
 }
 
+function herdrLayoutOverride(input: {
+  placement?: string;
+  workspace?: string;
+  panesPerTab?: number;
+  split?: string;
+}): HerdrLayoutConfig | undefined {
+  const mode = input.placement !== undefined ? parseHerdrPlacement(input.placement) : undefined;
+  const split = input.split !== undefined ? parseHerdrSplit(input.split) : undefined;
+  if (input.panesPerTab !== undefined && input.panesPerTab < 1) {
+    throw new Error('--panes-per-tab must be at least 1');
+  }
+
+  if (
+    mode === undefined &&
+    input.workspace === undefined &&
+    input.panesPerTab === undefined &&
+    split === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(mode !== undefined ? { mode } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+    ...(input.panesPerTab !== undefined ? { panesPerTab: input.panesPerTab } : {}),
+    ...(split !== undefined ? { split } : {})
+  };
+}
+
+function parseHerdrPlacement(value: string): HerdrLayoutConfig['mode'] {
+  switch (value) {
+    case 'workspace':
+    case 'workspace-per-agent':
+      return 'workspace-per-agent';
+    case 'tab':
+    case 'tab-per-agent':
+      return 'tab-per-agent';
+    case 'pane':
+    case 'pane-grid':
+      return 'pane-grid';
+    default:
+      throw new Error(`Invalid Herdr placement '${value}'. Expected workspace, tab, or pane.`);
+  }
+}
+
+function parseHerdrSplit(value: string): NonNullable<HerdrLayoutConfig['split']> {
+  if (value === 'largest' || value === 'focused') return value;
+  throw new Error(`Invalid Herdr split strategy '${value}'. Expected largest or focused.`);
+}
+
+function bindingIdFor(provider: RuntimeProvider, binding?: RuntimeBinding): string | undefined {
+  return binding?.providerId === provider.id ? binding.bindingId : undefined;
+}
+
 async function commentOnLinearIssue(
   issueId: string,
   body: string,
@@ -753,11 +860,16 @@ async function updateLinearIssueStatus(
   }
 }
 
-function bindingFor(provider: RuntimeProvider, bindingId: string): RuntimeBinding {
+function bindingFor(
+  provider: RuntimeProvider,
+  bindingId: string,
+  metadata?: Record<string, unknown>
+): RuntimeBinding {
   return {
     providerId: provider.id,
     bindingId,
-    kind: provider.kind === 'tmux' || provider.kind === 'herdr' ? 'pane' : 'process'
+    kind: provider.kind === 'tmux' || provider.kind === 'herdr' ? 'pane' : 'process',
+    ...(metadata !== undefined ? { metadata } : {})
   };
 }
 
