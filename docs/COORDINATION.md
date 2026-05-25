@@ -69,8 +69,10 @@ AgentRoom can keep local task shadows so agents can attach runtime state and roo
 
 ```bash
 agent-room task create "Implement runtime audit" --linear ENG-123
-agent-room task link-linear task_abc ENG-123
+agent-room task link-linear task_implement_runtime_audit_xxx ENG-123
 ```
+
+New local task IDs include a creation-time title slug plus a UUID suffix, for example `task_implement_runtime_audit_<uuid>`, so logs and commands stay readable without losing uniqueness.
 
 When a Linear ref is present, treat Linear as canonical and AgentRoom as the local room/audit layer.
 

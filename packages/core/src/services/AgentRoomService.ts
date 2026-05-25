@@ -84,7 +84,7 @@ export class AgentRoomService {
   }): Promise<Task> {
     const now = nowIso();
     const task: Task = {
-      id: createId('task'),
+      id: createId('task', input.title),
       roomId: this.roomId,
       title: input.title,
       status: input.assignee ? 'assigned' : 'planned',

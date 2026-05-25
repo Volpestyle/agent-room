@@ -56,6 +56,9 @@ describe('AgentRoomService', () => {
     const service = new AgentRoomService(store, { roomId: 'room-test' });
 
     const created = await service.createTask({ title: 'Wire task commands' });
+    expect(created.id).toMatch(
+      /^task_wire_task_commands_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
     const claimed = await service.claimTask({
       taskId: created.id,
       assignee: { kind: 'agent', id: 'impl' }
