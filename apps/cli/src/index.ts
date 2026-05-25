@@ -881,11 +881,11 @@ program
           ...(options.split !== undefined ? { split: options.split } : {}),
         }),
       );
-      const harness: HarnessSpec = {
+      const harness = resolveHarnessSpec({
         kind: parseHarnessKind(options.harness),
         command: options.command,
         cwd: resolve(options.cwd),
-      };
+      });
       await service.registerAgent({
         id: agentId,
         role,
@@ -2021,6 +2021,27 @@ function parseHarnessKind(value: string): HarnessSpec["kind"] {
   const result = harnessKindSchema.safeParse(value);
   if (!result.success) throw new Error(`Invalid harness kind: ${value}`);
   return result.data;
+}
+
+function resolveHarnessSpec(input: {
+  kind: HarnessSpec["kind"];
+  command: string;
+  cwd: string;
+}): HarnessSpec {
+  if (input.kind === "pi" && input.command === "clanky") {
+    return {
+      kind: input.kind,
+      command: join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+      args: [join(REPO_ROOT, "agents", "clanky", "src", "bin.ts")],
+      cwd: input.cwd,
+    };
+  }
+
+  return {
+    kind: input.kind,
+    command: input.command,
+    cwd: input.cwd,
+  };
 }
 
 function parseMessageKind(value: string): MessageKind {

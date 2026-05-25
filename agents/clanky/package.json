@@ -1,0 +1,19 @@
+{
+	"name": "@clanky/agent",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"clanky": "./src/bin.ts"
+	},
+	"exports": {
+		".": {
+			"types": "./src/runClanky.ts",
+			"import": "./src/runClanky.ts"
+		}
+	},
+	"dependencies": {
+		"@clanky/core": "workspace:*",
+		"@earendil-works/pi-coding-agent": "^0.75.3"
+	}
+}

@@ -222,6 +222,54 @@ describe('agent-room runtime command safety', () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it('resolves the clanky pi harness to the workspace-local bin', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-launch-pi-'));
+    const env = testEnv('cli-launch-pi-test');
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ['init', '--room', 'cli-launch-pi-test', '--runtime', 'fake'],
+        env
+      );
+      const launched = JSON.parse(
+        (
+          await execAgentRoom(
+            cwd,
+            [
+              'launch',
+              'clanky',
+              '--harness',
+              'pi',
+              '--command',
+              'clanky',
+              '--runtime',
+              'fake',
+              '--json'
+            ],
+            env
+          )
+        ).stdout
+      ) as {
+        metadata?: {
+          harness?: {
+            command?: string;
+            args?: string[];
+          };
+        };
+      };
+
+      expect(launched.metadata?.harness?.command).toMatch(
+        /node_modules\/\.bin\/tsx$/
+      );
+      expect(launched.metadata?.harness?.args).toEqual([
+        expect.stringMatching(/agents\/clanky\/src\/bin\.ts$/)
+      ]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('agent-room daemon lifecycle', () => {

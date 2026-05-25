@@ -1,4 +1,8 @@
 packages:
   - "apps/*"
+  - "agents/*"
   - "packages/*"
   - "packages/integrations/*"
+allowBuilds:
+  '@google/genai': true
+  protobufjs: true

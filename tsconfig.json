@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/config" },
+    { "path": "packages/clanky-core" },
     { "path": "packages/storage-memory" },
     { "path": "packages/storage-jsonl" },
     { "path": "packages/runtime-fake" },
@@ -14,6 +15,7 @@
     { "path": "packages/integrations/notify-telegram" },
     { "path": "packages/integrations/notify-discord" },
     { "path": "apps/daemon" },
+    { "path": "agents/clanky" },
     { "path": "apps/cli" },
     { "path": "apps/mcp-server" }
   ]
