@@ -18,6 +18,7 @@
   "dependencies": {
     "@agentroom/config": "workspace:*",
     "@agentroom/core": "workspace:*",
+    "@agentroom/chat-discord": "workspace:*",
     "@agentroom/runtime-fake": "workspace:*",
     "@agentroom/runtime-herdr": "workspace:*",
     "@agentroom/runtime-tmux": "workspace:*",

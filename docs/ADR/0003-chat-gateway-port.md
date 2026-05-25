@@ -54,7 +54,7 @@ AgentRoom rooms already have N channels (CLI `--channel`, default `announcements
 - look up the inverse of the route table to find the target Discord conversation,
 - call `provider.sendMessage()` (or webhook send; see below) with per-message identity metadata.
 
-Daemon-level subscription/config wiring is still pending, so automatic mirroring is not enabled by default. Programmatic callers can instantiate the dispatcher with routes and providers today.
+The daemon loads route config and calls the dispatcher for messages posted through its HTTP API. Messages written directly to the event log by separate CLI processes are not yet streamed through the daemon.
 
 ### Multi-agent identity via Discord webhooks
 
@@ -62,9 +62,34 @@ When multiple agents post into a single room mirrored to Discord, they share one
 
 The Discord adapter supports a webhook-mode send path that uses per-message `username` + `avatar_url` overrides. With one webhook per mirrored channel, the outbound dispatcher can attribute `clanky-lead`, `clanky-impl-a`, `clanky-reviewer`, and so on to distinct visible identities without provisioning N bot accounts. Bot permissions must include `Manage Webhooks` on target channels. This is Discord-specific; other adapters can implement equivalent attribution however the platform allows (Telegram bot-as-relay, SMS per-line prefix, etc.).
 
-### Daemon wiring (planned)
+### Daemon wiring
 
-`apps/daemon/src/app.ts` does not currently load any `ChatGatewayProvider` instances. The planned config shape (subject to refinement) will live alongside the existing `runtimes` block in `.agentroom/config.yaml`, declare provider id + kind + credential reference + intents/options, and a routes block mapping conversation ids to `room-channel | agent-dm | agent-stdin` targets. Tokens come from env, not the YAML file.
+`apps/daemon/src/app.ts` loads configured `ChatGatewayProvider` instances from `.agentroom/config.yaml`. Tokens come from env, not the YAML file.
+
+```yaml
+chat:
+  gateways:
+    discord-main:
+      type: discord
+      tokenEnv: AGENTROOM_DISCORD_TOKEN
+      credentialKind: bot-token
+      webhookMode: true
+      webhookName: AgentRoom
+  routes:
+    main-lead:
+      provider: discord-main
+      conversationId: "1234567890"
+      conversationKind: channel
+      target:
+        type: agent-stdin
+        agentId: clanky-lead
+      outbound:
+        type: agent-message
+        agentId: clanky-lead
+        channelId: implementation
+```
+
+Inbound messages matching the route above are sent to `clanky-lead` stdin. Outbound room messages from `clanky-lead` in `implementation` are mirrored back to the Discord conversation with webhook attribution.
 
 ### Standalone embedding contract
 
@@ -83,8 +108,9 @@ Built:
 - `ChatGatewayRouter` (inbound: gateway -> room/agent)
 - `ChatGatewayOutboundDispatcher` (outbound: room messages -> gateway sends)
 - webhook-mode posting in the Discord adapter for per-message identity
+- daemon-level config loading and gateway instantiation
 
 Planned (not yet implemented):
 
-- Daemon-level config loading and gateway instantiation
 - Operator CLI surface for inspecting and modifying routes at runtime
+- daemon event-log subscription for messages posted by separate CLI processes

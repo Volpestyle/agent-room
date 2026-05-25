@@ -87,7 +87,7 @@ Lead vs worker is configuration, not agent code. Pointing the route at `agent-st
 
 ### Outbound dispatcher
 
-`ChatGatewayRouter` covers inbound only. `ChatGatewayOutboundDispatcher` covers the symmetric outbound primitive (room events -> `provider.sendMessage()`). Daemon-level subscription/config wiring is still pending, so automatic mirroring is not enabled by default.
+`ChatGatewayRouter` covers inbound only. `ChatGatewayOutboundDispatcher` covers the symmetric outbound primitive (room events -> `provider.sendMessage()`). The daemon loads chat gateway config and dispatches messages posted through its HTTP API; event-log subscription for messages posted by separate CLI processes is still pending.
 
 ### Multi-agent attribution (Discord-specific)
 
@@ -95,8 +95,8 @@ In a multi-agent room mirrored to Discord, webhook-mode outbound sends use per-m
 
 ### What is built vs planned
 
-Built: port, Discord adapter (bot + user token + webhook-mode posting), inbound router, outbound dispatcher primitive.
-Planned: daemon-level config loading and gateway instantiation, operator CLI for route inspection.
+Built: port, Discord adapter (bot + user token + webhook-mode posting), inbound router, outbound dispatcher primitive, daemon config loading and gateway instantiation.
+Planned: operator CLI for route inspection, daemon event-log subscription for CLI-originated messages.
 
 ## Runtime capability negotiation
 

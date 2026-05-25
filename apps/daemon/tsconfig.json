@@ -13,6 +13,9 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/integrations/chat-discord"
+    },
+    {
       "path": "../../packages/storage-jsonl"
     },
     {
@@ -25,7 +28,5 @@
       "path": "../../packages/runtime-tmux"
     }
   ],
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

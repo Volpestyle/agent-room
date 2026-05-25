@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import {
   AgentRoomService,
+  ChatGatewayOutboundDispatcher,
+  ChatGatewayRouter,
   humanEscalationCreateSchema,
   messageCreateSchema,
   taskClaimSchema,
   taskCreateSchema,
   taskLinkRefSchema,
   taskStatusUpdateSchema,
+  type ChatGatewayProvider,
   type RuntimeProvider,
   type RuntimeBinding,
   type StartAgentRequest,
@@ -18,15 +21,34 @@ import {
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { ProviderRegistry } from "./providerRegistry.js";
+import {
+  ChatGatewayRegistry,
+  type ChatGatewayFactory,
+} from "./chatGatewayRegistry.js";
 
 export interface CreateAppOptions {
   roomId?: string;
   eventLogPath?: string;
   config?: AgentRoomConfig;
   cwd?: string;
+  chatGateways?: ChatGatewayProvider[];
+  startChatGateways?: boolean;
+  chatGatewayRegistry?: ChatGatewayRegistry;
+  chatGatewayFactory?: ChatGatewayFactory;
 }
 
-export function createApp(options: CreateAppOptions = {}) {
+export interface CreateAppResult {
+  app: Hono;
+  chatGateways: ChatGatewayRegistry;
+  chatStartup: Promise<void>;
+  shutdown: () => Promise<void>;
+}
+
+export function createApp(options: CreateAppOptions = {}): Hono {
+  return createAppWithLifecycle(options).app;
+}
+
+export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAppResult {
   const cwd = options.cwd ?? process.cwd();
   const configured = options.config ?? maybeLoadAgentRoomConfigSync(cwd);
   const roomId =
@@ -44,6 +66,32 @@ export function createApp(options: CreateAppOptions = {}) {
   const service = new AgentRoomService(store, { roomId });
   const registry = new ProviderRegistry(configured);
 
+  const chatRegistry =
+    options.chatGatewayRegistry ??
+    new ChatGatewayRegistry({
+      ...(configured !== undefined ? { config: configured } : {}),
+      ...(options.chatGateways !== undefined ? { providers: options.chatGateways } : {}),
+      ...(options.chatGatewayFactory !== undefined
+        ? { gatewayFactory: options.chatGatewayFactory }
+        : {}),
+    });
+
+  const chatRoutes = chatRegistry.routes();
+  const chatRouter = new ChatGatewayRouter({
+    service,
+    routes: chatRoutes,
+    runtimeProviderForBinding: (binding) => registry.runtime(binding.providerId),
+  });
+  const chatDispatcher = new ChatGatewayOutboundDispatcher({
+    service,
+    routes: chatRoutes,
+    providerForRoute: (route) => chatRegistry.gateway(route.providerId),
+  });
+  const chatStartup =
+    options.startChatGateways === false
+      ? Promise.resolve()
+      : chatRegistry.start(chatRouter);
+
   const app = new Hono();
 
   app.get("/health", async (c) => {
@@ -55,8 +103,23 @@ export function createApp(options: CreateAppOptions = {}) {
         health: await provider.health(),
       })),
     );
+    const chatGateways = await Promise.all(
+      chatRegistry.listGateways().map(async (provider) => ({
+        id: provider.id,
+        kind: provider.kind,
+        credentialKind: provider.credentialKind,
+        health: await provider.health(),
+        startupError: chatRegistry.startupError(provider.id),
+      })),
+    );
 
-    return c.json({ ok: true, pid: process.pid, roomId, runtimes });
+    return c.json({
+      ok: true,
+      pid: process.pid,
+      roomId,
+      runtimes,
+      chatGateways,
+    });
   });
 
   app.post("/v1/admin/shutdown", (c) => {
@@ -66,7 +129,9 @@ export function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "forbidden" }, 403);
     }
 
-    setTimeout(() => process.exit(0), 10);
+    setTimeout(() => {
+      void chatRegistry.stop().finally(() => process.exit(0));
+    }, 10);
     return c.json({ ok: true, pid: process.pid });
   });
 
@@ -117,6 +182,16 @@ export function createApp(options: CreateAppOptions = {}) {
       importance: input.importance,
       ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
     });
+    try {
+      await chatStartup;
+      await chatDispatcher.dispatchMessage(message);
+    } catch (error) {
+      console.error(
+        `[chat-gateway] outbound dispatch failed for message ${message.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     return c.json({ message }, 201);
   });
 
@@ -279,7 +354,41 @@ export function createApp(options: CreateAppOptions = {}) {
     return c.json({ ok: true });
   });
 
-  return app;
+  app.get("/v1/chat/gateways", async (c) => {
+    const gateways = await Promise.all(
+      chatRegistry.listGateways().map(async (provider) => ({
+        id: provider.id,
+        kind: provider.kind,
+        credentialKind: provider.credentialKind,
+        health: await provider.health(),
+        startupError: chatRegistry.startupError(provider.id),
+      })),
+    );
+    return c.json({ gateways });
+  });
+
+  app.get("/v1/chat/routes", (c) => {
+    const routes = chatRegistry.routes().map((route) => ({
+      providerId: route.providerId,
+      conversationId: route.conversationId,
+      ...(route.conversationKind !== undefined
+        ? { conversationKind: route.conversationKind }
+        : {}),
+      ...(route.threadId !== undefined ? { threadId: route.threadId } : {}),
+      target: route.target,
+      ...(route.outbound !== undefined ? { outbound: route.outbound } : {}),
+    }));
+    return c.json({ routes });
+  });
+
+  return {
+    app,
+    chatGateways: chatRegistry,
+    chatStartup,
+    shutdown: async () => {
+      await chatRegistry.stop();
+    },
+  };
 }
 
 function bindingFor(

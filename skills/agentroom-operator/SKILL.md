@@ -64,9 +64,9 @@ Workers with the `agentroom` skill use `agent-room wait` to block on events inst
 
 `agent-room read <id> --lines N` returns the last N visible TUI rows from the pane (post-render). It is a snapshot of what a human would see, not an event log. For the canonical event stream use `agent-room events` or grep `.agentroom/events.jsonl`.
 
-## Configuring chat gateways (partial wiring)
+## Configuring chat gateways
 
-Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, and Discord webhook-mode posting exist; the daemon does not yet load gateways from config. Treat daemon config examples as the target operator surface, not what ships today.
+Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, Discord webhook-mode posting, and daemon config loading exist.
 
 ### Topology choice
 
@@ -100,11 +100,36 @@ The lead receives Discord input, then uses `agent-room post`/`agent-room dm`/`ag
 
 ### Multi-agent attribution
 
-When a Discord-mirrored channel is wired through `ChatGatewayOutboundDispatcher`, multiple agents can appear under distinct webhook identities (`username` + `avatar_url`) over a single bot token. The Discord bot must have `Manage Webhooks` on each target channel. Until daemon config/loading lands, this requires programmatic wiring.
+When a Discord-mirrored channel is wired through `ChatGatewayOutboundDispatcher`, multiple agents can appear under distinct webhook identities (`username` + `avatar_url`) over a single bot token. The Discord bot must have `Manage Webhooks` on each target channel.
 
-### Configuration surface (planned)
+### Configuration surface
 
-A future `.agentroom/config.yaml` block will declare gateways and routes alongside the existing `runtimes` block. Tokens come from env, never the file. Until daemon wiring exists, gateways must be instantiated programmatically; there is no operator CLI for adding routes at runtime yet.
+Declare gateways and routes alongside the existing `runtimes` block. Tokens come from env, never the file. There is no operator CLI for adding routes at runtime yet.
+
+```yaml
+chat:
+  gateways:
+    discord-main:
+      type: discord
+      tokenEnv: AGENTROOM_DISCORD_TOKEN
+      credentialKind: bot-token
+      webhookMode: true
+      webhookName: AgentRoom
+  routes:
+    main-lead:
+      provider: discord-main
+      conversationId: "1234567890"
+      conversationKind: channel
+      target:
+        type: agent-stdin
+        agentId: clanky-lead
+      outbound:
+        type: agent-message
+        agentId: clanky-lead
+        channelId: implementation
+```
+
+Messages posted through the daemon HTTP API are mirrored through outbound routes. Messages posted by separate CLI processes are recorded in the event log but are not yet streamed through the daemon dispatcher.
 
 ### Standalone embedding (not an operator task)
 

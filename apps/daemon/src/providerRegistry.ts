@@ -1,8 +1,12 @@
-import type { RuntimeProvider } from '@agentroom/core';
-import { builtInRuntimeConfig, type AgentRoomConfig, type RuntimeConfig } from '@agentroom/config';
-import { FakeRuntimeProvider } from '@agentroom/runtime-fake';
-import { HerdrRuntimeProvider } from '@agentroom/runtime-herdr';
-import { TmuxRuntimeProvider } from '@agentroom/runtime-tmux';
+import type { RuntimeProvider } from "@agentroom/core";
+import {
+  builtInRuntimeConfig,
+  type AgentRoomConfig,
+  type RuntimeConfig,
+} from "@agentroom/config";
+import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
+import { HerdrRuntimeProvider } from "@agentroom/runtime-herdr";
+import { TmuxRuntimeProvider } from "@agentroom/runtime-tmux";
 
 export class ProviderRegistry {
   private readonly runtimes = new Map<string, RuntimeProvider>();
@@ -13,9 +17,15 @@ export class ProviderRegistry {
         this.registerRuntime(providerForConfig(id, runtime));
       }
     } else {
-      this.registerRuntime(providerForConfig('fake-local', builtInRuntimeConfig('fake')));
-      this.registerRuntime(providerForConfig('local-herdr', builtInRuntimeConfig('herdr')));
-      this.registerRuntime(providerForConfig('local-tmux', builtInRuntimeConfig('tmux')));
+      this.registerRuntime(
+        providerForConfig("fake-local", builtInRuntimeConfig("fake")),
+      );
+      this.registerRuntime(
+        providerForConfig("local-herdr", builtInRuntimeConfig("herdr")),
+      );
+      this.registerRuntime(
+        providerForConfig("local-tmux", builtInRuntimeConfig("tmux")),
+      );
     }
   }
 
@@ -34,24 +44,29 @@ export class ProviderRegistry {
   }
 }
 
-function providerForConfig(id: string, runtime: RuntimeConfig): RuntimeProvider {
+function providerForConfig(
+  id: string,
+  runtime: RuntimeConfig,
+): RuntimeProvider {
   switch (runtime.type) {
-    case 'fake':
+    case "fake":
       return new FakeRuntimeProvider({ id });
-    case 'herdr': {
+    case "herdr": {
       const session = process.env.HERDR_SESSION ?? runtime.session;
       return new HerdrRuntimeProvider({
         id,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
         ...(session !== undefined ? { session } : {}),
-        ...(runtime.layout !== undefined ? { layout: runtime.layout } : {})
+        ...(runtime.layout !== undefined ? { layout: runtime.layout } : {}),
       });
     }
-    case 'tmux':
+    case "tmux":
       return new TmuxRuntimeProvider({
         id,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
-        ...(runtime.sessionPrefix !== undefined ? { sessionPrefix: runtime.sessionPrefix } : {})
+        ...(runtime.sessionPrefix !== undefined
+          ? { sessionPrefix: runtime.sessionPrefix }
+          : {}),
       });
   }
 }
