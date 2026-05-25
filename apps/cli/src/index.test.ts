@@ -286,6 +286,55 @@ describe('agent-room daemon lifecycle', () => {
     }
   });
 
+  it('prints concise daemon lifecycle output by default', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-daemon-human-'));
+    const port = await freePort();
+    const env = {
+      ...testEnv('cli-daemon-human-test'),
+      AGENTROOM_ROLE: 'lead'
+    };
+
+    try {
+      const start = await execAgentRoom(
+        cwd,
+        ['daemon', 'start', '--port', String(port)],
+        env
+      );
+      expect(start.stdout).toContain(
+        `AgentRoom daemon running at http://127.0.0.1:${port}`
+      );
+      expect(start.stdout).toContain('Log:');
+      expect(start.stdout).not.toContain('"runtimes"');
+
+      const status = await execAgentRoom(
+        cwd,
+        ['daemon', 'status', '--port', String(port)],
+        env
+      );
+      expect(status.stdout).toContain(
+        `AgentRoom daemon running at http://127.0.0.1:${port}`
+      );
+      expect(status.stdout).not.toContain('"capabilities"');
+
+      const stop = await execAgentRoom(
+        cwd,
+        ['daemon', 'stop', '--port', String(port)],
+        env
+      );
+      expect(stop.stdout).toContain(
+        `AgentRoom daemon stopped at http://127.0.0.1:${port}`
+      );
+      expect(stop.stdout).not.toContain('"health"');
+    } finally {
+      await execAgentRoom(
+        cwd,
+        ['daemon', 'stop', '--port', String(port), '--json'],
+        env
+      ).catch(() => undefined);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('rejects daemon lifecycle mutations from ordinary enrolled agents', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'agentroom-daemon-auth-'));
     const env = {

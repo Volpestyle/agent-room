@@ -82,6 +82,26 @@ interface DaemonHealthCheck {
   reason?: string;
 }
 
+interface DaemonStatusPayload {
+  ok: boolean;
+  state: string;
+  pidFile: string;
+  pid?: number;
+  host: string;
+  port: number;
+  startedAt?: string;
+  logFile?: string;
+  command?: string;
+  health?: DaemonHealthCheck;
+  reason?: string;
+}
+
+interface DaemonRestartPayload {
+  ok: true;
+  stopped: DaemonStatusPayload;
+  started: DaemonStatusPayload;
+}
+
 interface DaemonProcessInfo {
   alive: boolean;
   verified: boolean;
@@ -1096,18 +1116,18 @@ async function handleDaemonCommand(
       await runDaemonForeground(options);
       return;
     case "start":
-      output(await startDaemon(options), options.json);
+      outputDaemonResult(await startDaemon(options), options.json);
       return;
     case "status":
-      output(await daemonStatus(options), options.json);
+      outputDaemonResult(await daemonStatus(options), options.json);
       return;
     case "stop":
-      output(await stopDaemon(options), options.json);
+      outputDaemonResult(await stopDaemon(options), options.json);
       return;
     case "restart": {
       const stopped = await stopDaemon(options);
       const started = await startDaemon(options);
-      output({ ok: true, stopped, started }, options.json);
+      outputDaemonResult({ ok: true, stopped, started }, options.json);
       return;
     }
   }
@@ -1154,7 +1174,7 @@ async function runDaemonForeground(
 
 async function startDaemon(
   options: DaemonCommandOptions,
-): Promise<Record<string, unknown>> {
+): Promise<DaemonStatusPayload> {
   const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
   const logFile = resolve(options.logFile ?? join(roomDir(), "daemon.log"));
   const command = daemonBinPath();
@@ -1248,7 +1268,7 @@ async function startDaemon(
 
 async function daemonStatus(
   options: DaemonCommandOptions,
-): Promise<Record<string, unknown>> {
+): Promise<DaemonStatusPayload> {
   const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
   const record = await readDaemonPidRecord(pidFile);
 
@@ -1304,7 +1324,7 @@ async function daemonStatus(
 
 async function stopDaemon(
   options: DaemonCommandOptions,
-): Promise<Record<string, unknown>> {
+): Promise<DaemonStatusPayload> {
   const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
   const record = await readDaemonPidRecord(pidFile);
 
@@ -1628,7 +1648,7 @@ function daemonStatusPayload(
   health?: DaemonHealthCheck,
   processInfo?: DaemonProcessInfo,
   reason?: string,
-): Record<string, unknown> {
+): DaemonStatusPayload {
   return {
     ok:
       state === "running" ||
@@ -1647,6 +1667,76 @@ function daemonStatusPayload(
     ...(health !== undefined ? { health } : {}),
     ...(reason !== undefined ? { reason } : {}),
   };
+}
+
+function outputDaemonResult(
+  result: DaemonStatusPayload | DaemonRestartPayload,
+  json?: boolean,
+): void {
+  if (json) {
+    output(result, true);
+    return;
+  }
+
+  if ("started" in result) {
+    console.log(formatDaemonRestart(result));
+    return;
+  }
+
+  console.log(formatDaemonStatus(result));
+}
+
+function formatDaemonRestart(result: DaemonRestartPayload): string {
+  const lines = [
+    `AgentRoom daemon restarted at ${daemonBaseUrl(
+      result.started.host,
+      result.started.port,
+    )}${pidSuffix(result.started)}`,
+  ];
+  if (result.stopped.pid !== undefined)
+    lines.push(`Stopped pid ${result.stopped.pid}`);
+  if (result.started.logFile !== undefined)
+    lines.push(`Log: ${result.started.logFile}`);
+  return lines.join("\n");
+}
+
+function formatDaemonStatus(payload: DaemonStatusPayload): string {
+  const url = daemonBaseUrl(payload.host, payload.port);
+  const pid = pidSuffix(payload);
+
+  switch (payload.state) {
+    case "running":
+      return withOptionalLog(
+        `AgentRoom daemon running at ${url}${pid}`,
+        payload,
+      );
+    case "running-unmanaged":
+      return `AgentRoom daemon running at ${url} (unmanaged; no pidfile)`;
+    case "stopped":
+      return `AgentRoom daemon stopped at ${url}${payload.reason ? `: ${payload.reason}` : ""}`;
+    case "degraded":
+      return `AgentRoom daemon degraded at ${url}${pid}: ${daemonHealthDetail(payload)}`;
+    case "pid-conflict":
+      return `AgentRoom daemon pid conflict at ${url}${pid}: ${payload.reason ?? daemonHealthDetail(payload)}`;
+    default:
+      return `AgentRoom daemon ${payload.state} at ${url}${pid}${payload.reason ? `: ${payload.reason}` : ""}`;
+  }
+}
+
+function withOptionalLog(line: string, payload: DaemonStatusPayload): string {
+  if (payload.logFile === undefined) return line;
+  return `${line}\nLog: ${payload.logFile}`;
+}
+
+function pidSuffix(payload: DaemonStatusPayload): string {
+  return payload.pid === undefined ? "" : ` (pid ${payload.pid})`;
+}
+
+function daemonHealthDetail(payload: DaemonStatusPayload): string {
+  if (payload.health?.reason !== undefined) return payload.health.reason;
+  if (payload.health?.status !== undefined)
+    return `HTTP ${payload.health.status}`;
+  return "health check failed";
 }
 
 function isNodeError(error: unknown, code: string): boolean {

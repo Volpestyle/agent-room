@@ -88,6 +88,8 @@ agent-room daemon stop
 agent-room daemon restart
 ```
 
+Daemon lifecycle commands print concise operator messages by default; pass `--json` when scripts or agents need the full health payload.
+
 Try the fake runtime smoke test:
 
 ```bash
