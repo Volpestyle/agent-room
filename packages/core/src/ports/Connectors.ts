@@ -1,4 +1,4 @@
-import type { ActorRef, Id, Importance, Ref, Task } from '../domain.js';
+import type { ActorRef, Id, Importance, Ref, Task } from "../domain.js";
 
 export interface WorkTrackerIssue {
   id: string;
@@ -11,7 +11,7 @@ export interface WorkTrackerIssue {
 
 export interface WorkTrackerProvider {
   id: string;
-  kind: 'linear' | 'github-issues' | 'jira' | 'custom';
+  kind: "linear" | "github-issues" | "jira" | "custom";
   health(): Promise<{ ok: boolean; message?: string }>;
   createIssue(task: Task): Promise<WorkTrackerIssue>;
   updateIssueStatus(issueId: string, status: string): Promise<void>;
@@ -24,12 +24,12 @@ export interface PullRequestRef {
   title: string;
   url: string;
   branch: string;
-  status: 'open' | 'closed' | 'merged';
+  status: "open" | "closed" | "merged";
 }
 
 export interface CodeHostProvider {
   id: string;
-  kind: 'github' | 'gitlab' | 'bitbucket' | 'custom';
+  kind: "github" | "gitlab" | "bitbucket" | "custom";
   health(): Promise<{ ok: boolean; message?: string }>;
   createPullRequest(input: {
     title: string;
@@ -42,14 +42,21 @@ export interface CodeHostProvider {
 
 export interface DesignProvider {
   id: string;
-  kind: 'figma' | 'custom';
+  kind: "figma" | "custom";
   health(): Promise<{ ok: boolean; message?: string }>;
-  resolveRef(ref: Ref): Promise<{ title: string; summary?: string; url?: string; metadata?: Record<string, unknown> }>;
+  resolveRef(
+    ref: Ref,
+  ): Promise<{
+    title: string;
+    summary?: string;
+    url?: string;
+    metadata?: Record<string, unknown>;
+  }>;
 }
 
 export interface NotificationProvider {
   id: string;
-  kind: 'telegram' | 'discord' | 'custom-app' | 'email' | 'webhook' | 'custom';
+  kind: "telegram" | "discord" | "custom-app" | "email" | "webhook" | "custom";
   health(): Promise<{ ok: boolean; message?: string }>;
   notify(input: {
     roomId: Id;
@@ -63,26 +70,35 @@ export interface NotificationProvider {
 }
 
 export type ChatGatewayKind =
-  | 'discord'
-  | 'telegram'
-  | 'sms'
-  | 'email'
-  | 'webhook'
-  | 'custom';
+  | "discord"
+  | "telegram"
+  | "sms"
+  | "email"
+  | "webhook"
+  | "custom";
 
-export type ChatCredentialKind = 'bot-token' | 'user-token' | 'webhook' | 'custom';
+export type ChatCredentialKind =
+  | "bot-token"
+  | "user-token"
+  | "webhook"
+  | "custom";
 
-export type ChatConversationKind = 'dm' | 'channel' | 'group' | 'thread' | 'custom';
+export type ChatConversationKind =
+  | "dm"
+  | "channel"
+  | "group"
+  | "thread"
+  | "custom";
 
 export type ChatMessageKind =
-  | 'text'
-  | 'image'
-  | 'video'
-  | 'audio'
-  | 'voice'
-  | 'document'
-  | 'sticker'
-  | 'custom';
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "voice"
+  | "document"
+  | "sticker"
+  | "custom";
 
 export interface ChatGatewayUser {
   id: string;
@@ -101,13 +117,19 @@ export interface ChatGatewayConversation {
 }
 
 export interface ChatGatewayAttachment {
-  kind: Exclude<ChatMessageKind, 'text'>;
+  kind: Exclude<ChatMessageKind, "text">;
   id?: string;
   url?: string;
   mime?: string;
   filename?: string;
   caption?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface ChatGatewayAttribution {
+  actor?: ActorRef;
+  username?: string;
+  avatarUrl?: string;
 }
 
 export interface ChatInboundMessage {
@@ -131,6 +153,7 @@ export interface ChatSendMessageInput {
   text: string;
   replyToExternalMessageId?: string;
   attachments?: ChatGatewayAttachment[];
+  attribution?: ChatGatewayAttribution;
   metadata?: Record<string, unknown>;
 }
 
@@ -140,7 +163,9 @@ export interface ChatSendMessageResult {
   metadata?: Record<string, unknown>;
 }
 
-export type ChatInboundHandler = (message: ChatInboundMessage) => void | Promise<void>;
+export type ChatInboundHandler = (
+  message: ChatInboundMessage,
+) => void | Promise<void>;
 
 export interface ChatGatewayProvider {
   id: string;

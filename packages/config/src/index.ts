@@ -1,14 +1,21 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import type { RuntimeProviderKind } from '@agentroom/core';
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import type {
+  ChatConversationKind,
+  ChatCredentialKind,
+  RuntimeProviderKind,
+} from "@agentroom/core";
 
-export const AGENTROOM_DIR = '.agentroom';
-export const AGENTROOM_CONFIG_FILE = 'config.yaml';
-export const DEFAULT_EVENT_LOG_PATH = '.agentroom/events.jsonl';
-export const DEFAULT_HERDR_SESSION = 'agentroom';
+export const AGENTROOM_DIR = ".agentroom";
+export const AGENTROOM_CONFIG_FILE = "config.yaml";
+export const DEFAULT_EVENT_LOG_PATH = ".agentroom/events.jsonl";
+export const DEFAULT_HERDR_SESSION = "agentroom";
 
-export type ConfiguredRuntimeKind = Extract<RuntimeProviderKind, 'fake' | 'herdr' | 'tmux'>;
+export type ConfiguredRuntimeKind = Extract<
+  RuntimeProviderKind,
+  "fake" | "herdr" | "tmux"
+>;
 
 export interface AgentRoomConfig {
   room: {
@@ -19,19 +26,28 @@ export interface AgentRoomConfig {
     default: string;
   };
   runtimes: Record<string, RuntimeConfig>;
+  chat?: ChatConfig;
   storage: {
-    driver: 'jsonl';
+    driver: "jsonl";
     path: string;
   };
 }
 
 export type RuntimeConfig =
-  | { type: 'fake' }
-  | { type: 'herdr'; session?: string; cli?: string; layout?: HerdrLayoutConfig }
-  | { type: 'tmux'; sessionPrefix?: string; cli?: string };
+  | { type: "fake" }
+  | {
+      type: "herdr";
+      session?: string;
+      cli?: string;
+      layout?: HerdrLayoutConfig;
+    }
+  | { type: "tmux"; sessionPrefix?: string; cli?: string };
 
-export type HerdrLayoutMode = 'workspace-per-agent' | 'tab-per-agent' | 'pane-grid';
-export type HerdrSplitStrategy = 'largest' | 'focused';
+export type HerdrLayoutMode =
+  | "workspace-per-agent"
+  | "tab-per-agent"
+  | "pane-grid";
+export type HerdrSplitStrategy = "largest" | "focused";
 
 export interface HerdrLayoutConfig {
   mode?: HerdrLayoutMode;
@@ -40,6 +56,41 @@ export interface HerdrLayoutConfig {
   split?: HerdrSplitStrategy;
   balance?: boolean;
 }
+
+export interface ChatConfig {
+  gateways: Record<string, ChatGatewayConfig>;
+  routes: Record<string, ChatGatewayRouteConfig>;
+}
+
+export type ChatGatewayConfig = {
+  type: "discord";
+  tokenEnv: string;
+  credentialKind?: Extract<ChatCredentialKind, "bot-token" | "user-token">;
+  webhookMode?: boolean;
+  webhookName?: string;
+  webhookAvatarUrl?: string;
+  ignoreOwnMessages?: boolean;
+  ignoreBotMessages?: boolean;
+};
+
+export interface ChatGatewayRouteConfig {
+  provider: string;
+  conversationId: string;
+  conversationKind?: ChatConversationKind;
+  threadId?: string;
+  target: ChatRouteTargetConfig;
+  outbound?: ChatOutboundSourceConfig;
+}
+
+export type ChatRouteTargetConfig =
+  | { type: "room-channel"; channelId: string }
+  | { type: "agent-dm"; agentId: string }
+  | { type: "agent-stdin"; agentId: string };
+
+export type ChatOutboundSourceConfig =
+  | { type: "room-channel"; channelId: string }
+  | { type: "agent-dm"; agentId: string }
+  | { type: "agent-message"; agentId: string; channelId?: string };
 
 export interface CreateDefaultConfigOptions {
   roomId: string;
@@ -56,49 +107,55 @@ export function agentRoomConfigPath(cwd = process.cwd()): string {
   return join(agentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
 }
 
-export function createDefaultAgentRoomConfig(options: CreateDefaultConfigOptions): AgentRoomConfig {
-  const defaultRuntime = options.defaultRuntime ?? 'herdr';
+export function createDefaultAgentRoomConfig(
+  options: CreateDefaultConfigOptions,
+): AgentRoomConfig {
+  const defaultRuntime = options.defaultRuntime ?? "herdr";
   const herdrSession = options.runtimeSession ?? DEFAULT_HERDR_SESSION;
   const tmuxSessionPrefix = options.runtimeSession ?? options.roomId;
 
   return {
     room: {
       id: options.roomId,
-      name: options.roomName ?? options.roomId
+      name: options.roomName ?? options.roomId,
     },
     runtime: {
-      default: defaultRuntime
+      default: defaultRuntime,
     },
     runtimes: {
-      fake: { type: 'fake' },
+      fake: { type: "fake" },
       herdr: {
-        type: 'herdr',
+        type: "herdr",
         session: herdrSession,
-        cli: 'herdr',
+        cli: "herdr",
         layout: {
-          mode: 'pane-grid',
+          mode: "pane-grid",
           workspace: options.roomId,
           panesPerTab: 2,
-          split: 'largest',
-          balance: true
-        }
+          split: "largest",
+          balance: true,
+        },
       },
-      tmux: { type: 'tmux', sessionPrefix: tmuxSessionPrefix, cli: 'tmux' }
+      tmux: { type: "tmux", sessionPrefix: tmuxSessionPrefix, cli: "tmux" },
     },
     storage: {
-      driver: 'jsonl',
-      path: DEFAULT_EVENT_LOG_PATH
-    }
+      driver: "jsonl",
+      path: DEFAULT_EVENT_LOG_PATH,
+    },
   };
 }
 
-export async function loadAgentRoomConfig(cwd = process.cwd()): Promise<AgentRoomConfig> {
+export async function loadAgentRoomConfig(
+  cwd = process.cwd(),
+): Promise<AgentRoomConfig> {
   const path = agentRoomConfigPath(cwd);
-  const text = await readFile(path, 'utf8');
+  const text = await readFile(path, "utf8");
   return parseAgentRoomConfig(text);
 }
 
-export async function maybeLoadAgentRoomConfig(cwd = process.cwd()): Promise<AgentRoomConfig | undefined> {
+export async function maybeLoadAgentRoomConfig(
+  cwd = process.cwd(),
+): Promise<AgentRoomConfig | undefined> {
   try {
     return await loadAgentRoomConfig(cwd);
   } catch {
@@ -107,11 +164,13 @@ export async function maybeLoadAgentRoomConfig(cwd = process.cwd()): Promise<Age
 }
 
 export function loadAgentRoomConfigSync(cwd = process.cwd()): AgentRoomConfig {
-  const text = readFileSync(agentRoomConfigPath(cwd), 'utf8');
+  const text = readFileSync(agentRoomConfigPath(cwd), "utf8");
   return parseAgentRoomConfig(text);
 }
 
-export function maybeLoadAgentRoomConfigSync(cwd = process.cwd()): AgentRoomConfig | undefined {
+export function maybeLoadAgentRoomConfigSync(
+  cwd = process.cwd(),
+): AgentRoomConfig | undefined {
   try {
     return loadAgentRoomConfigSync(cwd);
   } catch {
@@ -119,58 +178,81 @@ export function maybeLoadAgentRoomConfigSync(cwd = process.cwd()): AgentRoomConf
   }
 }
 
-export async function writeAgentRoomConfig(cwd: string, config: AgentRoomConfig): Promise<void> {
+export async function writeAgentRoomConfig(
+  cwd: string,
+  config: AgentRoomConfig,
+): Promise<void> {
   await mkdir(agentRoomDir(cwd), { recursive: true });
-  await writeFile(agentRoomConfigPath(cwd), `${formatAgentRoomConfig(config)}\n`, 'utf8');
+  await writeFile(
+    agentRoomConfigPath(cwd),
+    `${formatAgentRoomConfig(config)}\n`,
+    "utf8",
+  );
 }
 
-export function resolveStoragePath(config: AgentRoomConfig, cwd = process.cwd()): string {
+export function resolveStoragePath(
+  config: AgentRoomConfig,
+  cwd = process.cwd(),
+): string {
   return resolve(cwd, config.storage.path);
 }
 
-export function ensureRuntimeConfig(config: AgentRoomConfig, runtimeName: string): RuntimeConfig {
+export function ensureRuntimeConfig(
+  config: AgentRoomConfig,
+  runtimeName: string,
+): RuntimeConfig {
   const runtime = config.runtimes[runtimeName];
-  if (!runtime) throw new Error(`Unknown runtime '${runtimeName}'. Run 'agent-room runtime providers' to list configured runtimes.`);
+  if (!runtime)
+    throw new Error(
+      `Unknown runtime '${runtimeName}'. Run 'agent-room runtime providers' to list configured runtimes.`,
+    );
   return runtime;
 }
 
-export function runtimeNameFor(config: AgentRoomConfig, runtimeName?: string): string {
+export function runtimeNameFor(
+  config: AgentRoomConfig,
+  runtimeName?: string,
+): string {
   return runtimeName ?? config.runtime.default;
 }
 
-export function withDefaultRuntime(config: AgentRoomConfig, runtimeName: string): AgentRoomConfig {
-  const runtime = config.runtimes[runtimeName] ?? builtInRuntimeConfig(runtimeName);
+export function withDefaultRuntime(
+  config: AgentRoomConfig,
+  runtimeName: string,
+): AgentRoomConfig {
+  const runtime =
+    config.runtimes[runtimeName] ?? builtInRuntimeConfig(runtimeName);
   return {
     ...config,
     runtime: { default: runtimeName },
     runtimes: {
       ...config.runtimes,
-      [runtimeName]: runtime
-    }
+      [runtimeName]: runtime,
+    },
   };
 }
 
 export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
   switch (runtimeName) {
-    case 'fake':
-    case 'fake-local':
-      return { type: 'fake' };
-    case 'herdr':
-    case 'local-herdr':
+    case "fake":
+    case "fake-local":
+      return { type: "fake" };
+    case "herdr":
+    case "local-herdr":
       return {
-        type: 'herdr',
+        type: "herdr",
         session: process.env.HERDR_SESSION ?? DEFAULT_HERDR_SESSION,
-        cli: 'herdr',
+        cli: "herdr",
         layout: {
-          mode: 'pane-grid',
+          mode: "pane-grid",
           panesPerTab: 2,
-          split: 'largest',
-          balance: true
-        }
+          split: "largest",
+          balance: true,
+        },
       };
-    case 'tmux':
-    case 'local-tmux':
-      return { type: 'tmux', sessionPrefix: 'agentroom', cli: 'tmux' };
+    case "tmux":
+    case "local-tmux":
+      return { type: "tmux", sessionPrefix: "agentroom", cli: "tmux" };
     default:
       throw new Error(`Unknown runtime '${runtimeName}'`);
   }
@@ -178,130 +260,418 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
 
 export function formatAgentRoomConfig(config: AgentRoomConfig): string {
   return [
-    'room:',
+    "room:",
     `  id: ${yamlScalar(config.room.id)}`,
-    ...(config.room.name !== undefined ? [`  name: ${yamlScalar(config.room.name)}`] : []),
-    '',
-    'runtime:',
+    ...(config.room.name !== undefined
+      ? [`  name: ${yamlScalar(config.room.name)}`]
+      : []),
+    "",
+    "runtime:",
     `  default: ${yamlScalar(config.runtime.default)}`,
-    '',
-    'runtimes:',
-    ...Object.entries(config.runtimes).flatMap(([name, runtime]) => formatRuntime(name, runtime)),
-    '',
-    'storage:',
+    "",
+    "runtimes:",
+    ...Object.entries(config.runtimes).flatMap(([name, runtime]) =>
+      formatRuntime(name, runtime),
+    ),
+    "",
+    ...(config.chat !== undefined ? [...formatChat(config.chat), ""] : []),
+    "storage:",
     `  driver: ${yamlScalar(config.storage.driver)}`,
-    `  path: ${yamlScalar(config.storage.path)}`
-  ].join('\n');
+    `  path: ${yamlScalar(config.storage.path)}`,
+  ].join("\n");
 }
 
 export function parseAgentRoomConfig(text: string): AgentRoomConfig {
   const parsed = parseSimpleYaml(text);
-  const room = objectAt(parsed, 'room');
-  const runtime = objectAt(parsed, 'runtime');
-  const runtimes = objectAt(parsed, 'runtimes');
-  const storage = objectAt(parsed, 'storage');
-  const roomId = stringAt(room, 'id');
-  const defaultRuntime = stringAt(runtime, 'default');
+  const room = objectAt(parsed, "room");
+  const runtime = objectAt(parsed, "runtime");
+  const runtimes = objectAt(parsed, "runtimes");
+  const chat = parseChatConfig(objectAt(parsed, "chat"));
+  const storage = objectAt(parsed, "storage");
+  const roomId = stringAt(room, "id");
+  const defaultRuntime = stringAt(runtime, "default");
   const runtimeConfigs = parseRuntimeConfigs(runtimes);
-  const driver = stringAt(storage, 'driver') || 'jsonl';
-  if (driver !== 'jsonl') throw new Error(`Unsupported storage driver '${driver}'`);
+  const driver = stringAt(storage, "driver") || "jsonl";
+  if (driver !== "jsonl")
+    throw new Error(`Unsupported storage driver '${driver}'`);
 
-  const roomName = stringAt(room, 'name');
+  const roomName = stringAt(room, "name");
   return {
     room: {
-      id: required(roomId, 'room.id'),
-      ...(roomName !== undefined ? { name: roomName } : {})
+      id: required(roomId, "room.id"),
+      ...(roomName !== undefined ? { name: roomName } : {}),
     },
     runtime: {
-      default: required(defaultRuntime, 'runtime.default')
+      default: required(defaultRuntime, "runtime.default"),
     },
     runtimes: runtimeConfigs,
+    ...(chat !== undefined ? { chat } : {}),
     storage: {
       driver,
-      path: stringAt(storage, 'path') || DEFAULT_EVENT_LOG_PATH
-    }
+      path: stringAt(storage, "path") || DEFAULT_EVENT_LOG_PATH,
+    },
   };
+}
+
+function formatChat(chat: ChatConfig): string[] {
+  return [
+    "chat:",
+    "  gateways:",
+    ...Object.entries(chat.gateways).flatMap(([id, gateway]) =>
+      formatChatGateway(id, gateway),
+    ),
+    "  routes:",
+    ...Object.entries(chat.routes).flatMap(([id, route]) =>
+      formatChatRoute(id, route),
+    ),
+  ];
+}
+
+function formatChatGateway(id: string, gateway: ChatGatewayConfig): string[] {
+  return [
+    `    ${id}:`,
+    `      type: ${yamlScalar(gateway.type)}`,
+    `      tokenEnv: ${yamlScalar(gateway.tokenEnv)}`,
+    ...(gateway.credentialKind !== undefined
+      ? [`      credentialKind: ${yamlScalar(gateway.credentialKind)}`]
+      : []),
+    ...(gateway.webhookMode !== undefined
+      ? [`      webhookMode: ${yamlScalar(gateway.webhookMode)}`]
+      : []),
+    ...(gateway.webhookName !== undefined
+      ? [`      webhookName: ${yamlScalar(gateway.webhookName)}`]
+      : []),
+    ...(gateway.webhookAvatarUrl !== undefined
+      ? [`      webhookAvatarUrl: ${yamlScalar(gateway.webhookAvatarUrl)}`]
+      : []),
+    ...(gateway.ignoreOwnMessages !== undefined
+      ? [`      ignoreOwnMessages: ${yamlScalar(gateway.ignoreOwnMessages)}`]
+      : []),
+    ...(gateway.ignoreBotMessages !== undefined
+      ? [`      ignoreBotMessages: ${yamlScalar(gateway.ignoreBotMessages)}`]
+      : []),
+  ];
+}
+
+function formatChatRoute(id: string, route: ChatGatewayRouteConfig): string[] {
+  return [
+    `    ${id}:`,
+    `      provider: ${yamlScalar(route.provider)}`,
+    `      conversationId: ${yamlScalar(route.conversationId)}`,
+    ...(route.conversationKind !== undefined
+      ? [`      conversationKind: ${yamlScalar(route.conversationKind)}`]
+      : []),
+    ...(route.threadId !== undefined
+      ? [`      threadId: ${yamlScalar(route.threadId)}`]
+      : []),
+    "      target:",
+    ...formatChatTarget(route.target, 8),
+    ...(route.outbound !== undefined
+      ? ["      outbound:", ...formatChatOutbound(route.outbound, 8)]
+      : []),
+  ];
+}
+
+function formatChatTarget(
+  target: ChatRouteTargetConfig,
+  indent: number,
+): string[] {
+  const pad = " ".repeat(indent);
+  switch (target.type) {
+    case "room-channel":
+      return [
+        `${pad}type: ${yamlScalar(target.type)}`,
+        `${pad}channelId: ${yamlScalar(target.channelId)}`,
+      ];
+    case "agent-dm":
+    case "agent-stdin":
+      return [
+        `${pad}type: ${yamlScalar(target.type)}`,
+        `${pad}agentId: ${yamlScalar(target.agentId)}`,
+      ];
+  }
+}
+
+function formatChatOutbound(
+  outbound: ChatOutboundSourceConfig,
+  indent: number,
+): string[] {
+  const pad = " ".repeat(indent);
+  switch (outbound.type) {
+    case "room-channel":
+      return [
+        `${pad}type: ${yamlScalar(outbound.type)}`,
+        `${pad}channelId: ${yamlScalar(outbound.channelId)}`,
+      ];
+    case "agent-dm":
+      return [
+        `${pad}type: ${yamlScalar(outbound.type)}`,
+        `${pad}agentId: ${yamlScalar(outbound.agentId)}`,
+      ];
+    case "agent-message":
+      return [
+        `${pad}type: ${yamlScalar(outbound.type)}`,
+        `${pad}agentId: ${yamlScalar(outbound.agentId)}`,
+        ...(outbound.channelId !== undefined
+          ? [`${pad}channelId: ${yamlScalar(outbound.channelId)}`]
+          : []),
+      ];
+  }
 }
 
 function formatRuntime(name: string, runtime: RuntimeConfig): string[] {
   const lines = [`  ${name}:`, `    type: ${yamlScalar(runtime.type)}`];
-  if (runtime.type === 'herdr') {
-    if (runtime.session !== undefined) lines.push(`    session: ${yamlScalar(runtime.session)}`);
-    if (runtime.cli !== undefined) lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
+  if (runtime.type === "herdr") {
+    if (runtime.session !== undefined)
+      lines.push(`    session: ${yamlScalar(runtime.session)}`);
+    if (runtime.cli !== undefined)
+      lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
     if (runtime.layout !== undefined) {
-      lines.push('    layout:');
-      if (runtime.layout.mode !== undefined) lines.push(`      mode: ${yamlScalar(runtime.layout.mode)}`);
-      if (runtime.layout.workspace !== undefined) lines.push(`      workspace: ${yamlScalar(runtime.layout.workspace)}`);
-      if (runtime.layout.panesPerTab !== undefined) lines.push(`      panesPerTab: ${yamlScalar(runtime.layout.panesPerTab)}`);
-      if (runtime.layout.split !== undefined) lines.push(`      split: ${yamlScalar(runtime.layout.split)}`);
-      if (runtime.layout.balance !== undefined) lines.push(`      balance: ${yamlScalar(runtime.layout.balance)}`);
+      lines.push("    layout:");
+      if (runtime.layout.mode !== undefined)
+        lines.push(`      mode: ${yamlScalar(runtime.layout.mode)}`);
+      if (runtime.layout.workspace !== undefined)
+        lines.push(`      workspace: ${yamlScalar(runtime.layout.workspace)}`);
+      if (runtime.layout.panesPerTab !== undefined)
+        lines.push(
+          `      panesPerTab: ${yamlScalar(runtime.layout.panesPerTab)}`,
+        );
+      if (runtime.layout.split !== undefined)
+        lines.push(`      split: ${yamlScalar(runtime.layout.split)}`);
+      if (runtime.layout.balance !== undefined)
+        lines.push(`      balance: ${yamlScalar(runtime.layout.balance)}`);
     }
   }
-  if (runtime.type === 'tmux') {
-    if (runtime.sessionPrefix !== undefined) lines.push(`    sessionPrefix: ${yamlScalar(runtime.sessionPrefix)}`);
-    if (runtime.cli !== undefined) lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
+  if (runtime.type === "tmux") {
+    if (runtime.sessionPrefix !== undefined)
+      lines.push(`    sessionPrefix: ${yamlScalar(runtime.sessionPrefix)}`);
+    if (runtime.cli !== undefined)
+      lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
   }
   return lines;
 }
 
-function parseRuntimeConfigs(input: Record<string, unknown>): Record<string, RuntimeConfig> {
+function parseChatConfig(
+  input: Record<string, unknown>,
+): ChatConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+  return {
+    gateways: parseChatGateways(objectAt(input, "gateways")),
+    routes: parseChatRoutes(objectAt(input, "routes")),
+  };
+}
+
+function parseChatGateways(
+  input: Record<string, unknown>,
+): Record<string, ChatGatewayConfig> {
+  const gateways: Record<string, ChatGatewayConfig> = {};
+  for (const [id, value] of Object.entries(input)) {
+    const gateway = asRecord(value);
+    const type = stringAt(gateway, "type");
+    if (type !== "discord")
+      throw new Error(
+        `Unsupported chat gateway type '${String(type)}' for gateway '${id}'`,
+      );
+
+    const credentialKind = stringAt(gateway, "credentialKind");
+    if (
+      credentialKind !== undefined &&
+      credentialKind !== "bot-token" &&
+      credentialKind !== "user-token"
+    ) {
+      throw new Error(
+        `Unsupported Discord credential kind '${credentialKind}' for gateway '${id}'`,
+      );
+    }
+    const webhookMode = booleanAt(gateway, "webhookMode");
+    const webhookName = stringAt(gateway, "webhookName");
+    const webhookAvatarUrl = stringAt(gateway, "webhookAvatarUrl");
+    const ignoreOwnMessages = booleanAt(gateway, "ignoreOwnMessages");
+    const ignoreBotMessages = booleanAt(gateway, "ignoreBotMessages");
+
+    gateways[id] = {
+      type,
+      tokenEnv: required(
+        stringAt(gateway, "tokenEnv"),
+        `chat.gateways.${id}.tokenEnv`,
+      ),
+      ...(credentialKind !== undefined ? { credentialKind } : {}),
+      ...(webhookMode !== undefined ? { webhookMode } : {}),
+      ...(webhookName !== undefined ? { webhookName } : {}),
+      ...(webhookAvatarUrl !== undefined ? { webhookAvatarUrl } : {}),
+      ...(ignoreOwnMessages !== undefined ? { ignoreOwnMessages } : {}),
+      ...(ignoreBotMessages !== undefined ? { ignoreBotMessages } : {}),
+    };
+  }
+  return gateways;
+}
+
+function parseChatRoutes(
+  input: Record<string, unknown>,
+): Record<string, ChatGatewayRouteConfig> {
+  const routes: Record<string, ChatGatewayRouteConfig> = {};
+  for (const [id, value] of Object.entries(input)) {
+    const route = asRecord(value);
+    const conversationKind = stringAt(route, "conversationKind");
+    if (
+      conversationKind !== undefined &&
+      conversationKind !== "dm" &&
+      conversationKind !== "channel" &&
+      conversationKind !== "group" &&
+      conversationKind !== "thread" &&
+      conversationKind !== "custom"
+    ) {
+      throw new Error(
+        `Unsupported chat conversation kind '${conversationKind}' for route '${id}'`,
+      );
+    }
+    const threadId = stringAt(route, "threadId");
+    const outbound = objectAt(route, "outbound");
+
+    routes[id] = {
+      provider: required(
+        stringAt(route, "provider"),
+        `chat.routes.${id}.provider`,
+      ),
+      conversationId: required(
+        stringAt(route, "conversationId"),
+        `chat.routes.${id}.conversationId`,
+      ),
+      ...(conversationKind !== undefined ? { conversationKind } : {}),
+      ...(threadId !== undefined ? { threadId } : {}),
+      target: parseChatTarget(
+        objectAt(route, "target"),
+        `chat.routes.${id}.target`,
+      ),
+      ...(Object.keys(outbound).length > 0
+        ? {
+            outbound: parseChatOutbound(outbound, `chat.routes.${id}.outbound`),
+          }
+        : {}),
+    };
+  }
+  return routes;
+}
+
+function parseChatTarget(
+  input: Record<string, unknown>,
+  path: string,
+): ChatRouteTargetConfig {
+  const type = stringAt(input, "type");
+  switch (type) {
+    case "room-channel":
+      return {
+        type,
+        channelId: required(stringAt(input, "channelId"), `${path}.channelId`),
+      };
+    case "agent-dm":
+    case "agent-stdin":
+      return {
+        type,
+        agentId: required(stringAt(input, "agentId"), `${path}.agentId`),
+      };
+    default:
+      throw new Error(
+        `Unsupported chat route target '${String(type)}' at '${path}'`,
+      );
+  }
+}
+
+function parseChatOutbound(
+  input: Record<string, unknown>,
+  path: string,
+): ChatOutboundSourceConfig {
+  const type = stringAt(input, "type");
+  switch (type) {
+    case "room-channel":
+      return {
+        type,
+        channelId: required(stringAt(input, "channelId"), `${path}.channelId`),
+      };
+    case "agent-dm":
+      return {
+        type,
+        agentId: required(stringAt(input, "agentId"), `${path}.agentId`),
+      };
+    case "agent-message": {
+      const channelId = stringAt(input, "channelId");
+      return {
+        type,
+        agentId: required(stringAt(input, "agentId"), `${path}.agentId`),
+        ...(channelId !== undefined ? { channelId } : {}),
+      };
+    }
+    default:
+      throw new Error(
+        `Unsupported chat outbound source '${String(type)}' at '${path}'`,
+      );
+  }
+}
+
+function parseRuntimeConfigs(
+  input: Record<string, unknown>,
+): Record<string, RuntimeConfig> {
   const runtimes: Record<string, RuntimeConfig> = {};
   for (const [name, value] of Object.entries(input)) {
     const runtime = asRecord(value);
-    const type = stringAt(runtime, 'type');
+    const type = stringAt(runtime, "type");
     switch (type) {
-      case 'fake':
+      case "fake":
         runtimes[name] = { type };
         break;
-      case 'herdr':
+      case "herdr":
         {
-          const session = stringAt(runtime, 'session');
-          const cli = stringAt(runtime, 'cli');
-          const layout = parseHerdrLayoutConfig(objectAt(runtime, 'layout'));
+          const session = stringAt(runtime, "session");
+          const cli = stringAt(runtime, "cli");
+          const layout = parseHerdrLayoutConfig(objectAt(runtime, "layout"));
           runtimes[name] = {
             type,
             ...(session !== undefined ? { session } : {}),
             ...(cli !== undefined ? { cli } : {}),
-            ...(layout !== undefined ? { layout } : {})
+            ...(layout !== undefined ? { layout } : {}),
           };
         }
         break;
-      case 'tmux':
+      case "tmux":
         {
-          const sessionPrefix = stringAt(runtime, 'sessionPrefix');
-          const cli = stringAt(runtime, 'cli');
+          const sessionPrefix = stringAt(runtime, "sessionPrefix");
+          const cli = stringAt(runtime, "cli");
           runtimes[name] = {
             type,
             ...(sessionPrefix !== undefined ? { sessionPrefix } : {}),
-            ...(cli !== undefined ? { cli } : {})
+            ...(cli !== undefined ? { cli } : {}),
           };
         }
         break;
       default:
-        throw new Error(`Unsupported runtime type '${String(type)}' for runtime '${name}'`);
+        throw new Error(
+          `Unsupported runtime type '${String(type)}' for runtime '${name}'`,
+        );
     }
   }
   return runtimes;
 }
 
-function parseHerdrLayoutConfig(input: Record<string, unknown>): HerdrLayoutConfig | undefined {
+function parseHerdrLayoutConfig(
+  input: Record<string, unknown>,
+): HerdrLayoutConfig | undefined {
   if (Object.keys(input).length === 0) return undefined;
 
-  const mode = stringAt(input, 'mode');
-  const workspace = stringAt(input, 'workspace');
-  const panesPerTab = numberAt(input, 'panesPerTab');
-  const split = stringAt(input, 'split');
-  const balance = booleanAt(input, 'balance');
+  const mode = stringAt(input, "mode");
+  const workspace = stringAt(input, "workspace");
+  const panesPerTab = numberAt(input, "panesPerTab");
+  const split = stringAt(input, "split");
+  const balance = booleanAt(input, "balance");
 
   if (
     mode !== undefined &&
-    mode !== 'workspace-per-agent' &&
-    mode !== 'tab-per-agent' &&
-    mode !== 'pane-grid'
+    mode !== "workspace-per-agent" &&
+    mode !== "tab-per-agent" &&
+    mode !== "pane-grid"
   ) {
     throw new Error(`Unsupported Herdr layout mode '${mode}'`);
   }
-  if (split !== undefined && split !== 'largest' && split !== 'focused') {
+  if (split !== undefined && split !== "largest" && split !== "focused") {
     throw new Error(`Unsupported Herdr split strategy '${split}'`);
   }
 
@@ -310,16 +680,18 @@ function parseHerdrLayoutConfig(input: Record<string, unknown>): HerdrLayoutConf
     ...(workspace !== undefined ? { workspace } : {}),
     ...(panesPerTab !== undefined ? { panesPerTab } : {}),
     ...(split !== undefined ? { split } : {}),
-    ...(balance !== undefined ? { balance } : {})
+    ...(balance !== undefined ? { balance } : {}),
   };
 }
 
 function parseSimpleYaml(text: string): Record<string, unknown> {
   const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; value: Record<string, unknown> }> = [{ indent: -1, value: root }];
+  const stack: Array<{ indent: number; value: Record<string, unknown> }> = [
+    { indent: -1, value: root },
+  ];
 
-  for (const rawLine of text.split('\n')) {
-    const withoutComment = rawLine.replace(/\s+#.*$/, '');
+  for (const rawLine of text.split("\n")) {
+    const withoutComment = rawLine.replace(/\s+#.*$/, "");
     if (!withoutComment.trim()) continue;
 
     const indent = withoutComment.match(/^ */)?.[0].length ?? 0;
@@ -327,13 +699,14 @@ function parseSimpleYaml(text: string): Record<string, unknown> {
     const match = /^([^:]+):(.*)$/.exec(trimmed);
     if (!match) throw new Error(`Invalid config line: ${rawLine}`);
 
-    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent) stack.pop();
+    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent)
+      stack.pop();
 
     const parent = stack[stack.length - 1]!.value;
     const key = match[1]!.trim();
     const rest = match[2]!.trim();
 
-    if (rest === '') {
+    if (rest === "") {
       const child: Record<string, unknown> = {};
       parent[key] = child;
       stack.push({ indent, value: child });
@@ -346,40 +719,57 @@ function parseSimpleYaml(text: string): Record<string, unknown> {
 }
 
 function parseScalar(value: string): string | number | boolean {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
     return value.slice(1, -1);
   }
-  if (value === 'true') return true;
-  if (value === 'false') return false;
+  if (value === "true") return true;
+  if (value === "false") return false;
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
   return value;
 }
 
 function yamlScalar(value: string | number | boolean): string {
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (/^[A-Za-z0-9_.:/@-]+$/.test(value)) return value;
   return JSON.stringify(value);
 }
 
-function objectAt(value: Record<string, unknown>, key: string): Record<string, unknown> {
+function objectAt(
+  value: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
   return asRecord(value[key]);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as Record<string, unknown>;
   return {};
 }
 
-function stringAt(value: Record<string, unknown>, key: string): string | undefined {
-  return typeof value[key] === 'string' ? value[key] : undefined;
+function stringAt(
+  value: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  return typeof value[key] === "string" ? value[key] : undefined;
 }
 
-function numberAt(value: Record<string, unknown>, key: string): number | undefined {
-  return typeof value[key] === 'number' ? value[key] : undefined;
+function numberAt(
+  value: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  return typeof value[key] === "number" ? value[key] : undefined;
 }
 
-function booleanAt(value: Record<string, unknown>, key: string): boolean | undefined {
-  return typeof value[key] === 'boolean' ? value[key] : undefined;
+function booleanAt(
+  value: Record<string, unknown>,
+  key: string,
+): boolean | undefined {
+  return typeof value[key] === "boolean" ? value[key] : undefined;
 }
 
 function required(value: string | undefined, name: string): string {
