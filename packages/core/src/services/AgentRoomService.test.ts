@@ -105,6 +105,62 @@ describe('AgentRoomService', () => {
     ]);
   });
 
+  it('projects task detail updates and deletes from events', async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: 'room-test' });
+
+    const created = await service.createTask({
+      title: 'Draft task',
+      description: 'old description'
+    });
+    const updated = await service.updateTaskDetails({
+      taskId: created.id,
+      title: 'Ship task editing',
+      description: 'Rename and describe tasks',
+      actor: { kind: 'human', id: 'tester' }
+    });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      title: 'Ship task editing',
+      description: 'Rename and describe tasks'
+    });
+    expect(await service.getTask(created.id)).toMatchObject({
+      id: created.id,
+      title: 'Ship task editing',
+      description: 'Rename and describe tasks'
+    });
+
+    await service.deleteTask({
+      taskId: created.id,
+      actor: { kind: 'human', id: 'tester' },
+      reason: 'duplicate'
+    });
+
+    await expect(service.getTask(created.id)).resolves.toBeUndefined();
+    await expect(service.listTasks()).resolves.toEqual([]);
+    expect(store.events.map((event) => event.type)).toEqual([
+      'task.created',
+      'task.updated',
+      'task.deleted'
+    ]);
+    expect(store.events[1]).toMatchObject({
+      payload: {
+        taskId: created.id,
+        title: 'Ship task editing',
+        description: 'Rename and describe tasks',
+        actor: { kind: 'human', id: 'tester' }
+      }
+    });
+    expect(store.events[2]).toMatchObject({
+      payload: {
+        taskId: created.id,
+        actor: { kind: 'human', id: 'tester' },
+        reason: 'duplicate'
+      }
+    });
+  });
+
   it('returns the latest runtime binding for an agent', async () => {
     const store = new TestStore();
     const service = new AgentRoomService(store, { roomId: 'room-test' });

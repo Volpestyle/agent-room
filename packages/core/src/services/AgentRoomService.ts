@@ -189,6 +189,62 @@ export class AgentRoomService {
     return updated;
   }
 
+  async updateTaskDetails(input: {
+    taskId: Id;
+    title?: string;
+    description?: string;
+    actor?: ActorRef;
+  }): Promise<Task> {
+    const task = await this.requireTask(input.taskId);
+    const now = nowIso();
+    const updated: Task = {
+      ...task,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      updatedAt: now,
+    };
+
+    await this.events.append(
+      this.event(
+        "task.updated",
+        {
+          taskId: input.taskId,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.description !== undefined
+            ? { description: input.description }
+            : {}),
+          ...(input.actor !== undefined ? { actor: input.actor } : {}),
+        },
+        now,
+      ),
+    );
+
+    return updated;
+  }
+
+  async deleteTask(input: {
+    taskId: Id;
+    actor?: ActorRef;
+    reason?: string;
+  }): Promise<void> {
+    await this.requireTask(input.taskId);
+    const now = nowIso();
+
+    await this.events.append(
+      this.event(
+        "task.deleted",
+        {
+          taskId: input.taskId,
+          ...(input.actor !== undefined ? { actor: input.actor } : {}),
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        },
+        now,
+      ),
+    );
+  }
+
   async listTasks(): Promise<Task[]> {
     return [...(await this.taskProjection()).values()].sort((a, b) =>
       a.createdAt.localeCompare(b.createdAt),
@@ -521,6 +577,25 @@ export class AgentRoomService {
           }
           break;
         }
+        case "task.updated": {
+          const task = tasks.get(event.payload.taskId);
+          if (task) {
+            tasks.set(event.payload.taskId, {
+              ...task,
+              ...(event.payload.title !== undefined
+                ? { title: event.payload.title }
+                : {}),
+              ...(event.payload.description !== undefined
+                ? { description: event.payload.description }
+                : {}),
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "task.deleted":
+          tasks.delete(event.payload.taskId);
+          break;
         case "task.ref_added": {
           const task = tasks.get(event.payload.taskId);
           if (task) {

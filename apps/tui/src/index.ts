@@ -32,7 +32,8 @@ type MouseAction =
   | { type: "view"; view: ViewName }
   | { type: "provider"; providerId: string }
   | { type: "agent"; agentId: string }
-  | { type: "task"; taskId: string };
+  | { type: "task"; taskId: string }
+  | { type: "message"; messageId: string };
 
 interface HitZone {
   row: number;
@@ -155,6 +156,7 @@ class AgentRoomTuiApp implements Component {
   private selectedProviderId: string | undefined;
   private selectedAgentIndex = 0;
   private selectedTaskIndex = 0;
+  private selectedMessageIndex = Number.MAX_SAFE_INTEGER;
   private isRefreshing = false;
   private mouseEnabled = false;
   private lastError: string | undefined;
@@ -234,6 +236,8 @@ class AgentRoomTuiApp implements Component {
     if (this.isRefreshing) return;
     this.isRefreshing = true;
     this.tui.requestRender();
+    const wasFollowingMessages =
+      this.selectedMessageIndex >= this.snapshot.messages.length - 1;
 
     try {
       const health = await this.client.health();
@@ -271,6 +275,9 @@ class AgentRoomTuiApp implements Component {
         events: events.events,
         ...(output !== undefined ? { output } : {}),
       };
+      if (wasFollowingMessages && messages.messages.length > 0) {
+        this.selectedMessageIndex = messages.messages.length - 1;
+      }
       this.lastError = undefined;
       this.clampSelections();
     } catch (error) {
@@ -360,7 +367,7 @@ class AgentRoomTuiApp implements Component {
           : view === "tasks"
             ? this.renderTasks(width, startRow)
             : view === "messages"
-              ? this.renderMessages(width)
+              ? this.renderMessages(width, startRow)
               : this.renderEvents(width);
 
     return fitLines(lines, width, height);
@@ -485,11 +492,14 @@ class AgentRoomTuiApp implements Component {
           });
           const prefix = index === this.selectedTaskIndex ? "> " : "  ";
           const assignee = task.assignee?.id ?? "unassigned";
-          return `${prefix}${renderTaskStatus(task.status)} ${truncateToWidth(task.title, Math.max(18, width - 44), "")} ${style.dim(`${task.id} ${assignee}`)}`;
+          const refCount = task.refs?.length ?? 0;
+          const meta = `${task.id} ${assignee}${refCount > 0 ? ` ${refCount} refs` : ""}`;
+          return `${prefix}${renderTaskStatus(task.status)} ${truncateToWidth(task.title, Math.max(18, width - 52), "")} ${style.dim(meta)}`;
         })
       : [style.dim("no tasks")];
 
     const selected = this.selectedTask();
+    const selectedRefs = selected?.refs ?? [];
     return [
       section("tasks"),
       ...tasks,
@@ -499,6 +509,14 @@ class AgentRoomTuiApp implements Component {
         ? [
             `${style.bold(selected.title)} ${style.dim(selected.id)}`,
             `status ${selected.status}  assignee ${selected.assignee?.id ?? "none"}`,
+            `created ${formatDateTime(selected.createdAt)}  updated ${formatDateTime(selected.updatedAt)}`,
+            ...(selectedRefs.length > 0
+              ? [
+                  `refs ${selectedRefs
+                    .map((ref) => ref.label ?? `${ref.kind}:${ref.id}`)
+                    .join(", ")}`,
+                ]
+              : []),
             ...(selected.description
               ? wrapTextWithAnsi(selected.description, width)
               : []),
@@ -507,17 +525,42 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderMessages(width: number): string[] {
-    const messages = this.snapshot.messages.slice(-30);
+  private renderMessages(width: number, startRow: number): string[] {
+    const { startIndex, messages } = this.visibleMessages();
+    const selected = this.selectedMessage();
     return [
       section("messages"),
-      ...messages.map((message) => {
+      ...messages.map((message, visibleIndex) => {
+        const index = startIndex + visibleIndex;
+        this.addHitZone({
+          row: startRow + 1 + visibleIndex,
+          startCol: 1,
+          endCol: width,
+          action: { type: "message", messageId: message.id },
+        });
+        const prefix = index === this.selectedMessageIndex ? "> " : "  ";
         const channel = message.channelId ?? "announcements";
-        const sender = message.sender.displayName ?? message.sender.id;
-        const head = `${style.cyan(sender)} ${style.dim(`#${channel}`)} `;
-        return truncateToWidth(`${head}${message.body.replace(/\s+/g, " ")}`, width, "");
+        const sender = actorLabel(message.sender);
+        const head = `${prefix}${style.dim(message.createdAt.slice(11, 19))} ${style.cyan(sender)} ${style.dim(`#${channel}`)} ${renderImportance(message.importance)} `;
+        return truncateToWidth(
+          `${head}${message.body.replace(/\s+/g, " ")}`,
+          width,
+          "",
+        );
       }),
       ...emptyHint(messages, "no messages"),
+      "",
+      section("selected message"),
+      ...(selected
+        ? [
+            `${style.bold(actorLabel(selected.sender))} ${style.dim(selected.id)}`,
+            `channel #${selected.channelId ?? "announcements"}  kind ${selected.kind}  importance ${selected.importance}  ${formatDateTime(selected.createdAt)}`,
+            ...(selected.recipients?.length
+              ? [`to ${selected.recipients.map(actorLabel).join(", ")}`]
+              : []),
+            ...wrapTextWithAnsi(selected.body, width),
+          ]
+        : [style.dim("no selected message")]),
     ];
   }
 
@@ -542,11 +585,12 @@ class AgentRoomTuiApp implements Component {
   private renderFooter(width: number): string[] {
     const selectedAgent = this.selectedAgent()?.id ?? "none";
     const selectedTask = this.selectedTask()?.id ?? "none";
+    const selectedMessage = this.selectedMessage()?.id ?? "none";
     return [
       rule(width),
       truncateToWidth(
         style.dim(
-          `click nav/provider/agent/task  wheel select  ctrl+n/p view  ctrl+r refresh  selected agent ${selectedAgent} task ${selectedTask}`,
+          `click nav/provider/agent/task/message  wheel select  ctrl+n/p view  ctrl+r refresh  selected agent ${selectedAgent} task ${selectedTask} msg ${selectedMessage}`,
         ),
         width,
         "",
@@ -578,7 +622,7 @@ class AgentRoomTuiApp implements Component {
     switch (command) {
       case "help":
         this.notice(
-          "/post [channel] text | /send [agent] text | /task title | /claim task agent | /status task status [summary] | /launch id [role] [harness] [command...]",
+          "/post [#channel] text | /send [agent] text | /task title | /rename [task] title | /desc [task] text | /delete [task] [reason] | /claim [task] agent | /status [task] status [summary]",
         );
         return;
       case "refresh":
@@ -618,24 +662,94 @@ class AgentRoomTuiApp implements Component {
         this.notice(`created task: ${title}`);
         return;
       }
+      case "rename":
+      case "title": {
+        const target = this.resolveTaskCommandTarget(
+          args,
+          "Usage: /rename [taskId] <title>",
+        );
+        const title = target.rest.join(" ").trim();
+        if (!title) throw new Error("Usage: /rename [taskId] <title>");
+        await this.client.updateTaskDetails(target.task.id, {
+          title,
+          actor: humanActor(),
+        });
+        this.notice(`renamed ${target.task.id}`);
+        return;
+      }
+      case "describe":
+      case "desc": {
+        const target = this.resolveTaskCommandTarget(
+          args,
+          "Usage: /desc [taskId] <description|--clear>",
+        );
+        const description = target.rest.join(" ").trim();
+        if (!description) {
+          throw new Error("Usage: /desc [taskId] <description|--clear>");
+        }
+        await this.client.updateTaskDetails(target.task.id, {
+          description: description === "--clear" ? "" : description,
+          actor: humanActor(),
+        });
+        this.notice(`updated description for ${target.task.id}`);
+        return;
+      }
+      case "delete":
+      case "del": {
+        const target = this.resolveTaskCommandTarget(
+          args,
+          "Usage: /delete [taskId] [reason]",
+        );
+        const reason = target.rest.join(" ").trim();
+        await this.client.deleteTask(target.task.id, {
+          actor: humanActor(),
+          ...(reason ? { reason } : {}),
+        });
+        this.notice(`deleted ${target.task.id}`);
+        return;
+      }
+      case "cancel": {
+        const target = this.resolveTaskCommandTarget(
+          args,
+          "Usage: /cancel [taskId] [reason]",
+        );
+        const reason = target.rest.join(" ").trim();
+        await this.client.updateTaskStatus(target.task.id, {
+          status: "canceled",
+          actor: humanActor(),
+          ...(reason ? { reason } : {}),
+        });
+        this.notice(`canceled ${target.task.id}`);
+        return;
+      }
       case "claim": {
-        const [taskId, agentId] = args;
-        if (!taskId || !agentId) throw new Error("Usage: /claim <taskId> <agentId>");
-        await this.client.claimTask(taskId, { kind: "agent", id: agentId });
-        this.notice(`claimed ${taskId} for ${agentId}`);
+        const target = this.resolveTaskCommandTarget(
+          args,
+          "Usage: /claim [taskId] <agentId>",
+        );
+        const [agentId] = target.rest;
+        if (!agentId) throw new Error("Usage: /claim [taskId] <agentId>");
+        await this.client.claimTask(target.task.id, { kind: "agent", id: agentId });
+        this.notice(`claimed ${target.task.id} for ${agentId}`);
         return;
       }
       case "status": {
-        const [taskId, status, ...summaryParts] = args;
-        if (!taskId || !isTaskStatus(status)) {
-          throw new Error(`Usage: /status <taskId> <${TASK_STATUSES.join("|")}>`);
+        const target = this.resolveTaskCommandTarget(
+          args,
+          `Usage: /status [taskId] <${TASK_STATUSES.join("|")}> [summary]`,
+        );
+        const [status, ...summaryParts] = target.rest;
+        if (!isTaskStatus(status)) {
+          throw new Error(
+            `Usage: /status [taskId] <${TASK_STATUSES.join("|")}> [summary]`,
+          );
         }
-        await this.client.updateTaskStatus(taskId, {
+        await this.client.updateTaskStatus(target.task.id, {
           status,
           actor: humanActor(),
           ...(summaryParts.length > 0 ? { summary: summaryParts.join(" ") } : {}),
         });
-        this.notice(`updated ${taskId} to ${status}`);
+        this.notice(`updated ${target.task.id} to ${status}`);
         return;
       }
       case "launch": {
@@ -763,6 +877,17 @@ class AgentRoomTuiApp implements Component {
         }
         return;
       }
+      case "message": {
+        const index = this.snapshot.messages.findIndex(
+          (message) => message.id === action.messageId,
+        );
+        if (index >= 0) {
+          this.selectedMessageIndex = index;
+          this.viewIndex = VIEWS.indexOf("messages");
+          this.tui.requestRender();
+        }
+        return;
+      }
     }
   }
 
@@ -838,6 +963,11 @@ class AgentRoomTuiApp implements Component {
         this.selectedTaskIndex + delta,
         Math.max(1, this.snapshot.tasks.length),
       );
+    } else if (this.currentView() === "messages") {
+      this.selectedMessageIndex = mod(
+        this.selectedMessageIndex + delta,
+        Math.max(1, this.snapshot.messages.length),
+      );
     } else {
       this.selectedAgentIndex = mod(
         this.selectedAgentIndex + delta,
@@ -858,7 +988,7 @@ class AgentRoomTuiApp implements Component {
   }
 
   private selectById(id: string | undefined): void {
-    if (!id) throw new Error("Usage: /select <agentId|taskId>");
+    if (!id) throw new Error("Usage: /select <agentId|taskId|messageId>");
     const agentIndex = this.snapshot.agents.findIndex((agent) => agent.id === id);
     if (agentIndex >= 0) {
       this.selectedAgentIndex = agentIndex;
@@ -871,7 +1001,15 @@ class AgentRoomTuiApp implements Component {
       this.viewIndex = VIEWS.indexOf("tasks");
       return;
     }
-    throw new Error(`No agent or task found for ${id}`);
+    const messageIndex = this.snapshot.messages.findIndex(
+      (message) => message.id === id,
+    );
+    if (messageIndex >= 0) {
+      this.selectedMessageIndex = messageIndex;
+      this.viewIndex = VIEWS.indexOf("messages");
+      return;
+    }
+    throw new Error(`No agent, task, or message found for ${id}`);
   }
 
   private selectedAgent(): RuntimeAgent | undefined {
@@ -882,8 +1020,47 @@ class AgentRoomTuiApp implements Component {
     return this.snapshot.tasks[this.selectedTaskIndex];
   }
 
+  private selectedMessage(): Message | undefined {
+    return this.snapshot.messages[this.selectedMessageIndex];
+  }
+
   private hasAgent(agentId: string): boolean {
     return this.snapshot.agents.some((agent) => agent.id === agentId);
+  }
+
+  private hasTask(taskId: string): boolean {
+    return this.snapshot.tasks.some((task) => task.id === taskId);
+  }
+
+  private resolveTaskCommandTarget(
+    args: string[],
+    usage: string,
+  ): { task: Task; rest: string[] } {
+    const first = args[0];
+    if (first && this.hasTask(first)) {
+      const task = this.snapshot.tasks.find((candidate) => candidate.id === first);
+      if (task) return { task, rest: args.slice(1) };
+    }
+    if (first?.startsWith("task_")) {
+      throw new Error(`Unknown task: ${first}`);
+    }
+    const selected = this.selectedTask();
+    if (!selected) throw new Error(`${usage}; no task selected`);
+    return { task: selected, rest: args };
+  }
+
+  private visibleMessages(): { startIndex: number; messages: Message[] } {
+    const limit = Math.max(6, Math.min(18, this.terminal.rows - 16));
+    const total = this.snapshot.messages.length;
+    if (total <= limit) {
+      return { startIndex: 0, messages: this.snapshot.messages };
+    }
+    const centeredStart = this.selectedMessageIndex - Math.floor(limit / 2);
+    const startIndex = clamp(centeredStart, 0, total - limit);
+    return {
+      startIndex,
+      messages: this.snapshot.messages.slice(startIndex, startIndex + limit),
+    };
   }
 
   private currentView(): ViewName {
@@ -900,6 +1077,11 @@ class AgentRoomTuiApp implements Component {
       this.selectedTaskIndex,
       0,
       Math.max(0, this.snapshot.tasks.length - 1),
+    );
+    this.selectedMessageIndex = clamp(
+      this.selectedMessageIndex,
+      0,
+      Math.max(0, this.snapshot.messages.length - 1),
     );
   }
 
@@ -959,6 +1141,14 @@ function mergeProviderHealth(
   });
 }
 
+function actorLabel(actor: ActorRef): string {
+  return actor.displayName ?? actor.id;
+}
+
+function formatDateTime(value: string): string {
+  return value.replace("T", " ").slice(0, 19);
+}
+
 function renderState(state: string): string {
   if (state === "online" || state === "working") return style.green(state);
   if (state === "blocked" || state === "failed") return style.red(state);
@@ -974,6 +1164,13 @@ function renderTaskStatus(status: TaskStatus): string {
     return style.red(status.padEnd(16));
   }
   return style.amber(status.padEnd(16));
+}
+
+function renderImportance(importance: Message["importance"]): string {
+  if (importance === "urgent") return style.red("urgent");
+  if (importance === "high") return style.amber("high");
+  if (importance === "low") return style.dim("low");
+  return style.dim("normal");
 }
 
 function renderEvent(event: RoomEvent, width: number): string {
@@ -994,6 +1191,17 @@ function eventSummary(event: RoomEvent): string {
   if (event.type === "task.created") {
     const task = payload.task as Task | undefined;
     return task?.title ?? "";
+  }
+  if (event.type === "task.updated") {
+    const title = typeof payload.title === "string" ? ` ${payload.title}` : "";
+    return `${String(payload.taskId ?? "?")} updated${title}`;
+  }
+  if (event.type === "task.deleted") {
+    const reason =
+      typeof payload.reason === "string" && payload.reason.length > 0
+        ? `: ${payload.reason}`
+        : "";
+    return `${String(payload.taskId ?? "?")} deleted${reason}`;
   }
   if (event.type === "task.status_changed") {
     return `${String(payload.taskId ?? "?")} -> ${String(payload.status ?? "?")}`;

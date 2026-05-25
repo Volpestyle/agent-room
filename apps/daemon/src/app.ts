@@ -7,6 +7,8 @@ import {
   messageCreateSchema,
   taskClaimSchema,
   taskCreateSchema,
+  taskDeleteSchema,
+  taskDetailsUpdateSchema,
   taskLinkRefSchema,
   taskStatusUpdateSchema,
   type ChatGatewayProvider,
@@ -216,6 +218,32 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
     const task = await service.getTask(c.req.param("taskId"));
     if (!task) return c.json({ error: "task not found" }, 404);
     return c.json({ task });
+  });
+
+  app.patch("/v1/tasks/:taskId", async (c) => {
+    const input = taskDetailsUpdateSchema.parse(await c.req.json());
+    if (input.title === undefined && input.description === undefined) {
+      return c.json({ error: "title or description is required" }, 400);
+    }
+    const task = await service.updateTaskDetails({
+      taskId: c.req.param("taskId"),
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.actor !== undefined ? { actor: input.actor } : {}),
+    });
+    return c.json({ task });
+  });
+
+  app.delete("/v1/tasks/:taskId", async (c) => {
+    const input = taskDeleteSchema.parse(await c.req.json());
+    await service.deleteTask({
+      taskId: c.req.param("taskId"),
+      ...(input.actor !== undefined ? { actor: input.actor } : {}),
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    });
+    return c.json({ ok: true });
   });
 
   app.post("/v1/tasks/:taskId/refs", async (c) => {

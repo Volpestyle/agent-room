@@ -22,6 +22,8 @@ export type RoomEventType =
   | "thread.created"
   | "reaction.added"
   | "task.created"
+  | "task.updated"
+  | "task.deleted"
   | "task.assigned"
   | "task.ref_added"
   | "task.status_changed"
@@ -60,6 +62,23 @@ export interface BaseEvent<T extends RoomEventType, P> {
 export type RoomEvent =
   | BaseEvent<"message.posted", { message: Message }>
   | BaseEvent<"task.created", { task: Task }>
+  | BaseEvent<
+      "task.updated",
+      {
+        taskId: Id;
+        title?: string;
+        description?: string;
+        actor?: ActorRef;
+      }
+    >
+  | BaseEvent<
+      "task.deleted",
+      {
+        taskId: Id;
+        actor?: ActorRef;
+        reason?: string;
+      }
+    >
   | BaseEvent<"task.assigned", { taskId: Id; assignee: ActorRef }>
   | BaseEvent<"task.ref_added", { taskId: Id; ref: Ref }>
   | BaseEvent<

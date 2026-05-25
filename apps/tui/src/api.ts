@@ -47,6 +47,17 @@ export interface TaskCreateInput {
   createdBy: ActorRef;
 }
 
+export interface TaskDetailsUpdateInput {
+  title?: string;
+  description?: string;
+  actor?: ActorRef;
+}
+
+export interface TaskDeleteInput {
+  actor?: ActorRef;
+  reason?: string;
+}
+
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -107,6 +118,16 @@ export function createApiClient(options: ApiClientOptions = {}) {
     createTask: (input: TaskCreateInput) =>
       request<{ task: Task }>(url("/v1/tasks"), {
         method: "POST",
+        body: JSON.stringify(input),
+      }),
+    updateTaskDetails: (taskId: string, input: TaskDetailsUpdateInput) =>
+      request<{ task: Task }>(url(`/v1/tasks/${encodeURIComponent(taskId)}`), {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    deleteTask: (taskId: string, input: TaskDeleteInput = {}) =>
+      request<{ ok: true }>(url(`/v1/tasks/${encodeURIComponent(taskId)}`), {
+        method: "DELETE",
         body: JSON.stringify(input),
       }),
     claimTask: (taskId: string, assignee: ActorRef) =>
