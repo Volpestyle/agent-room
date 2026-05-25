@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+set -eu
+
+SOURCE=$0
+while [ -h "$SOURCE" ]; do
+  DIR=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)
+  TARGET=$(readlink "$SOURCE")
+  case "$TARGET" in
+    /*) SOURCE=$TARGET ;;
+    *) SOURCE=$DIR/$TARGET ;;
+  esac
+done
+
+ROOT=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")/.." && pwd)
+TSX="$ROOT/node_modules/.bin/tsx"
+
+if [ ! -x "$TSX" ]; then
+  echo "agent-room: missing local dependencies. Run install in $ROOT first." >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  daemon|server|serve)
+    shift
+    exec "$TSX" "$ROOT/apps/daemon/src/index.ts" "$@"
+    ;;
+  "")
+    exec "$TSX" "$ROOT/apps/cli/src/index.ts" --help
+    ;;
+  *)
+    exec "$TSX" "$ROOT/apps/cli/src/index.ts" "$@"
+    ;;
+esac

@@ -59,6 +59,13 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
   async health(): Promise<RuntimeHealth> {
     try {
       const stdout = await this.run(["status"]);
+      if (stdout.includes("status: not running")) {
+        return {
+          ok: false,
+          status: "offline",
+          message: stdout.trim() || "herdr server is not running",
+        };
+      }
       return {
         ok: true,
         status: "ok",

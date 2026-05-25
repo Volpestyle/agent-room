@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { HerdrRuntimeProvider, type HerdrCommandRunner } from "./index.js";
 
 describe("HerdrRuntimeProvider", () => {
+  it("reports named Herdr sessions that are not running as offline", async () => {
+    const runtime = new HerdrRuntimeProvider({
+      runner: runnerFor({
+        "status": "server:\n  status: not running\n",
+      }),
+    });
+
+    await expect(runtime.health()).resolves.toEqual(
+      expect.objectContaining({ ok: false, status: "offline" }),
+    );
+  });
+
   it("lists panes as runtime agents using AgentRoom workspace labels", async () => {
     const runtime = new HerdrRuntimeProvider({
       runner: runnerFor({

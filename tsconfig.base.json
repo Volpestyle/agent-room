@@ -20,6 +20,9 @@
       "@agentroom/core": [
         "packages/core/src/index.ts"
       ],
+      "@agentroom/config": [
+        "packages/config/src/index.ts"
+      ],
       "@agentroom/storage-memory": [
         "packages/storage-memory/src/index.ts"
       ],

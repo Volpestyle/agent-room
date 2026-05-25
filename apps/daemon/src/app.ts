@@ -11,20 +11,25 @@ import {
   type RuntimeBinding,
   type StartAgentRequest
 } from '@agentroom/core';
+import { maybeLoadAgentRoomConfigSync, resolveStoragePath, type AgentRoomConfig } from '@agentroom/config';
 import { JsonlEventStore } from '@agentroom/storage-jsonl';
 import { ProviderRegistry } from './providerRegistry.js';
 
 export interface CreateAppOptions {
   roomId?: string;
   eventLogPath?: string;
+  config?: AgentRoomConfig;
+  cwd?: string;
 }
 
 export function createApp(options: CreateAppOptions = {}) {
-  const roomId = options.roomId ?? process.env.AGENTROOM_ROOM_ID ?? 'default';
-  const eventLogPath = options.eventLogPath ?? process.env.AGENTROOM_EVENT_LOG ?? '.agentroom/events.jsonl';
+  const cwd = options.cwd ?? process.cwd();
+  const configured = options.config ?? maybeLoadAgentRoomConfigSync(cwd);
+  const roomId = options.roomId ?? process.env.AGENTROOM_ROOM_ID ?? configured?.room.id ?? 'default';
+  const eventLogPath = options.eventLogPath ?? process.env.AGENTROOM_EVENT_LOG ?? (configured ? resolveStoragePath(configured, cwd) : '.agentroom/events.jsonl');
   const store = new JsonlEventStore(eventLogPath);
   const service = new AgentRoomService(store, { roomId });
-  const registry = new ProviderRegistry();
+  const registry = new ProviderRegistry(configured);
 
   const app = new Hono();
 

@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@agentroom/core': `${root}packages/core/src/index.ts`,
+      '@agentroom/config': `${root}packages/config/src/index.ts`,
       '@agentroom/storage-memory': `${root}packages/storage-memory/src/index.ts`,
       '@agentroom/storage-jsonl': `${root}packages/storage-jsonl/src/index.ts`,
       '@agentroom/runtime-fake': `${root}packages/runtime-fake/src/index.ts`,

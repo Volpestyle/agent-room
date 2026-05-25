@@ -30,3 +30,5 @@ Good lookup starting points:
 - Pi harness/tooling work: `/Users/jamesvolpe/web/pi/README.md`, `packages/agent`, `packages/coding-agent`
 - Hermes gateway/skills/memory/cron work: `/Users/jamesvolpe/web/hermes-agent/README.md`, `providers`, `environments`, `web`, `ui-tui`
 - Clanky daemon/MCP/HTTP/profile work: `/Users/jamesvolpe/web/clanky-pi/README.md`
+
+Operator-facing AgentRoom commands and `.agentroom/config.yaml` runtime setup are documented in `README.md`; link there instead of duplicating the workflow in this file.

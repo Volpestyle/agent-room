@@ -2,16 +2,20 @@ room:
   id: my-project
   name: My Project
 
-runtimeProviders:
-  default: local-herdr
-  providers:
-    local-herdr:
-      type: herdr
-      session: my-project
-      cli: herdr
-    local-tmux:
-      type: tmux
-      sessionPrefix: agentroom
+runtime:
+  default: herdr
+
+runtimes:
+  herdr:
+    type: herdr
+    session: my-project
+    cli: herdr
+  tmux:
+    type: tmux
+    sessionPrefix: agentroom
+    cli: tmux
+  fake:
+    type: fake
 
 storage:
   driver: jsonl

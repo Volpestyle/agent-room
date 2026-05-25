@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+set -eu
+
+SOURCE=$0
+while [ -h "$SOURCE" ]; do
+  DIR=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)
+  TARGET=$(readlink "$SOURCE")
+  case "$TARGET" in
+    /*) SOURCE=$TARGET ;;
+    *) SOURCE=$DIR/$TARGET ;;
+  esac
+done
+
+ROOT=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")/.." && pwd)
+TSX="$ROOT/node_modules/.bin/tsx"
+
+if [ ! -x "$TSX" ]; then
+  echo "agent-roomd: missing local dependencies. Run install in $ROOT first." >&2
+  exit 1
+fi
+
+exec "$TSX" "$ROOT/apps/daemon/src/index.ts" "$@"

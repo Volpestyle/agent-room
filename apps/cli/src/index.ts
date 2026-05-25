@@ -6,6 +6,20 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Command } from 'commander';
 import { AgentRoomService, type ActorRef, type AgentRole, type HarnessSpec, type Ref, type RuntimeBinding, type RuntimeProvider, type TaskStatus } from '@agentroom/core';
+import {
+  agentRoomConfigPath,
+  builtInRuntimeConfig,
+  createDefaultAgentRoomConfig,
+  ensureRuntimeConfig,
+  loadAgentRoomConfig,
+  maybeLoadAgentRoomConfig,
+  resolveStoragePath,
+  runtimeNameFor,
+  withDefaultRuntime,
+  writeAgentRoomConfig,
+  type AgentRoomConfig,
+  type RuntimeConfig
+} from '@agentroom/config';
 import { JsonlEventStore } from '@agentroom/storage-jsonl';
 import { FakeRuntimeProvider } from '@agentroom/runtime-fake';
 import { HerdrRuntimeProvider } from '@agentroom/runtime-herdr';
@@ -33,14 +47,24 @@ program
   .description('Initialize AgentRoom metadata in the current project')
   .option('--room <id>', 'room id', basename(process.cwd()))
   .option('--name <name>', 'human-readable room name')
-  .action(async (options: { room: string; name?: string }) => {
+  .option('--runtime <runtime>', 'default runtime provider: herdr|tmux|fake', 'herdr')
+  .option('--runtime-session <name>', 'Herdr session name or tmux session prefix; defaults to room id')
+  .action(async (options: { room: string; name?: string; runtime: string; runtimeSession?: string }) => {
     const dir = roomDir();
     await mkdir(join(dir, 'agents'), { recursive: true });
+    const appConfig = createDefaultAgentRoomConfig({
+      roomId: options.room,
+      ...(options.name !== undefined ? { roomName: options.name } : {}),
+      defaultRuntime: parseConfiguredRuntime(options.runtime),
+      ...(options.runtimeSession !== undefined ? { runtimeSession: options.runtimeSession } : {})
+    });
+
     await writeJson(join(dir, 'room.json'), {
       roomId: options.room,
       roomName: options.name ?? options.room,
       createdAt: new Date().toISOString()
     } satisfies RoomConfig);
+    await writeAgentRoomConfig(process.cwd(), appConfig);
 
     await writeFile(
       join(dir, 'policies.yaml'),
@@ -55,6 +79,7 @@ program
     );
 
     console.log(`Initialized AgentRoom room '${options.room}' in ${dir}`);
+    console.log(`Default runtime: ${appConfig.runtime.default}`);
   });
 
 program
@@ -333,9 +358,12 @@ program
   .description('Check local prerequisites')
   .option('--json', 'print JSON')
   .action(async (options: { json?: boolean }) => {
+    const config = await maybeLoadAgentRoomConfig();
     const checks = {
       node: process.version,
       agentroomDir: await exists(roomDir()),
+      config: config ? agentRoomConfigPath() : undefined,
+      defaultRuntime: config?.runtime.default,
       herdr: await commandAvailable('herdr'),
       tmux: await commandAvailable('tmux')
     };
@@ -346,15 +374,58 @@ const runtime = program.command('runtime').description('Runtime provider command
 
 runtime
   .command('providers')
-  .description('List built-in runtime providers')
+  .description('List configured runtime providers')
   .option('--json', 'print JSON')
-  .action((options: { json?: boolean }) => {
+  .action(async (options: { json?: boolean }) => {
+    const config = await maybeLoadAgentRoomConfig();
+    if (config) {
+      output(
+        Object.entries(config.runtimes).map(([id, runtime]) => ({
+          id,
+          kind: runtime.type,
+          default: id === config.runtime.default
+        })),
+        options.json
+      );
+      return;
+    }
+
     output(
       [
-        { id: 'fake-local', kind: 'fake' },
-        { id: 'local-herdr', kind: 'herdr' },
-        { id: 'local-tmux', kind: 'tmux' }
+        { id: 'fake', kind: 'fake', default: false },
+        { id: 'herdr', kind: 'herdr', default: true },
+        { id: 'tmux', kind: 'tmux', default: false }
       ],
+      options.json
+    );
+  });
+
+runtime
+  .command('use')
+  .description('Set the default runtime provider in .agentroom/config.yaml')
+  .argument('<runtime>', 'configured runtime name, or built-in herdr|tmux|fake')
+  .option('--json', 'print JSON')
+  .action(async (runtimeName: string, options: { json?: boolean }) => {
+    const config = await loadAgentRoomConfigForCwd();
+    const updated = withDefaultRuntime(config, runtimeName);
+    await writeAgentRoomConfig(process.cwd(), updated);
+    output({ ok: true, defaultRuntime: updated.runtime.default, config: agentRoomConfigPath() }, options.json);
+  });
+
+runtime
+  .command('doctor')
+  .description('Check the selected runtime provider')
+  .option('--runtime <runtime>', 'runtime provider to check; defaults to configured runtime')
+  .option('--json', 'print JSON')
+  .action(async (options: { runtime?: string; json?: boolean }) => {
+    const selected = await runtimeProviderForCwd(options.runtime);
+    output(
+      {
+        runtime: selected.name,
+        kind: selected.provider.kind,
+        config: selected.config ? agentRoomConfigPath() : undefined,
+        health: await selected.provider.health()
+      },
       options.json
     );
   });
@@ -380,16 +451,16 @@ program
   .command('launch')
   .description('Launch an opted-in agent through a runtime provider')
   .argument('<agentId>', 'agent id')
-  .option('--runtime <runtime>', 'fake|herdr|tmux', 'herdr')
+  .option('--runtime <runtime>', 'runtime provider; defaults to .agentroom/config.yaml')
   .option('--role <role>', 'agent role', 'implementer')
   .option('--harness <kind>', 'harness kind', 'claude-code')
   .option('--command <command>', 'command to run', 'claude')
   .option('--cwd <cwd>', 'working directory', process.cwd())
   .option('--json', 'print JSON')
-  .action(async (agentId: string, options: { runtime: string; role: string; harness: string; command: string; cwd: string; json?: boolean }) => {
+  .action(async (agentId: string, options: { runtime?: string; role: string; harness: string; command: string; cwd: string; json?: boolean }) => {
     const { store, config } = await storeForCwd();
     const service = new AgentRoomService(store, { roomId: config.roomId });
-    const provider = makeRuntimeProvider(options.runtime);
+    const { provider } = await runtimeProviderForCwd(options.runtime);
     const harness: HarnessSpec = {
       kind: options.harness as never,
       command: options.command,
@@ -418,11 +489,11 @@ program
   .command('read')
   .description('Read recent output from a runtime-backed agent')
   .argument('<agentId>', 'agent id')
-  .option('--runtime <runtime>', 'fake|herdr|tmux', 'herdr')
+  .option('--runtime <runtime>', 'runtime provider; defaults to .agentroom/config.yaml')
   .option('--lines <number>', 'line count', parseInteger, 80)
   .option('--json', 'print JSON')
-  .action(async (agentId: string, options: { runtime: string; lines: number; json?: boolean }) => {
-    const provider = makeRuntimeProvider(options.runtime);
+  .action(async (agentId: string, options: { runtime?: string; lines: number; json?: boolean }) => {
+    const { provider } = await runtimeProviderForCwd(options.runtime);
     const result = await provider.readAgent({ agentId, lines: options.lines });
     const service = await maybeServiceForCwd();
     await service?.recordRuntimeOutput({
@@ -438,11 +509,11 @@ program
   .description('Send input to a runtime-backed agent')
   .argument('<agentId>', 'agent id')
   .argument('<text>', 'text to send')
-  .option('--runtime <runtime>', 'fake|herdr|tmux', 'herdr')
+  .option('--runtime <runtime>', 'runtime provider; defaults to .agentroom/config.yaml')
   .option('--no-submit', 'do not press Enter after input')
   .option('--json', 'print JSON')
-  .action(async (agentId: string, text: string, options: { runtime: string; submit?: boolean; json?: boolean }) => {
-    const provider = makeRuntimeProvider(options.runtime);
+  .action(async (agentId: string, text: string, options: { runtime?: string; submit?: boolean; json?: boolean }) => {
+    const { provider } = await runtimeProviderForCwd(options.runtime);
     const source = currentActor();
     await provider.sendInput({
       agentId,
@@ -464,16 +535,35 @@ program.parseAsync(process.argv).catch((error) => {
   process.exitCode = 1;
 });
 
-function makeRuntimeProvider(kind: string): RuntimeProvider {
-  switch (kind) {
+async function runtimeProviderForCwd(runtimeName?: string): Promise<{ name: string; provider: RuntimeProvider; config?: AgentRoomConfig }> {
+  const config = await maybeLoadAgentRoomConfig();
+  const name = config ? runtimeNameFor(config, runtimeName) : runtimeName ?? 'herdr';
+  const runtime = config ? ensureRuntimeConfig(config, name) : builtInRuntimeConfig(name);
+  return {
+    name,
+    provider: makeRuntimeProvider(name, runtime),
+    ...(config !== undefined ? { config } : {})
+  };
+}
+
+function makeRuntimeProvider(name: string, runtime: RuntimeConfig): RuntimeProvider {
+  switch (runtime.type) {
     case 'fake':
-      return new FakeRuntimeProvider();
+      return new FakeRuntimeProvider({ id: name });
     case 'tmux':
-      return new TmuxRuntimeProvider();
-    case 'herdr':
-      return new HerdrRuntimeProvider({ ...(process.env.HERDR_SESSION ? { session: process.env.HERDR_SESSION } : {}) });
-    default:
-      throw new Error(`Unknown runtime provider: ${kind}`);
+      return new TmuxRuntimeProvider({
+        id: name,
+        ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
+        ...(runtime.sessionPrefix !== undefined ? { sessionPrefix: runtime.sessionPrefix } : {})
+      });
+    case 'herdr': {
+      const session = process.env.HERDR_SESSION ?? runtime.session;
+      return new HerdrRuntimeProvider({
+        id: name,
+        ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
+        ...(session !== undefined ? { session } : {})
+      });
+    }
   }
 }
 
@@ -490,20 +580,45 @@ async function maybeServiceForCwd(): Promise<AgentRoomService | undefined> {
   }
 }
 
-async function storeForCwd(): Promise<{ store: JsonlEventStore; config: RoomConfig }> {
-  const config = await loadRoomConfig();
+async function storeForCwd(): Promise<{ store: JsonlEventStore; config: RoomConfig; appConfig?: AgentRoomConfig }> {
+  const project = await loadProjectConfig();
   return {
-    config,
-    store: new JsonlEventStore(join(roomDir(), 'events.jsonl'))
+    config: project.room,
+    store: new JsonlEventStore(project.eventLogPath),
+    ...(project.appConfig !== undefined ? { appConfig: project.appConfig } : {})
   };
 }
 
-async function loadRoomConfig(): Promise<RoomConfig> {
+async function loadProjectConfig(): Promise<{ room: RoomConfig; eventLogPath: string; appConfig?: AgentRoomConfig }> {
+  const appConfig = await maybeLoadAgentRoomConfig();
+  if (appConfig) {
+    return {
+      room: {
+        roomId: appConfig.room.id,
+        roomName: appConfig.room.name ?? appConfig.room.id,
+        createdAt: ''
+      },
+      eventLogPath: resolveStoragePath(appConfig),
+      appConfig
+    };
+  }
+
   const path = join(roomDir(), 'room.json');
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as RoomConfig;
+    return {
+      room: JSON.parse(await readFile(path, 'utf8')) as RoomConfig,
+      eventLogPath: join(roomDir(), 'events.jsonl')
+    };
   } catch (error) {
-    throw new Error(`No AgentRoom found. Run 'agentroom init' first. Missing ${path}`);
+    throw new Error(`No AgentRoom found. Run 'agent-room init' first. Missing ${path}`);
+  }
+}
+
+async function loadAgentRoomConfigForCwd(): Promise<AgentRoomConfig> {
+  try {
+    return await loadAgentRoomConfig();
+  } catch (error) {
+    throw new Error(`No AgentRoom config found. Run 'agent-room init' first. Missing ${agentRoomConfigPath()}`);
   }
 }
 
@@ -648,6 +763,11 @@ function bindingFor(provider: RuntimeProvider, bindingId: string): RuntimeBindin
 
 function basename(path: string): string {
   return path.split('/').filter(Boolean).at(-1) ?? 'default';
+}
+
+function parseConfiguredRuntime(value: string): 'fake' | 'herdr' | 'tmux' {
+  if (value === 'fake' || value === 'herdr' || value === 'tmux') return value;
+  throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
 }
 
 async function exists(path: string): Promise<boolean> {

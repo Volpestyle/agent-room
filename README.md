@@ -55,37 +55,87 @@ pnpm test
 Initialize a project room:
 
 ```bash
-pnpm agentroom init --room my-project
-pnpm agentroom post "hello from the room" --channel announcements
-pnpm agentroom dm api-impl "Can you take auth callback?"
-pnpm agentroom task create "Implement auth callback" --assignee api-impl --linear ENG-123
-pnpm agentroom events --limit 20
+agent-room init --room my-project --runtime herdr
+agent-room post "hello from the room" --channel announcements
+agent-room dm api-impl "Can you take auth callback?"
+agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
+agent-room events --limit 20
 ```
+
+`init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, and the local event log path.
 
 AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, active handoffs, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
 
 Run the local API daemon:
 
 ```bash
-pnpm dev:daemon
+agent-room daemon
 curl http://127.0.0.1:4317/health
 ```
 
 Try the fake runtime smoke test:
 
 ```bash
-pnpm agentroom runtime fake-smoke
+agent-room runtime fake-smoke
 ```
 
-Try a tmux-backed agent, if tmux is installed:
+Pick or inspect the runtime:
 
 ```bash
-pnpm agentroom launch demo --runtime tmux --harness shell --command "bash" --cwd .
-pnpm agentroom read demo --runtime tmux --lines 40
-pnpm agentroom send demo "echo hello from AgentRoom" --runtime tmux
+agent-room runtime providers
+agent-room runtime use tmux
+agent-room runtime doctor
 ```
 
-Herdr support starts behind `@agentroom/runtime-herdr`. The adapter is intentionally isolated so replacing Herdr does not affect the rest of the platform.
+If Herdr is the default runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
+
+```bash
+herdr session attach my-project
+agent-room runtime doctor
+```
+
+Launch an agent using the configured default runtime:
+
+```bash
+agent-room launch demo --harness shell --command "bash" --cwd .
+agent-room send demo "echo hello from AgentRoom"
+agent-room read demo --lines 40
+```
+
+Override the runtime per command when needed:
+
+```bash
+agent-room launch demo-tmux --runtime tmux --harness shell --command "bash" --cwd .
+```
+
+Herdr support lives behind `@agentroom/runtime-herdr`, and tmux support lives behind `@agentroom/runtime-tmux`. Runtime selection is config-driven, but each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform.
+
+Example `.agentroom/config.yaml`:
+
+```yaml
+room:
+  id: my-project
+  name: My Project
+
+runtime:
+  default: herdr
+
+runtimes:
+  herdr:
+    type: herdr
+    session: my-project
+    cli: herdr
+  tmux:
+    type: tmux
+    sessionPrefix: agentroom
+    cli: tmux
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl
+```
 
 ## Design goals
 
