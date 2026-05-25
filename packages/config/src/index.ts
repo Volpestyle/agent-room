@@ -6,6 +6,7 @@ import type { RuntimeProviderKind } from '@agentroom/core';
 export const AGENTROOM_DIR = '.agentroom';
 export const AGENTROOM_CONFIG_FILE = 'config.yaml';
 export const DEFAULT_EVENT_LOG_PATH = '.agentroom/events.jsonl';
+export const DEFAULT_HERDR_SESSION = 'agentroom';
 
 export type ConfiguredRuntimeKind = Extract<RuntimeProviderKind, 'fake' | 'herdr' | 'tmux'>;
 
@@ -57,7 +58,8 @@ export function agentRoomConfigPath(cwd = process.cwd()): string {
 
 export function createDefaultAgentRoomConfig(options: CreateDefaultConfigOptions): AgentRoomConfig {
   const defaultRuntime = options.defaultRuntime ?? 'herdr';
-  const session = options.runtimeSession ?? options.roomId;
+  const herdrSession = options.runtimeSession ?? DEFAULT_HERDR_SESSION;
+  const tmuxSessionPrefix = options.runtimeSession ?? options.roomId;
 
   return {
     room: {
@@ -71,7 +73,7 @@ export function createDefaultAgentRoomConfig(options: CreateDefaultConfigOptions
       fake: { type: 'fake' },
       herdr: {
         type: 'herdr',
-        session,
+        session: herdrSession,
         cli: 'herdr',
         layout: {
           mode: 'pane-grid',
@@ -81,7 +83,7 @@ export function createDefaultAgentRoomConfig(options: CreateDefaultConfigOptions
           balance: true
         }
       },
-      tmux: { type: 'tmux', sessionPrefix: session, cli: 'tmux' }
+      tmux: { type: 'tmux', sessionPrefix: tmuxSessionPrefix, cli: 'tmux' }
     },
     storage: {
       driver: 'jsonl',
@@ -157,7 +159,7 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
     case 'local-herdr':
       return {
         type: 'herdr',
-        ...(process.env.HERDR_SESSION !== undefined ? { session: process.env.HERDR_SESSION } : {}),
+        session: process.env.HERDR_SESSION ?? DEFAULT_HERDR_SESSION,
         cli: 'herdr',
         layout: {
           mode: 'pane-grid',

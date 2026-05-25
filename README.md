@@ -90,7 +90,7 @@ agent-room runtime doctor
 If Herdr is the default runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
 
 ```bash
-herdr session attach my-project
+herdr session attach agentroom
 agent-room runtime doctor
 ```
 
@@ -119,6 +119,8 @@ agent-room launch reviewer --placement pane --workspace my-project --panes-per-t
 
 Herdr support lives behind `@agentroom/runtime-herdr`, and tmux support lives behind `@agentroom/runtime-tmux`. Runtime selection is config-driven, but each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform.
 
+By default, AgentRoom uses one broad Herdr session named `agentroom` and one Herdr workspace per AgentRoom room or workstream. For `agent-room init --room my-project --runtime herdr`, the Herdr session is `agentroom` and the Herdr workspace is `my-project`. Override the Herdr session with `agent-room init --runtime-session <name>` or by editing `.agentroom/config.yaml`.
+
 Herdr layout is config-driven:
 
 - `workspace-per-agent`: each agent gets a dedicated Herdr workspace.
@@ -138,7 +140,7 @@ runtime:
 runtimes:
   herdr:
     type: herdr
-    session: my-project
+    session: agentroom
     cli: herdr
     layout:
       mode: pane-grid
@@ -148,7 +150,7 @@ runtimes:
       balance: true
   tmux:
     type: tmux
-    sessionPrefix: agentroom
+    sessionPrefix: my-project
     cli: tmux
   fake:
     type: fake

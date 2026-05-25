@@ -49,7 +49,7 @@ program
   .option('--room <id>', 'room id', basename(process.cwd()))
   .option('--name <name>', 'human-readable room name')
   .option('--runtime <runtime>', 'default runtime provider: herdr|tmux|fake', 'herdr')
-  .option('--runtime-session <name>', 'Herdr session name or tmux session prefix; defaults to room id')
+  .option('--runtime-session <name>', 'Herdr session name or tmux session prefix; defaults to agentroom for Herdr and room id for tmux')
   .action(async (options: { room: string; name?: string; runtime: string; runtimeSession?: string }) => {
     const dir = roomDir();
     await mkdir(join(dir, 'agents'), { recursive: true });

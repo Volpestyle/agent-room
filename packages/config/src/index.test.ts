@@ -21,6 +21,21 @@ describe('AgentRoom config', () => {
     expect(updated.runtimes.tmux).toEqual(expect.objectContaining({ type: 'tmux' }));
   });
 
+  it('defaults Herdr to the shared agentroom session and room workspace', () => {
+    const config = createDefaultAgentRoomConfig({ roomId: 'my-project' });
+
+    expect(config.runtimes.herdr).toEqual(
+      expect.objectContaining({
+        type: 'herdr',
+        session: 'agentroom',
+        layout: expect.objectContaining({
+          workspace: 'my-project'
+        })
+      })
+    );
+    expect(config.runtimes.tmux).toEqual(expect.objectContaining({ sessionPrefix: 'my-project' }));
+  });
+
   it('parses Herdr layout numbers and booleans from YAML', () => {
     const parsed = parseAgentRoomConfig(`room:
   id: agent-room
