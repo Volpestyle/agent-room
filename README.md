@@ -20,7 +20,8 @@ packages/
   runtime-fake/    fake runtime provider used by tests
   runtime-herdr/   Herdr runtime provider adapter shell
   runtime-tmux/    working minimal tmux runtime provider
-  integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/etc.
+  integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/Discord/etc.
+                   includes chat-discord (ChatGatewayProvider, bot or user token)
 skills/
   agentroom/       enrolled-agent coordination skill
   agentroom-operator/
@@ -190,4 +191,4 @@ storage:
 
 ## Current maturity
 
-This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, complete Herdr provider contract tests against a real Herdr server, and make the Linear MCP/bridge path ergonomic.
+This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, chat gateway routing/dispatch primitives, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, complete Herdr provider contract tests against a real Herdr server, make the Linear MCP/bridge path ergonomic, and finish daemon-level chat gateway config/loading — see `docs/ADR/0003-chat-gateway-port.md`.

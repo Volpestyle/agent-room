@@ -64,6 +64,52 @@ Workers with the `agentroom` skill use `agent-room wait` to block on events inst
 
 `agent-room read <id> --lines N` returns the last N visible TUI rows from the pane (post-render). It is a snapshot of what a human would see, not an event log. For the canonical event stream use `agent-room events` or grep `.agentroom/events.jsonl`.
 
+## Configuring chat gateways (partial wiring)
+
+Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, and Discord webhook-mode posting exist; the daemon does not yet load gateways from config. Treat daemon config examples as the target operator surface, not what ships today.
+
+### Topology choice
+
+Two valid topologies:
+
+1. **Standalone agent.** No daemon involvement; a single agent (e.g. one Clanky) embeds `@agentroom/chat-discord` and owns its own token. Use when you want a personal agent with its own Discord identity and no room around it.
+2. **Enrolled multi-agent room.** Daemon owns the gateway and the token; the Discord identity is the room's connector. Use when several agents must share a public face in a single Discord channel.
+
+### Lead-as-public-face pattern (multi-agent room)
+
+When mirroring Discord into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to Discord and are only reached via AgentRoom DMs/tasks from the lead.
+
+Sample launch:
+
+```bash
+agent-room launch clanky-lead     --harness pi --command "clanky --profile lead     --home ./.clanky-room" --cwd .
+agent-room launch clanky-impl-a   --harness pi --command "clanky --profile impl-a   --home ./.clanky-room" --cwd .
+agent-room launch clanky-reviewer --harness pi --command "clanky --profile reviewer --home ./.clanky-room" --cwd .
+```
+
+Each Clanky-style agent **must** get a distinct `--profile`. Sharing `~/.clanky` across instances corrupts memory and session state. `--home` should also be distinct (or at least segregated per profile) if you want isolated history per agent.
+
+Then point the Discord route at the lead. Conceptually:
+
+```text
+provider:  discord-main
+route:     guild=..., channel=#room-announcements  ->  agent-stdin:clanky-lead
+```
+
+The lead receives Discord input, then uses `agent-room post`/`agent-room dm`/`agent-room task` to delegate. Workers see only the room.
+
+### Multi-agent attribution
+
+When a Discord-mirrored channel is wired through `ChatGatewayOutboundDispatcher`, multiple agents can appear under distinct webhook identities (`username` + `avatar_url`) over a single bot token. The Discord bot must have `Manage Webhooks` on each target channel. Until daemon config/loading lands, this requires programmatic wiring.
+
+### Configuration surface (planned)
+
+A future `.agentroom/config.yaml` block will declare gateways and routes alongside the existing `runtimes` block. Tokens come from env, never the file. Until daemon wiring exists, gateways must be instantiated programmatically; there is no operator CLI for adding routes at runtime yet.
+
+### Standalone embedding (not an operator task)
+
+If a user wants a single agent with its own Discord identity, the agent imports `@agentroom/chat-discord` directly and runs the gateway in its own process. The operator surface here is empty — no daemon, no routes, no enrollment. Mention this to the user when they describe a single-agent use case so they don't pay the multi-agent room overhead unnecessarily.
+
 ## Runtime Boundary
 
 Keep product language and persisted state in AgentRoom terms: agent, runtime, session, binding, output stream. Avoid teaching worker agents provider-specific commands; that knowledge belongs in runtime adapters and adapter-specific docs.

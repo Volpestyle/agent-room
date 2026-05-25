@@ -58,6 +58,19 @@ Channel ids you'll see: `announcements`, `implementation`, `dm`. To read DMs alr
 
 For room audit or debugging context, use `agent-room events --limit 20 --json`. Runtime `read`, `send`, and `stop` require an AgentRoom binding by default; `--unaudited` is manual recovery only.
 
+## Messaging (chat gateways)
+
+Inside an enrolled room, all coordination goes through AgentRoom native messages: `agent-room post`, `agent-room dm`, `agent-room messages`. Do not open Discord, Telegram, or any other chat gateway directly from a worker process.
+
+The daemon owns chat gateway transport. If the room is attached to a Discord (or other) gateway, the outbound dispatcher can mirror room channel/DM activity to the external conversation, and the inbound router delivers external messages back into the room as either a channel post, a directed message, or input to a specific agent's runtime. From a worker's view, this is invisible: you post and read room messages, the gateway happens.
+
+You may be the lead agent or a worker. The distinction is determined by the route table the operator configured, not by anything in your code:
+
+- If inbound chat is routed to your agent id (`agent-stdin:<you>`), you are effectively the public face for that conversation. Respond by posting to the relevant room channel and DMing other agents to delegate; the dispatcher relays your channel activity outward.
+- If you are a worker, you only see AgentRoom DMs and channel posts from the lead (or from other workers). Do not assume the user is reachable directly — route human requests through `agent-room ask-human` or by DMing the lead.
+
+If you are running standalone (no AgentRoom daemon, no enrollment), this skill does not apply. Standalone Clanky-style agents own their own gateway and consume `ChatInboundMessage` directly; that is an out-of-room mode.
+
 ## Workflow
 
 Start work:
