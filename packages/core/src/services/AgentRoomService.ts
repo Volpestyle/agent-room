@@ -1,6 +1,7 @@
 import type { ActorRef, Agent, HarnessSpec, HumanEscalation, Id, Importance, Message, MessageKind, Ref, RuntimeBinding, Task, TaskStatus } from '../domain.js';
 import type { RoomEvent } from '../events.js';
 import { createId, nowIso } from '../ids.js';
+import type { ChatInboundMessage, ChatSendMessageResult } from '../ports/Connectors.js';
 import type { EventBatch, EventCursor, EventCursorPosition, EventQuery, EventStore } from '../ports/EventStore.js';
 
 export interface AgentRoomServiceOptions {
@@ -285,6 +286,31 @@ export class AgentRoomService {
         agentId: input.agentId,
         text: input.text,
         source: input.source.id
+      })
+    );
+  }
+
+  async recordChatInbound(input: { message: ChatInboundMessage; routedTo?: string }): Promise<void> {
+    await this.events.append(
+      this.event('chat.inbound_received', {
+        message: input.message,
+        ...(input.routedTo !== undefined ? { routedTo: input.routedTo } : {})
+      })
+    );
+  }
+
+  async recordChatOutbound(input: {
+    providerId: Id;
+    conversationId: Id;
+    result: ChatSendMessageResult;
+    text: string;
+  }): Promise<void> {
+    await this.events.append(
+      this.event('chat.outbound_sent', {
+        providerId: input.providerId,
+        conversationId: input.conversationId,
+        result: input.result,
+        text: input.text
       })
     );
   }

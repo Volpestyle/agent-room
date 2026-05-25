@@ -53,6 +53,9 @@
       "@agentroom/notify-discord": [
         "packages/integrations/notify-discord/src/index.ts"
       ],
+      "@agentroom/chat-discord": [
+        "packages/integrations/chat-discord/src/index.ts"
+      ],
       "@clanky/core": [
         "packages/clanky-core/src/index.ts"
       ],

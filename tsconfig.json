@@ -14,6 +14,7 @@
     { "path": "packages/integrations/design-figma" },
     { "path": "packages/integrations/notify-telegram" },
     { "path": "packages/integrations/notify-discord" },
+    { "path": "packages/integrations/chat-discord" },
     { "path": "apps/daemon" },
     { "path": "agents/clanky" },
     { "path": "apps/cli" },

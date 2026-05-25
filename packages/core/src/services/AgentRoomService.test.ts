@@ -124,4 +124,51 @@ describe('AgentRoomService', () => {
       kind: 'pane'
     });
   });
+
+  it('records normalized chat gateway events', async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: 'room-test' });
+
+    await service.recordChatInbound({
+      message: {
+        providerId: 'discord-personal',
+        providerKind: 'discord',
+        credentialKind: 'user-token',
+        externalMessageId: 'm-1',
+        conversation: { id: 'c-1', kind: 'dm' },
+        sender: { id: 'u-1', username: 'james', displayName: 'James' },
+        text: 'hello',
+        kind: 'text',
+        attachments: [],
+        mentionsSelf: true,
+        receivedAt: '2026-05-25T00:00:00.000Z'
+      },
+      routedTo: 'agent-stdin:clanky'
+    });
+    await service.recordChatOutbound({
+      providerId: 'discord-personal',
+      conversationId: 'c-1',
+      result: { externalMessageId: 'm-2' },
+      text: 'hi back'
+    });
+
+    expect(store.events.map((event) => event.type)).toEqual(['chat.inbound_received', 'chat.outbound_sent']);
+    expect(store.events[0]).toMatchObject({
+      payload: {
+        routedTo: 'agent-stdin:clanky',
+        message: {
+          credentialKind: 'user-token',
+          text: 'hello'
+        }
+      }
+    });
+    expect(store.events[1]).toMatchObject({
+      payload: {
+        providerId: 'discord-personal',
+        conversationId: 'c-1',
+        text: 'hi back',
+        result: { externalMessageId: 'm-2' }
+      }
+    });
+  });
 });

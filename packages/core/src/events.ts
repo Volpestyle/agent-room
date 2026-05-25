@@ -1,4 +1,5 @@
 import type { ActorRef, Agent, AgentState, ApprovalRequest, HumanEscalation, Id, Message, Ref, RuntimeBinding, Task, TaskStatus } from './domain.js';
+import type { ChatInboundMessage, ChatSendMessageResult } from './ports/Connectors.js';
 
 export type RoomEventType =
   | 'message.posted'
@@ -22,6 +23,8 @@ export type RoomEventType =
   | 'runtime.output_observed'
   | 'runtime.input_sent'
   | 'runtime.state_observed'
+  | 'chat.inbound_received'
+  | 'chat.outbound_sent'
   | 'github.pr_event'
   | 'linear.issue_event'
   | 'figma.design_event'
@@ -58,6 +61,8 @@ export type RoomEvent =
   | BaseEvent<'runtime.output_observed', { agentId: Id; text: string; lineCount?: number }>
   | BaseEvent<'runtime.input_sent', { agentId: Id; text: string; source: string }>
   | BaseEvent<'runtime.state_observed', { agentId: Id; state: AgentState; source: string }>
+  | BaseEvent<'chat.inbound_received', { message: ChatInboundMessage; routedTo?: string }>
+  | BaseEvent<'chat.outbound_sent', { providerId: Id; conversationId: Id; result: ChatSendMessageResult; text: string }>
   | BaseEvent<'linear.issue_event', { issueId: Id; action: 'linked' | 'commented' | 'status_updated' | 'tracker_update_skipped'; taskId?: Id; body?: string; status?: string; reason?: string }>
   | BaseEvent<'decision.recorded', { decision: string; refs?: unknown[] }>
   | BaseEvent<'handoff.created', { taskId: Id; fromAgentId: Id; toAgentId: Id; summary: string }>;
