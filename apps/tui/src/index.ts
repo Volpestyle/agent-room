@@ -2,7 +2,9 @@
 import { fileURLToPath } from "node:url";
 import {
   Editor,
+  Input,
   ProcessTerminal,
+  SelectList,
   TUI,
   matchesKey,
   truncateToWidth,
@@ -10,6 +12,8 @@ import {
   wrapTextWithAnsi,
   type Component,
   type EditorTheme,
+  type OverlayHandle,
+  type SelectItem,
   type SelectListTheme,
   type Terminal,
 } from "@earendil-works/pi-tui";
@@ -28,26 +32,6 @@ import type {
 } from "./types.js";
 
 type ViewName = "overview" | "agents" | "tasks" | "messages" | "events";
-type MouseAction =
-  | { type: "view"; view: ViewName }
-  | { type: "provider"; providerId: string }
-  | { type: "agent"; agentId: string }
-  | { type: "task"; taskId: string }
-  | { type: "message"; messageId: string };
-
-interface HitZone {
-  row: number;
-  startCol: number;
-  endCol: number;
-  action: MouseAction;
-}
-
-interface MouseEvent {
-  kind: "press" | "release" | "wheel-up" | "wheel-down";
-  button: "left" | "middle" | "right" | "wheel" | "unknown";
-  row: number;
-  col: number;
-}
 
 export interface AgentRoomTuiOptions {
   baseUrl?: string;
@@ -66,8 +50,6 @@ interface Snapshot {
 }
 
 const VIEWS: ViewName[] = ["overview", "agents", "tasks", "messages", "events"];
-const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
-const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
 const TASK_STATUSES: TaskStatus[] = [
   "planned",
   "assigned",
@@ -116,6 +98,91 @@ const editorTheme: EditorTheme = {
   selectList: selectListTheme,
 };
 
+class SelectDialog implements Component {
+  private readonly list: SelectList;
+
+  public onSelect?: (item: SelectItem) => void;
+  public onCancel?: () => void;
+
+  constructor(
+    private readonly title: string,
+    items: SelectItem[],
+    private readonly hint = "Up/Down or j/k, Enter to select, Esc to cancel",
+  ) {
+    this.list = new SelectList(
+      items,
+      Math.min(Math.max(items.length, 1), 12),
+      selectListTheme,
+      {
+        minPrimaryColumnWidth: 18,
+        maxPrimaryColumnWidth: 34,
+      },
+    );
+    this.list.onSelect = (item) => this.onSelect?.(item);
+    this.list.onCancel = () => this.onCancel?.();
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, "j")) {
+      this.list.handleInput("\x1b[B");
+      return;
+    }
+    if (matchesKey(data, "k")) {
+      this.list.handleInput("\x1b[A");
+      return;
+    }
+    this.list.handleInput(data);
+  }
+
+  invalidate(): void {
+    this.list.invalidate();
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(20, width - 4);
+    const title = truncateToWidth(` ${this.title} `, innerWidth, "");
+    return [
+      style.inverse(title),
+      ...this.list.render(innerWidth),
+      style.dim(this.hint),
+    ].map((line) => padLine(line, innerWidth));
+  }
+}
+
+class TextInputDialog implements Component {
+  private readonly input = new Input();
+
+  public onSubmit?: (value: string) => void;
+  public onCancel?: () => void;
+
+  constructor(
+    private readonly title: string,
+    private readonly hint = "Enter to submit, Esc to cancel",
+    initialValue?: string,
+  ) {
+    if (initialValue !== undefined) this.input.setValue(initialValue);
+    this.input.onSubmit = (value) => this.onSubmit?.(value);
+    this.input.onEscape = () => this.onCancel?.();
+  }
+
+  handleInput(data: string): void {
+    this.input.handleInput(data);
+  }
+
+  invalidate(): void {
+    this.input.invalidate();
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(20, width - 4);
+    return [
+      style.inverse(truncateToWidth(` ${this.title} `, innerWidth, "")),
+      ...this.input.render(innerWidth),
+      style.dim(this.hint),
+    ].map((line) => padLine(line, innerWidth));
+  }
+}
+
 export async function runAgentRoomTui(
   options: AgentRoomTuiOptions = {},
 ): Promise<void> {
@@ -127,7 +194,7 @@ export async function runAgentRoomTui(
   const app = new AgentRoomTuiApp(tui, terminal, client, options);
 
   tui.addChild(app);
-  tui.setFocus(app.editor);
+  tui.setFocus(app);
   tui.addInputListener((data) => {
     if (matchesKey(data, "ctrl+c")) {
       app.dispose();
@@ -157,11 +224,10 @@ class AgentRoomTuiApp implements Component {
   private selectedAgentIndex = 0;
   private selectedTaskIndex = 0;
   private selectedMessageIndex = Number.MAX_SAFE_INTEGER;
+  private promptActive = false;
   private isRefreshing = false;
-  private mouseEnabled = false;
   private lastError: string | undefined;
   private notices: string[] = [];
-  private hitZones: HitZone[] = [];
   private snapshot: Snapshot = {
     providers: [],
     providerAgents: {},
@@ -183,6 +249,7 @@ class AgentRoomTuiApp implements Component {
       autocompleteMaxVisible: 8,
     });
     this.editor.onSubmit = (value) => {
+      this.leavePrompt(false);
       void this.submit(value);
     };
   }
@@ -191,12 +258,10 @@ class AgentRoomTuiApp implements Component {
     this.refreshTimer = setInterval(() => {
       void this.refresh();
     }, this.refreshMs);
-    this.enableMouse();
   }
 
   dispose(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
-    this.disableMouse();
   }
 
   invalidate(): void {
@@ -204,30 +269,127 @@ class AgentRoomTuiApp implements Component {
   }
 
   handleGlobalInput(data: string): { consume?: boolean } | undefined {
-    const mouseEvent = parseMouseEvent(data);
-    if (mouseEvent) {
-      this.handleMouse(mouseEvent);
-      return { consume: true };
-    }
     if (matchesKey(data, "ctrl+r")) {
       void this.refresh();
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+n")) {
+
+    if (this.tui.hasOverlay()) return undefined;
+
+    if (this.promptActive) {
+      if (matchesKey(data, "escape")) {
+        this.leavePrompt();
+        return { consume: true };
+      }
+      return undefined;
+    }
+
+    return this.handleBrowseInput(data) ?? { consume: true };
+  }
+
+  handleInput(data: string): void {
+    if (this.promptActive || this.tui.hasOverlay()) return;
+    this.handleBrowseInput(data);
+  }
+
+  private handleBrowseInput(data: string): { consume?: boolean } | undefined {
+    if (
+      matchesKey(data, "ctrl+n") ||
+      matchesKey(data, "tab") ||
+      matchesKey(data, "right")
+    ) {
       this.changeView(1);
       return { consume: true };
     }
-    if (matchesKey(data, "ctrl+p")) {
+    if (
+      matchesKey(data, "ctrl+p") ||
+      matchesKey(data, "shift+tab") ||
+      matchesKey(data, "left")
+    ) {
       this.changeView(-1);
       return { consume: true };
     }
-    if (matchesKey(data, "alt+up")) {
+    if (matchesKey(data, "up") || matchesKey(data, "k")) {
       this.changeSelection(-1);
       return { consume: true };
     }
-    if (matchesKey(data, "alt+down")) {
+    if (matchesKey(data, "down") || matchesKey(data, "j")) {
       this.changeSelection(1);
       return { consume: true };
+    }
+    if (matchesKey(data, "pageUp")) {
+      this.changeSelection(-8);
+      return { consume: true };
+    }
+    if (matchesKey(data, "pageDown")) {
+      this.changeSelection(8);
+      return { consume: true };
+    }
+    if (matchesKey(data, "enter")) {
+      this.showContextActions();
+      return { consume: true };
+    }
+    if (matchesKey(data, "/")) {
+      this.enterPrompt("/");
+      return { consume: true };
+    }
+    if (matchesKey(data, "i")) {
+      this.enterPrompt();
+      return { consume: true };
+    }
+    if (matchesKey(data, "?")) {
+      this.showCommandPalette();
+      return { consume: true };
+    }
+    if (matchesKey(data, "v")) {
+      this.showViewSelector();
+      return { consume: true };
+    }
+    if (matchesKey(data, "n")) {
+      this.showNewTaskInput();
+      return { consume: true };
+    }
+    if (matchesKey(data, "p")) {
+      this.enterPrompt("/post #announcements ");
+      return { consume: true };
+    }
+    if (matchesKey(data, "1")) {
+      this.setView("overview");
+      return { consume: true };
+    }
+    if (matchesKey(data, "2")) {
+      this.setView("agents");
+      return { consume: true };
+    }
+    if (matchesKey(data, "3")) {
+      this.setView("tasks");
+      return { consume: true };
+    }
+    if (matchesKey(data, "4")) {
+      this.setView("messages");
+      return { consume: true };
+    }
+    if (matchesKey(data, "5")) {
+      this.setView("events");
+      return { consume: true };
+    }
+    if (this.currentView() === "tasks") {
+      if (matchesKey(data, "e")) {
+        this.showRenameTaskInput();
+        return { consume: true };
+      }
+      if (matchesKey(data, "d")) {
+        this.showDeleteTaskInput();
+        return { consume: true };
+      }
+      if (matchesKey(data, "s")) {
+        this.showStatusSelector();
+        return { consume: true };
+      }
+      if (matchesKey(data, "c")) {
+        this.showClaimTaskInput();
+        return { consume: true };
+      }
     }
     return undefined;
   }
@@ -289,12 +451,10 @@ class AgentRoomTuiApp implements Component {
   }
 
   render(width: number): string[] {
-    this.hitZones = [];
     const fullWidth = Math.max(40, width);
-    const editorLines = this.editor.render(fullWidth);
+    const promptLines = this.renderPrompt(fullWidth);
     const headerLines = this.renderHeader(fullWidth);
-    const navRow = headerLines.length + 1;
-    const navLines = [this.renderNav(fullWidth, navRow)];
+    const navLines = [this.renderNav(fullWidth)];
     const noticeLines = this.renderNotices(fullWidth);
     const footerLines = this.renderFooter(fullWidth);
     const reserved =
@@ -302,7 +462,7 @@ class AgentRoomTuiApp implements Component {
       navLines.length +
       noticeLines.length +
       footerLines.length +
-      editorLines.length;
+      promptLines.length;
     const contentHeight = Math.max(4, this.terminal.rows - reserved);
     const contentStartRow = headerLines.length + navLines.length + 1;
     const contentLines = this.renderCurrentView(
@@ -316,10 +476,22 @@ class AgentRoomTuiApp implements Component {
       ...contentLines,
       ...noticeLines,
       ...footerLines,
-      ...editorLines,
+      ...promptLines,
     ];
 
     return lines.map((line) => padLine(line, fullWidth));
+  }
+
+  private renderPrompt(width: number): string[] {
+    if (this.promptActive) {
+      return [section("operator input"), ...this.editor.render(width)];
+    }
+    const selectedAgent = this.selectedAgent()?.id ?? "no agent";
+    return [
+      style.dim(
+        `browse mode  / slash commands  ? palette  i ask ${selectedAgent}  enter actions  n task  p post`,
+      ),
+    ];
   }
 
   private renderHeader(width: number): string[] {
@@ -327,7 +499,9 @@ class AgentRoomTuiApp implements Component {
     const daemon = this.snapshot.health?.ok
       ? style.green("online")
       : style.red("offline");
-    const refresh = this.isRefreshing ? style.amber("refreshing") : style.dim("idle");
+    const refresh = this.isRefreshing
+      ? style.amber("refreshing")
+      : style.dim("idle");
     return [
       padLine(
         `${style.bold("agent-room")} ${style.dim(this.client.base)}  room ${style.cyan(room)}  daemon ${daemon}  ${refresh}`,
@@ -337,17 +511,9 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderNav(width: number, row: number): string {
-    let col = 1;
+  private renderNav(width: number): string {
     const parts = VIEWS.map((view, index) => {
       const label = ` ${view} `;
-      this.addHitZone({
-        row,
-        startCol: col,
-        endCol: col + label.length - 1,
-        action: { type: "view", view },
-      });
-      col += label.length + 1;
       return index === this.viewIndex ? style.inverse(label) : style.dim(label);
     });
     return truncateToWidth(parts.join(" "), width, "");
@@ -375,9 +541,13 @@ class AgentRoomTuiApp implements Component {
 
   private renderOverview(width: number, startRow: number): string[] {
     const activeTasks = this.snapshot.tasks.filter((task) =>
-      ["assigned", "claimed", "working", "ready-for-review", "blocked"].includes(
-        task.status,
-      ),
+      [
+        "assigned",
+        "claimed",
+        "working",
+        "ready-for-review",
+        "blocked",
+      ].includes(task.status),
     );
     const totalAgents = Object.values(this.snapshot.providerAgents).reduce(
       (total, agents) => total + agents.length,
@@ -386,8 +556,8 @@ class AgentRoomTuiApp implements Component {
     const providerLines =
       this.snapshot.providers.length === 0
         ? [style.dim("no runtime providers loaded")]
-        : this.snapshot.providers.map((provider, index) =>
-            this.renderProviderLine(provider, width, startRow + 5 + index),
+        : this.snapshot.providers.map((provider) =>
+            this.renderProviderLine(provider, width),
           );
 
     return [
@@ -412,12 +582,6 @@ class AgentRoomTuiApp implements Component {
     const selectedAgent = this.selectedAgent();
     const agents = this.snapshot.agents.length
       ? this.snapshot.agents.map((agent, index) => {
-          this.addHitZone({
-            row: startRow + this.snapshot.providers.length + 4 + index,
-            startCol: 1,
-            endCol: width,
-            action: { type: "agent", agentId: agent.id },
-          });
           const prefix = index === this.selectedAgentIndex ? "> " : "  ";
           const state = renderState(agent.state);
           const name = agent.displayName ?? agent.id;
@@ -431,8 +595,8 @@ class AgentRoomTuiApp implements Component {
 
     return [
       section(`provider ${providerLabel}`),
-      ...this.snapshot.providers.map((provider, index) =>
-        this.renderProviderLine(provider, width, startRow + 1 + index),
+      ...this.snapshot.providers.map((provider) =>
+        this.renderProviderLine(provider, width),
       ),
       "",
       section("agents"),
@@ -450,14 +614,7 @@ class AgentRoomTuiApp implements Component {
   private renderProviderLine(
     provider: RuntimeProviderSummary,
     width: number,
-    row: number,
   ): string {
-    this.addHitZone({
-      row,
-      startCol: 1,
-      endCol: width,
-      action: { type: "provider", providerId: provider.id },
-    });
     const agents = this.snapshot.providerAgents[provider.id] ?? [];
     const selected = provider.id === this.selectedProviderId;
     const marker = selected ? "> " : "  ";
@@ -467,7 +624,9 @@ class AgentRoomTuiApp implements Component {
         ? style.dim("configured")
         : health.ok
           ? agents.length > 0
-            ? style.green(`${agents.length} active ${plural(agents.length, "agent")}`)
+            ? style.green(
+                `${agents.length} active ${plural(agents.length, "agent")}`,
+              )
             : style.dim("available, no agents")
           : style.red(health.status ?? "offline");
     const message =
@@ -484,12 +643,6 @@ class AgentRoomTuiApp implements Component {
   private renderTasks(width: number, startRow: number): string[] {
     const tasks = this.snapshot.tasks.length
       ? this.snapshot.tasks.map((task, index) => {
-          this.addHitZone({
-            row: startRow + 1 + index,
-            startCol: 1,
-            endCol: width,
-            action: { type: "task", taskId: task.id },
-          });
           const prefix = index === this.selectedTaskIndex ? "> " : "  ";
           const assignee = task.assignee?.id ?? "unassigned";
           const refCount = task.refs?.length ?? 0;
@@ -532,12 +685,6 @@ class AgentRoomTuiApp implements Component {
       section("messages"),
       ...messages.map((message, visibleIndex) => {
         const index = startIndex + visibleIndex;
-        this.addHitZone({
-          row: startRow + 1 + visibleIndex,
-          startCol: 1,
-          endCol: width,
-          action: { type: "message", messageId: message.id },
-        });
         const prefix = index === this.selectedMessageIndex ? "> " : "  ";
         const channel = message.channelId ?? "announcements";
         const sender = actorLabel(message.sender);
@@ -579,7 +726,10 @@ class AgentRoomTuiApp implements Component {
       ...this.notices.slice(-2).map(style.dim),
     ];
     if (notices.length === 0) return [];
-    return [rule(width), ...notices.map((notice) => truncateToWidth(notice, width, ""))];
+    return [
+      rule(width),
+      ...notices.map((notice) => truncateToWidth(notice, width, "")),
+    ];
   }
 
   private renderFooter(width: number): string[] {
@@ -590,7 +740,7 @@ class AgentRoomTuiApp implements Component {
       rule(width),
       truncateToWidth(
         style.dim(
-          `click nav/provider/agent/task/message  wheel select  ctrl+n/p view  ctrl+r refresh  selected agent ${selectedAgent} task ${selectedTask} msg ${selectedMessage}`,
+          `↑/↓ j/k select  tab/←/→ view  enter actions  / commands  ? palette  i ask  selected agent ${selectedAgent} task ${selectedTask} msg ${selectedMessage}`,
         ),
         width,
         "",
@@ -605,10 +755,12 @@ class AgentRoomTuiApp implements Component {
     try {
       if (value.startsWith("/")) {
         await this.runCommand(value.slice(1));
-      } else if (this.currentView() === "agents" && this.selectedAgent()) {
+      } else if (this.selectedAgent()) {
         await this.sendToAgent(this.selectedAgent()!.id, value);
       } else {
-        await this.postMessage("announcements", value);
+        throw new Error(
+          "No agent selected; use /operator, /launch, or /post #channel",
+        );
       }
       await this.refresh();
     } catch (error) {
@@ -620,13 +772,35 @@ class AgentRoomTuiApp implements Component {
   private async runCommand(commandLine: string): Promise<void> {
     const [command, ...args] = splitArgs(commandLine);
     switch (command) {
+      case undefined:
+      case "":
+      case "?":
+      case "commands":
+      case "palette":
+        this.showCommandPalette();
+        return;
       case "help":
         this.notice(
-          "/post [#channel] text | /send [agent] text | /task title | /rename [task] title | /desc [task] text | /delete [task] [reason] | /claim [task] agent | /status [task] status [summary]",
+          "/ask [agent] text | /post [#channel] text | /tasks | /agents | /messages | /actions | /task title | /rename [task] title | /desc [task] text | /delete [task] [reason]",
         );
         return;
       case "refresh":
         await this.refresh();
+        return;
+      case "views":
+        this.showViewSelector();
+        return;
+      case "actions":
+        this.showContextActions();
+        return;
+      case "tasks":
+        this.showTaskSelector();
+        return;
+      case "agents":
+        this.showAgentSelector();
+        return;
+      case "messages":
+        this.showMessageSelector();
         return;
       case "view":
         this.setView(args[0]);
@@ -639,15 +813,21 @@ class AgentRoomTuiApp implements Component {
         return;
       case "post": {
         const first = args[0];
-        const channel = first?.startsWith("#") ? first.slice(1) : "announcements";
-        const body = first?.startsWith("#") ? args.slice(1).join(" ") : args.join(" ");
+        const channel = first?.startsWith("#")
+          ? first.slice(1)
+          : "announcements";
+        const body = first?.startsWith("#")
+          ? args.slice(1).join(" ")
+          : args.join(" ");
         await this.postMessage(channel, body);
         return;
       }
+      case "ask":
       case "send": {
         const selected = this.selectedAgent()?.id;
         const target = args[0] && this.hasAgent(args[0]) ? args[0] : selected;
-        const body = target === args[0] ? args.slice(1).join(" ") : args.join(" ");
+        const body =
+          target === args[0] ? args.slice(1).join(" ") : args.join(" ");
         if (!target) throw new Error("No agent selected");
         await this.sendToAgent(target, body);
         return;
@@ -729,7 +909,10 @@ class AgentRoomTuiApp implements Component {
         );
         const [agentId] = target.rest;
         if (!agentId) throw new Error("Usage: /claim [taskId] <agentId>");
-        await this.client.claimTask(target.task.id, { kind: "agent", id: agentId });
+        await this.client.claimTask(target.task.id, {
+          kind: "agent",
+          id: agentId,
+        });
         this.notice(`claimed ${target.task.id} for ${agentId}`);
         return;
       }
@@ -747,20 +930,34 @@ class AgentRoomTuiApp implements Component {
         await this.client.updateTaskStatus(target.task.id, {
           status,
           actor: humanActor(),
-          ...(summaryParts.length > 0 ? { summary: summaryParts.join(" ") } : {}),
+          ...(summaryParts.length > 0
+            ? { summary: summaryParts.join(" ") }
+            : {}),
         });
         this.notice(`updated ${target.task.id} to ${status}`);
         return;
       }
       case "launch": {
         const [agentId, maybeRole, maybeHarness, ...rest] = args;
-        if (!agentId) throw new Error("Usage: /launch <agentId> [role] [harness] [command...]");
+        if (!agentId)
+          throw new Error(
+            "Usage: /launch <agentId> [role] [harness] [command...]",
+          );
         const role = isAgentRole(maybeRole) ? maybeRole : "implementer";
         const harness = isHarnessKind(maybeHarness) ? maybeHarness : "shell";
         const commandParts = rest.length > 0 ? rest : ["bash"];
         await this.launchAgent(agentId, role, {
           kind: harness,
           command: commandParts[0] ?? "bash",
+          ...(commandParts.length > 1 ? { args: commandParts.slice(1) } : {}),
+        });
+        return;
+      }
+      case "operator": {
+        const [agentId = "operator", ...commandParts] = args;
+        await this.launchAgent(agentId, "lead", {
+          kind: "pi",
+          command: commandParts[0] ?? "pi",
           ...(commandParts.length > 1 ? { args: commandParts.slice(1) } : {}),
         });
         return;
@@ -812,99 +1009,608 @@ class AgentRoomTuiApp implements Component {
     agentId: string,
   ): Promise<string | undefined> {
     try {
-      const { output } = await this.client.readRuntimeAgent(providerId, agentId, 160);
+      const { output } = await this.client.readRuntimeAgent(
+        providerId,
+        agentId,
+        160,
+      );
       return output.text;
     } catch {
       return undefined;
     }
   }
 
-  private handleMouse(event: MouseEvent): void {
-    if (event.kind === "wheel-up") {
-      this.changeSelection(-1);
-      return;
-    }
-    if (event.kind === "wheel-down") {
-      this.changeSelection(1);
-      return;
-    }
-    if (event.kind !== "press" || event.button !== "left") return;
-
-    const zone = this.hitZones.find(
-      (candidate) =>
-        candidate.row === event.row &&
-        event.col >= candidate.startCol &&
-        event.col <= candidate.endCol,
-    );
-    if (!zone) return;
-
-    this.activateMouseAction(zone.action);
+  private enterPrompt(initialText = ""): void {
+    this.promptActive = true;
+    this.editor.setText(initialText);
+    this.tui.setFocus(this.editor);
+    this.tui.requestRender();
   }
 
-  private activateMouseAction(action: MouseAction): void {
-    switch (action.type) {
-      case "view":
-        this.viewIndex = VIEWS.indexOf(action.view);
-        this.tui.requestRender();
-        return;
-      case "provider":
-        this.selectedProviderId = action.providerId;
-        this.selectedAgentIndex = 0;
-        this.snapshot.agents = this.snapshot.providerAgents[action.providerId] ?? [];
-        void this.refresh();
-        this.tui.requestRender();
-        return;
-      case "agent": {
+  private leavePrompt(clear = true): void {
+    this.promptActive = false;
+    if (clear) this.editor.setText("");
+    this.tui.setFocus(this);
+    this.tui.requestRender();
+  }
+
+  private showCommandPalette(): void {
+    this.showSelectDialog(
+      "operator commands",
+      [
+        {
+          value: "ask",
+          label: "ask agent",
+          description: "Send plain text to the selected runtime agent",
+        },
+        {
+          value: "post",
+          label: "post message",
+          description: "Post a room message to a channel",
+        },
+        {
+          value: "tasks",
+          label: "task selector",
+          description: "Open the task sub-TUI",
+        },
+        {
+          value: "agents",
+          label: "agent selector",
+          description: "Open the agent sub-TUI",
+        },
+        {
+          value: "messages",
+          label: "message selector",
+          description: "Open the message sub-TUI",
+        },
+        {
+          value: "views",
+          label: "switch view",
+          description: "Jump to another dashboard view",
+        },
+        { value: "new-task", label: "new task", description: "Create a task" },
+        {
+          value: "launch",
+          label: "launch agent",
+          description: "Run /launch with a custom command",
+        },
+        {
+          value: "operator",
+          label: "launch operator",
+          description: "Launch a Pi lead agent named operator",
+        },
+        {
+          value: "slash",
+          label: "slash command",
+          description: "Type a raw slash command",
+        },
+      ],
+      async (item) => {
+        switch (item.value) {
+          case "ask":
+            this.enterPrompt();
+            return;
+          case "post":
+            this.enterPrompt("/post #announcements ");
+            return;
+          case "tasks":
+            this.showTaskSelector();
+            return;
+          case "agents":
+            this.showAgentSelector();
+            return;
+          case "messages":
+            this.showMessageSelector();
+            return;
+          case "views":
+            this.showViewSelector();
+            return;
+          case "new-task":
+            this.showNewTaskInput();
+            return;
+          case "launch":
+            this.enterPrompt("/launch ");
+            return;
+          case "operator":
+            this.enterPrompt("/operator operator");
+            return;
+          case "slash":
+            this.enterPrompt("/");
+            return;
+        }
+      },
+    );
+  }
+
+  private showContextActions(): void {
+    const view = this.currentView();
+    if (view === "tasks") {
+      this.showTaskActions();
+      return;
+    }
+    if (view === "agents") {
+      this.showAgentActions();
+      return;
+    }
+    if (view === "messages") {
+      this.showMessageActions();
+      return;
+    }
+    if (view === "overview") {
+      this.showCommandPalette();
+      return;
+    }
+    this.showViewSelector();
+  }
+
+  private showViewSelector(): void {
+    this.showSelectDialog(
+      "views",
+      VIEWS.map((view, index) => ({
+        value: view,
+        label: `${index + 1}. ${view}`,
+        description:
+          view === this.currentView() ? "current view" : "switch view",
+      })),
+      (item) => {
+        this.setView(item.value);
+      },
+    );
+  }
+
+  private showTaskSelector(): void {
+    if (this.snapshot.tasks.length === 0) {
+      this.notice("no tasks; press n or use /task <title>");
+      return;
+    }
+    this.showSelectDialog(
+      "tasks",
+      this.snapshot.tasks.map((task) => ({
+        value: task.id,
+        label: task.title,
+        description: `${task.status} ${task.assignee?.id ?? "unassigned"} ${task.id}`,
+      })),
+      (item) => {
+        const index = this.snapshot.tasks.findIndex(
+          (task) => task.id === item.value,
+        );
+        if (index >= 0) {
+          this.selectedTaskIndex = index;
+          this.viewIndex = VIEWS.indexOf("tasks");
+          this.tui.requestRender();
+          this.showTaskActions();
+        }
+      },
+    );
+  }
+
+  private showAgentSelector(): void {
+    if (this.snapshot.agents.length === 0) {
+      this.notice("no agents for selected provider; use /launch or /operator");
+      return;
+    }
+    this.showSelectDialog(
+      "agents",
+      this.snapshot.agents.map((agent) => ({
+        value: agent.id,
+        label: agent.displayName ?? agent.id,
+        description: `${agent.state} ${agent.id}`,
+      })),
+      (item) => {
         const index = this.snapshot.agents.findIndex(
-          (agent) => agent.id === action.agentId,
+          (agent) => agent.id === item.value,
         );
         if (index >= 0) {
           this.selectedAgentIndex = index;
           this.viewIndex = VIEWS.indexOf("agents");
           void this.refresh();
           this.tui.requestRender();
+          this.showAgentActions();
         }
-        return;
-      }
-      case "task": {
-        const index = this.snapshot.tasks.findIndex(
-          (task) => task.id === action.taskId,
-        );
-        if (index >= 0) {
-          this.selectedTaskIndex = index;
-          this.viewIndex = VIEWS.indexOf("tasks");
-          this.tui.requestRender();
-        }
-        return;
-      }
-      case "message": {
+      },
+    );
+  }
+
+  private showMessageSelector(): void {
+    if (this.snapshot.messages.length === 0) {
+      this.notice("no messages");
+      return;
+    }
+    this.showSelectDialog(
+      "messages",
+      this.snapshot.messages
+        .slice(-60)
+        .reverse()
+        .map((message) => ({
+          value: message.id,
+          label: `${actorLabel(message.sender)} #${message.channelId ?? "announcements"}`,
+          description: message.body.replace(/\s+/g, " "),
+        })),
+      (item) => {
         const index = this.snapshot.messages.findIndex(
-          (message) => message.id === action.messageId,
+          (message) => message.id === item.value,
         );
         if (index >= 0) {
           this.selectedMessageIndex = index;
           this.viewIndex = VIEWS.indexOf("messages");
           this.tui.requestRender();
+          this.showMessageActions();
         }
-        return;
-      }
+      },
+    );
+  }
+
+  private showTaskActions(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
     }
+    this.showSelectDialog(
+      `task: ${task.title}`,
+      [
+        {
+          value: "rename",
+          label: "rename",
+          description: "Edit the task title",
+        },
+        {
+          value: "describe",
+          label: "describe",
+          description: "Edit or clear the task description",
+        },
+        { value: "status", label: "status", description: "Change task status" },
+        { value: "claim", label: "claim", description: "Assign to an agent" },
+        {
+          value: "cancel",
+          label: "cancel",
+          description: "Mark canceled but keep visible",
+        },
+        {
+          value: "delete",
+          label: "delete",
+          description: "Remove from active tasks",
+        },
+        {
+          value: "ask",
+          label: "ask agent",
+          description: "Ask the selected agent about this task",
+        },
+      ],
+      (item) => {
+        switch (item.value) {
+          case "rename":
+            this.showRenameTaskInput(task);
+            return;
+          case "describe":
+            this.showDescribeTaskInput(task);
+            return;
+          case "status":
+            this.showStatusSelector(task);
+            return;
+          case "claim":
+            this.showClaimTaskInput(task);
+            return;
+          case "cancel":
+            this.showCancelTaskInput(task);
+            return;
+          case "delete":
+            this.showDeleteTaskInput(task);
+            return;
+          case "ask":
+            this.enterPrompt(
+              `Please help with task ${task.id}: ${task.title}\n`,
+            );
+            return;
+        }
+      },
+    );
   }
 
-  private addHitZone(zone: HitZone): void {
-    this.hitZones.push(zone);
+  private showAgentActions(agent = this.selectedAgent()): void {
+    if (!agent) {
+      this.notice("no selected agent");
+      return;
+    }
+    this.showSelectDialog(
+      `agent: ${agent.id}`,
+      [
+        { value: "ask", label: "ask", description: "Send input to this agent" },
+        {
+          value: "output",
+          label: "read output",
+          description: "Refresh and show latest output",
+        },
+        {
+          value: "provider",
+          label: "provider",
+          description: "Switch runtime provider",
+        },
+        {
+          value: "launch",
+          label: "launch another",
+          description: "Run a launch command",
+        },
+      ],
+      async (item) => {
+        switch (item.value) {
+          case "ask":
+            this.enterPrompt();
+            return;
+          case "output":
+            this.viewIndex = VIEWS.indexOf("agents");
+            await this.refresh();
+            return;
+          case "provider":
+            this.showProviderSelector();
+            return;
+          case "launch":
+            this.enterPrompt("/launch ");
+            return;
+        }
+      },
+    );
   }
 
-  private enableMouse(): void {
-    if (this.mouseEnabled) return;
-    this.terminal.write(ENABLE_MOUSE);
-    this.mouseEnabled = true;
+  private showMessageActions(message = this.selectedMessage()): void {
+    if (!message) {
+      this.notice("no selected message");
+      return;
+    }
+    const channel = message.channelId ?? "announcements";
+    this.showSelectDialog(
+      `message: ${actorLabel(message.sender)}`,
+      [
+        {
+          value: "reply",
+          label: "reply to channel",
+          description: `Post to #${channel}`,
+        },
+        {
+          value: "ask",
+          label: "ask agent",
+          description: "Ask selected agent about this message",
+        },
+        { value: "select", label: "select only", description: message.id },
+      ],
+      (item) => {
+        switch (item.value) {
+          case "reply":
+            this.enterPrompt(`/post #${channel} `);
+            return;
+          case "ask":
+            this.enterPrompt(
+              `Please review this room message from ${actorLabel(message.sender)}:\n${message.body}\n`,
+            );
+            return;
+          case "select":
+            this.viewIndex = VIEWS.indexOf("messages");
+            this.tui.requestRender();
+            return;
+        }
+      },
+    );
   }
 
-  private disableMouse(): void {
-    if (!this.mouseEnabled) return;
-    this.terminal.write(DISABLE_MOUSE);
-    this.mouseEnabled = false;
+  private showProviderSelector(): void {
+    if (this.snapshot.providers.length === 0) {
+      this.notice("no providers configured");
+      return;
+    }
+    this.showSelectDialog(
+      "providers",
+      this.snapshot.providers.map((provider) => ({
+        value: provider.id,
+        label: provider.id,
+        description: `${provider.kind} ${provider.health?.ok === false ? "offline" : "available"}`,
+      })),
+      async (item) => {
+        this.selectProvider(item.value);
+        await this.refresh();
+      },
+    );
+  }
+
+  private showStatusSelector(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    this.showSelectDialog(
+      `status: ${task.title}`,
+      TASK_STATUSES.map((status) => ({
+        value: status,
+        label: status,
+        description:
+          status === task.status ? "current status" : `set ${task.id}`,
+      })),
+      async (item) => {
+        if (!isTaskStatus(item.value)) return;
+        await this.client.updateTaskStatus(task.id, {
+          status: item.value,
+          actor: humanActor(),
+        });
+        this.notice(`updated ${task.id} to ${item.value}`);
+        await this.refresh();
+      },
+    );
+  }
+
+  private showNewTaskInput(): void {
+    this.showInputDialog("new task title", async (title) => {
+      const clean = title.trim();
+      if (!clean) return;
+      await this.client.createTask({
+        title: clean,
+        createdBy: humanActor(),
+      });
+      this.notice(`created task: ${clean}`);
+      await this.refresh();
+    });
+  }
+
+  private showRenameTaskInput(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    this.showInputDialog(
+      "rename task",
+      async (title) => {
+        const clean = title.trim();
+        if (!clean) return;
+        await this.client.updateTaskDetails(task.id, {
+          title: clean,
+          actor: humanActor(),
+        });
+        this.notice(`renamed ${task.id}`);
+        await this.refresh();
+      },
+      task.title,
+    );
+  }
+
+  private showDescribeTaskInput(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    this.showInputDialog(
+      "task description (--clear to empty)",
+      async (description) => {
+        const clean = description.trim();
+        await this.client.updateTaskDetails(task.id, {
+          description: clean === "--clear" ? "" : clean,
+          actor: humanActor(),
+        });
+        this.notice(`updated description for ${task.id}`);
+        await this.refresh();
+      },
+      task.description,
+    );
+  }
+
+  private showClaimTaskInput(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    if (this.snapshot.agents.length > 0) {
+      this.showSelectDialog(
+        `claim: ${task.title}`,
+        this.snapshot.agents.map((agent) => ({
+          value: agent.id,
+          label: agent.displayName ?? agent.id,
+          description: agent.state,
+        })),
+        async (item) => {
+          await this.client.claimTask(task.id, {
+            kind: "agent",
+            id: item.value,
+          });
+          this.notice(`claimed ${task.id} for ${item.value}`);
+          await this.refresh();
+        },
+      );
+      return;
+    }
+    this.showInputDialog("claim task to agent id", async (agentId) => {
+      const clean = agentId.trim();
+      if (!clean) return;
+      await this.client.claimTask(task.id, { kind: "agent", id: clean });
+      this.notice(`claimed ${task.id} for ${clean}`);
+      await this.refresh();
+    });
+  }
+
+  private showCancelTaskInput(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    this.showInputDialog("cancel reason (optional)", async (reason) => {
+      const clean = reason.trim();
+      await this.client.updateTaskStatus(task.id, {
+        status: "canceled",
+        actor: humanActor(),
+        ...(clean ? { reason: clean } : {}),
+      });
+      this.notice(`canceled ${task.id}`);
+      await this.refresh();
+    });
+  }
+
+  private showDeleteTaskInput(task = this.selectedTask()): void {
+    if (!task) {
+      this.notice("no selected task");
+      return;
+    }
+    this.showInputDialog("delete reason (optional)", async (reason) => {
+      const clean = reason.trim();
+      await this.client.deleteTask(task.id, {
+        actor: humanActor(),
+        ...(clean ? { reason: clean } : {}),
+      });
+      this.notice(`deleted ${task.id}`);
+      await this.refresh();
+    });
+  }
+
+  private showSelectDialog(
+    title: string,
+    items: SelectItem[],
+    onSelect: (item: SelectItem) => void | Promise<void>,
+  ): void {
+    if (items.length === 0) {
+      this.notice("no options");
+      return;
+    }
+
+    let handle: OverlayHandle | undefined;
+    const dialog = new SelectDialog(title, items);
+    dialog.onCancel = () => handle?.hide();
+    dialog.onSelect = (item) => {
+      handle?.hide();
+      void this.runDialogAction(async () => {
+        await onSelect(item);
+      });
+    };
+    handle = this.tui.showOverlay(dialog, {
+      width: "88%",
+      maxHeight: "70%",
+      anchor: "bottom-center",
+      margin: { left: 2, right: 2, bottom: 2 },
+    });
+  }
+
+  private showInputDialog(
+    title: string,
+    onSubmit: (value: string) => void | Promise<void>,
+    initialValue?: string,
+  ): void {
+    let handle: OverlayHandle | undefined;
+    const dialog = new TextInputDialog(title, undefined, initialValue);
+    dialog.onCancel = () => handle?.hide();
+    dialog.onSubmit = (value) => {
+      handle?.hide();
+      void this.runDialogAction(async () => {
+        await onSubmit(value);
+      });
+    };
+    handle = this.tui.showOverlay(dialog, {
+      width: "80%",
+      maxHeight: 6,
+      anchor: "bottom-center",
+      margin: { left: 2, right: 2, bottom: 2 },
+    });
+  }
+
+  private async runDialogAction(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.tui.requestRender();
+    }
   }
 
   private async loadProviderAgents(
@@ -979,7 +1685,9 @@ class AgentRoomTuiApp implements Component {
 
   private selectProvider(providerId: string | undefined): void {
     if (!providerId) throw new Error("Usage: /provider <providerId>");
-    if (!this.snapshot.providers.some((provider) => provider.id === providerId)) {
+    if (
+      !this.snapshot.providers.some((provider) => provider.id === providerId)
+    ) {
       throw new Error(`Unknown provider: ${providerId}`);
     }
     this.selectedProviderId = providerId;
@@ -989,7 +1697,9 @@ class AgentRoomTuiApp implements Component {
 
   private selectById(id: string | undefined): void {
     if (!id) throw new Error("Usage: /select <agentId|taskId|messageId>");
-    const agentIndex = this.snapshot.agents.findIndex((agent) => agent.id === id);
+    const agentIndex = this.snapshot.agents.findIndex(
+      (agent) => agent.id === id,
+    );
     if (agentIndex >= 0) {
       this.selectedAgentIndex = agentIndex;
       this.viewIndex = VIEWS.indexOf("agents");
@@ -1038,7 +1748,9 @@ class AgentRoomTuiApp implements Component {
   ): { task: Task; rest: string[] } {
     const first = args[0];
     if (first && this.hasTask(first)) {
-      const task = this.snapshot.tasks.find((candidate) => candidate.id === first);
+      const task = this.snapshot.tasks.find(
+        (candidate) => candidate.id === first,
+      );
       if (task) return { task, rest: args.slice(1) };
     }
     if (first?.startsWith("task_")) {
@@ -1133,7 +1845,8 @@ function mergeProviderHealth(
   );
 
   return providers.map((provider) => {
-    const runtimeHealth = runtimeById.get(provider.id)?.health ?? provider.health;
+    const runtimeHealth =
+      runtimeById.get(provider.id)?.health ?? provider.health;
     return {
       ...provider,
       ...(runtimeHealth !== undefined ? { health: runtimeHealth } : {}),
@@ -1266,7 +1979,9 @@ function isAgentRole(value: string | undefined): value is AgentRole {
   return AGENT_ROLES.includes(value as AgentRole);
 }
 
-function isHarnessKind(value: string | undefined): value is HarnessSpec["kind"] {
+function isHarnessKind(
+  value: string | undefined,
+): value is HarnessSpec["kind"] {
   return (
     value === "claude-code" ||
     value === "pi" ||
@@ -1283,40 +1998,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function mod(value: number, divisor: number): number {
   return ((value % divisor) + divisor) % divisor;
-}
-
-function parseMouseEvent(data: string): MouseEvent | undefined {
-  const match = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
-  if (!match) return undefined;
-
-  const code = Number(match[1]);
-  const col = Number(match[2]);
-  const row = Number(match[3]);
-  if (!Number.isFinite(code) || !Number.isFinite(col) || !Number.isFinite(row)) {
-    return undefined;
-  }
-
-  if (code === 64) {
-    return { kind: "wheel-up", button: "wheel", row, col };
-  }
-  if (code === 65) {
-    return { kind: "wheel-down", button: "wheel", row, col };
-  }
-
-  if (match[4] === "m") {
-    return { kind: "release", button: "unknown", row, col };
-  }
-
-  const buttonCode = code & 3;
-  const button =
-    buttonCode === 0
-      ? "left"
-      : buttonCode === 1
-        ? "middle"
-        : buttonCode === 2
-          ? "right"
-          : "unknown";
-  return { kind: "press", button, row, col };
 }
 
 const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) : "";
