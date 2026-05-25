@@ -1,18 +1,19 @@
-# Clanky Migration
+# Clanky Agent Integration
 
-Clanky moved from `/Users/jamesvolpe/web/clanky-pi` into the AgentRoom workspace as a Pi-based personal agent.
+Clanky remains a standalone project in `/Users/jamesvolpe/web/clanky-pi`.
+AgentRoom integrates with it as an external Pi harness command, the same way it
+can launch any other runtime-backed agent.
 
-## Moved Packages
+## Boundary
 
-- `agents/clanky` contains the `@clanky/agent` package, persona markdown, Pi `InteractiveMode` entrypoint, handlers, stores, and runtime smoke test.
-- `packages/clanky-core` contains the surviving Clanky profile paths, memory, Linear links/outbox/client, skills loader, state store, and model-facing tool definitions.
-- `agents/clanky/skills` contains the bundled Pi-native Clanky skills: `daily-digest`, `linear-bridge`, and `pi-tui-coder`.
+- Clanky owns its persona, memory, profile state, Pi `InteractiveMode`, and bundled skills.
+- AgentRoom owns rooms, runtime bindings, tasks, communication gateways, and audited send/read coordination.
+- AgentRoom does not vendor or special-case Clanky source.
 
-The original `clanky-pi` checkout was left intact after copying so it can be reviewed, archived, or removed explicitly later.
+## Launch From Any Room
 
-## Launch
-
-AgentRoom treats Clanky as a `pi` harness:
+Install or expose the standalone `clanky` command, initialize any AgentRoom
+room, then launch Clanky as a Pi harness:
 
 ```bash
 agent-room launch clanky --harness pi --command "clanky" --cwd .
@@ -20,12 +21,15 @@ agent-room send clanky "hello"
 agent-room read clanky --lines 40
 ```
 
-The CLI resolves `--harness pi --command clanky` to the workspace-local `agents/clanky/src/bin.ts` through the root `tsx` binary.
+The command is resolved by the runtime environment, not by a workspace-local
+AgentRoom path. For local development, run the command from the Clanky checkout
+or put its bin on `PATH`.
 
-## Verification
+## Standalone Verification
 
-The package-level smoke test is:
+The Clanky repo owns its package-level smoke tests:
 
 ```bash
+cd /Users/jamesvolpe/web/clanky-pi
 pnpm exec tsx agents/clanky/test/runtime-smoke.ts
 ```

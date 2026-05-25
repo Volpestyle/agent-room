@@ -55,12 +55,6 @@
       ],
       "@agentroom/chat-discord": [
         "packages/integrations/chat-discord/src/index.ts"
-      ],
-      "@clanky/core": [
-        "packages/clanky-core/src/index.ts"
-      ],
-      "@clanky/agent": [
-        "agents/clanky/src/runClanky.ts"
       ]
     }
   }

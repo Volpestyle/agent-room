@@ -1,6 +1,5 @@
 packages:
   - "apps/*"
-  - "agents/*"
   - "packages/*"
   - "packages/integrations/*"
 allowBuilds:

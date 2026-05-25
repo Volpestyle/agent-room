@@ -2028,15 +2028,6 @@ function resolveHarnessSpec(input: {
   command: string;
   cwd: string;
 }): HarnessSpec {
-  if (input.kind === "pi" && input.command === "clanky") {
-    return {
-      kind: input.kind,
-      command: join(REPO_ROOT, "node_modules", ".bin", "tsx"),
-      args: [join(REPO_ROOT, "agents", "clanky", "src", "bin.ts")],
-      cwd: input.cwd,
-    };
-  }
-
   return {
     kind: input.kind,
     command: input.command,

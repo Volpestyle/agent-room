@@ -223,7 +223,7 @@ describe('agent-room runtime command safety', () => {
     }
   });
 
-  it('resolves the clanky pi harness to the workspace-local bin', async () => {
+  it('keeps pi harness commands external to AgentRoom', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'agentroom-launch-pi-'));
     const env = testEnv('cli-launch-pi-test');
 
@@ -256,16 +256,18 @@ describe('agent-room runtime command safety', () => {
           harness?: {
             command?: string;
             args?: string[];
+            kind?: string;
           };
         };
       };
 
-      expect(launched.metadata?.harness?.command).toMatch(
-        /node_modules\/\.bin\/tsx$/
+      expect(launched.metadata?.harness).toEqual(
+        expect.objectContaining({
+          kind: 'pi',
+          command: 'clanky'
+        })
       );
-      expect(launched.metadata?.harness?.args).toEqual([
-        expect.stringMatching(/agents\/clanky\/src\/bin\.ts$/)
-      ]);
+      expect(launched.metadata?.harness?.args).toBeUndefined();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
