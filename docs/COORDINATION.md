@@ -2,6 +2,8 @@
 
 AgentRoom has two coordination layers with different jobs.
 
+For enrolled agents, this guidance is operationalized in `skills/agentroom/SKILL.md`.
+
 ## Linear Is The Work Tracker
 
 Linear is the canonical source of truth for planned work:
@@ -66,8 +68,8 @@ If a room message becomes important to the durable work record, post a concise L
 AgentRoom can keep local task shadows so agents can attach runtime state and room messages to a piece of work. These local tasks should normally link to a `linear-issue` ref:
 
 ```bash
-agentroom task create "Implement runtime audit" --linear ENG-123
-agentroom task link-linear task_abc ENG-123
+agent-room task create "Implement runtime audit" --linear ENG-123
+agent-room task link-linear task_abc ENG-123
 ```
 
 When a Linear ref is present, treat Linear as canonical and AgentRoom as the local room/audit layer.

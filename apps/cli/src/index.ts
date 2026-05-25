@@ -39,7 +39,7 @@ interface RoomConfig {
 const program = new Command();
 
 program
-  .name('agentroom')
+  .name('agent-room')
   .description('Runtime-agnostic coordination plane for long-running coding agents')
   .version('0.1.0');
 

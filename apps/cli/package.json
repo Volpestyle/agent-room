@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
+    "agent-room": "./dist/index.js",
     "agentroom": "./dist/index.js"
   },
   "exports": {

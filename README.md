@@ -8,7 +8,7 @@ The first runtime target is Herdr, but the core is intentionally built around re
 
 ```text
 apps/
-  cli/             agentroom CLI
+  cli/             agent-room CLI
   daemon/          local HTTP API daemon
   mcp-server/      MCP server placeholder
   web/             future web/mobile-control shell notes
@@ -22,7 +22,11 @@ packages/
   runtime-tmux/    working minimal tmux runtime provider
   integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/etc.
 skills/
-  agentroom/       agent-facing skill instructions
+  agentroom/       enrolled-agent coordination skill
+  agentroom-operator/
+                   operator/lead skill for launching and managing agents
+docs/
+  architecture, coordination, runtime adapters, security, roadmap, ADRs
 examples/
   configs and role/policy examples
 ```
@@ -55,7 +59,7 @@ pnpm test
 Initialize a project room:
 
 ```bash
-agent-room init --room my-project --runtime herdr
+agent-room init --room my-project
 agent-room post "hello from the room" --channel announcements
 agent-room dm api-impl "Can you take auth callback?"
 agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
@@ -64,7 +68,9 @@ agent-room events --limit 20
 
 `init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, and the local event log path.
 
-AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, active handoffs, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
+AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, review transitions, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
+
+Agent-facing room behavior lives in `skills/agentroom/SKILL.md`. Operator and lead-agent launch behavior lives in `skills/agentroom-operator/SKILL.md`.
 
 Run the local API daemon:
 
@@ -83,49 +89,33 @@ Pick or inspect the runtime:
 
 ```bash
 agent-room runtime providers
-agent-room runtime use tmux
+agent-room runtime use <runtime>
 agent-room runtime doctor
 ```
 
-If Herdr is the default runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
-
-```bash
-herdr session attach agentroom
-agent-room runtime doctor
-```
+If `runtime doctor` reports adapter-specific setup requirements, see `docs/RUNTIMES.md`.
 
 Launch an agent using the configured default runtime:
 
 ```bash
-agent-room launch demo --harness shell --command "bash" --cwd .
-agent-room send demo "echo hello from AgentRoom"
-agent-room read demo --lines 40
-agent-room stop demo
+agent-room launch impl --harness codex --command "codex" --cwd .
+agent-room read impl --lines 40
 ```
 
-Override the runtime per command when needed:
+`launch` creates the runtime binding and runs the configured harness command. If you allocate a shell first, the session is not an active coding agent until a coding-agent command starts:
 
 ```bash
-agent-room launch demo-tmux --runtime tmux --harness shell --command "bash" --cwd .
+agent-room launch impl --harness shell --command "bash" --cwd .
+agent-room send impl "codex"
+agent-room read impl --lines 40
+agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
 ```
 
-For Herdr, `launch` can also override placement without editing config:
+Prefer `agent-room send` over raw provider commands for bound agents so terminal input is recorded in the AgentRoom event log. Use provider-specific commands only for adapter work, manual recovery, or sessions that are not AgentRoom-bound.
 
-```bash
-agent-room launch lead --placement workspace --harness shell --command "bash"
-agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash"
-agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash"
-```
+See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
 
-Herdr support lives behind `@agentroom/runtime-herdr`, and tmux support lives behind `@agentroom/runtime-tmux`. Runtime selection is config-driven, but each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform.
-
-By default, AgentRoom uses one broad Herdr session named `agentroom` and one Herdr workspace per AgentRoom room or workstream. For `agent-room init --room my-project --runtime herdr`, the Herdr session is `agentroom` and the Herdr workspace is `my-project`. Override the Herdr session with `agent-room init --runtime-session <name>` or by editing `.agentroom/config.yaml`.
-
-Herdr layout is config-driven:
-
-- `workspace-per-agent`: each agent gets a dedicated Herdr workspace.
-- `tab-per-agent`: agents share a Herdr workspace, with one tab per agent.
-- `pane-grid`: agents share a Herdr workspace, filling tabs up to `panesPerTab`. The default generated config uses two panes per tab, splits the existing agent pane to the right, and balances the tab.
+Runtime selection is config-driven, and each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform. Adapter-specific setup lives in `docs/RUNTIMES.md`.
 
 Example `.agentroom/config.yaml`:
 

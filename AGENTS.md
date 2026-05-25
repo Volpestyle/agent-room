@@ -5,7 +5,7 @@ AgentRoom has nearby reference repositories under `/Users/jamesvolpe/web`. Use t
 Reference repos:
 
 - `/Users/jamesvolpe/web/herdr`
-  - Use for Herdr runtime behavior, terminal multiplexing, panes/tabs/workspaces, agent status detection, and socket/API integration ideas.
+  - Use when working on the Herdr adapter or comparing terminal-multiplexer behavior. Do not let Herdr terminology leak into core AgentRoom concepts.
 - `/Users/jamesvolpe/web/pi`
   - Use for coding-agent harness design, tool calling, runtime state management, model provider abstractions, and TUI patterns.
 - `/Users/jamesvolpe/web/hermes-agent`
@@ -19,14 +19,26 @@ Rules for using these references:
 - Do not modify them unless the user explicitly asks for changes in that repo.
 - Do not vendor or copy large sections of code into AgentRoom. Adapt only the smallest useful pattern.
 - Preserve AgentRoom's runtime-provider boundary and event-first model.
+- Keep core AgentRoom guidance provider-neutral. Do not encode Herdr, tmux, or other runtime-specific operations in `AGENTS.md` or agent-facing skills unless the file is explicitly adapter-specific.
+- Use AgentRoom runtime commands and provider ports as the normal control surface. Raw multiplexer/provider commands are for adapter implementation, adapter docs, or manual recovery only.
 - Treat Linear MCP/CLI/skills as the canonical work tracker. AgentRoom local tasks are shadows/audit context when linked to Linear issues.
 - Use AgentRoom native messages for active channel/DM coordination between agents.
 - Prefer local AgentRoom conventions when they conflict with a reference repo.
 - Mention any reference repo paths that materially shaped your implementation.
 
+Agent handling:
+
+- When asked to spin up agents, verify `.agentroom/config.yaml` and `agent-room runtime doctor` first.
+- Use `skills/agentroom-operator/SKILL.md` as the operator playbook for launching and managing runtime-backed agents.
+- Use `skills/agentroom/SKILL.md` as the enrolled-agent playbook for worker/reviewer behavior inside a room.
+- If runtime health reports a provider-specific problem, fix it through AgentRoom configuration or the relevant adapter docs instead of bypassing AgentRoom as the normal workflow.
+- Treat `agent-room launch ... --harness shell --command "bash"` as shell allocation plus AgentRoom binding only. The resulting session is not an active coding agent until a coding-agent startup command or task command is sent into that shell.
+- Prefer launching the intended harness command directly when known, for example `--harness codex --command "codex"`. If using shell sessions, immediately follow launch with `agent-room send <agentId> "<startup command>"`, then read back output before sending the first task prompt.
+- Use `agent-room send/read/stop` for bound agents so runtime input and output are audited. Use raw provider commands only for manual recovery or non-AgentRoom sessions.
+
 Good lookup starting points:
 
-- Herdr adapter/runtime work: `/Users/jamesvolpe/web/herdr/README.md`, `SOCKET_API.md`, `SKILL.md`
+- Herdr adapter work only: `/Users/jamesvolpe/web/herdr/README.md`, `SOCKET_API.md`, `SKILL.md`
 - Pi harness/tooling work: `/Users/jamesvolpe/web/pi/README.md`, `packages/agent`, `packages/coding-agent`
 - Hermes gateway/skills/memory/cron work: `/Users/jamesvolpe/web/hermes-agent/README.md`, `providers`, `environments`, `web`, `ui-tui`
 - Clanky daemon/MCP/HTTP/profile work: `/Users/jamesvolpe/web/clanky-pi/README.md`

@@ -4,7 +4,7 @@ AgentRoom can read terminal output, send terminal input, route credentials-adjac
 
 ## Principles
 
-- Herdr/tmux/local runtime sockets stay local.
+- Runtime provider sockets stay local.
 - Remote clients talk to `agentroomd`, not directly to the runtime.
 - Every enrolled agent gets a scoped token.
 - Every terminal read and write can be audited.
