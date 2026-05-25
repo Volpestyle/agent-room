@@ -1,7 +1,7 @@
 import type { ActorRef, Agent, HarnessSpec, HumanEscalation, Id, Importance, Message, MessageKind, Ref, RuntimeBinding, Task, TaskStatus } from '../domain.js';
 import type { RoomEvent } from '../events.js';
 import { createId, nowIso } from '../ids.js';
-import type { EventStore } from '../ports/EventStore.js';
+import type { EventBatch, EventCursor, EventCursorPosition, EventQuery, EventStore } from '../ports/EventStore.js';
 
 export interface AgentRoomServiceOptions {
   roomId: Id;
@@ -17,7 +17,10 @@ export class AgentRoomService {
     options: AgentRoomServiceOptions
   ) {
     this.roomId = options.roomId;
-    this.systemActor = options.systemActor ?? { kind: 'system', id: 'agentroom' };
+    this.systemActor = options.systemActor ?? {
+      kind: 'system',
+      id: 'agentroom'
+    };
   }
 
   async postMessage(input: {
@@ -47,12 +50,14 @@ export class AgentRoomService {
     return message;
   }
 
-  async listMessages(query: {
-    channelId?: string;
-    threadId?: string;
-    participant?: ActorRef;
-    limit?: number;
-  } = {}): Promise<Message[]> {
+  async listMessages(
+    query: {
+      channelId?: string;
+      threadId?: string;
+      participant?: ActorRef;
+      limit?: number;
+    } = {}
+  ): Promise<Message[]> {
     let messages = (await this.events.list({ roomId: this.roomId }))
       .filter((event): event is Extract<RoomEvent, { type: 'message.posted' }> => event.type === 'message.posted')
       .map((event) => event.payload.message);
@@ -65,9 +70,7 @@ export class AgentRoomService {
     }
     if (query.participant !== undefined) {
       messages = messages.filter(
-        (message) =>
-          sameActor(message.sender, query.participant!) ||
-          (message.recipients ?? []).some((recipient) => sameActor(recipient, query.participant!))
+        (message) => sameActor(message.sender, query.participant!) || (message.recipients ?? []).some((recipient) => sameActor(recipient, query.participant!))
       );
     }
     if (query.limit !== undefined) messages = messages.slice(-query.limit);
@@ -75,13 +78,18 @@ export class AgentRoomService {
     return messages;
   }
 
-  async createTask(input: {
-    title: string;
-    description?: string;
-    assignee?: ActorRef;
-    createdBy?: ActorRef;
-    refs?: Ref[];
-  }): Promise<Task> {
+  async eventCursor(position: EventCursorPosition = 'end'): Promise<EventCursor> {
+    return this.events.cursor(position);
+  }
+
+  async listEventsFromCursor(cursor: EventCursor, query: Omit<EventQuery, 'roomId'> = {}): Promise<EventBatch> {
+    return this.events.listFromCursor(cursor, {
+      ...query,
+      roomId: this.roomId
+    });
+  }
+
+  async createTask(input: { title: string; description?: string; assignee?: ActorRef; createdBy?: ActorRef; refs?: Ref[] }): Promise<Task> {
     const now = nowIso();
     const task: Task = {
       id: createId('task', input.title),
@@ -112,9 +120,7 @@ export class AgentRoomService {
 
     await this.events.append(this.event('task.ref_added', { taskId: input.taskId, ref: input.ref }, now));
     if (input.ref.kind === 'linear-issue') {
-      await this.events.append(
-        this.event('linear.issue_event', { issueId: input.ref.id, taskId: input.taskId, action: 'linked' }, now)
-      );
+      await this.events.append(this.event('linear.issue_event', { issueId: input.ref.id, taskId: input.taskId, action: 'linked' }, now));
     }
     return updated;
   }
@@ -139,19 +145,22 @@ export class AgentRoomService {
 
     await this.events.appendMany([
       this.event('task.assigned', { taskId: input.taskId, assignee: input.assignee }, now),
-      this.event('task.status_changed', { taskId: input.taskId, status: 'claimed', previousStatus: task.status, actor: input.assignee }, now)
+      this.event(
+        'task.status_changed',
+        {
+          taskId: input.taskId,
+          status: 'claimed',
+          previousStatus: task.status,
+          actor: input.assignee
+        },
+        now
+      )
     ]);
 
     return updated;
   }
 
-  async updateTaskStatus(input: {
-    taskId: Id;
-    status: TaskStatus;
-    actor?: ActorRef;
-    reason?: string;
-    summary?: string;
-  }): Promise<Task> {
+  async updateTaskStatus(input: { taskId: Id; status: TaskStatus; actor?: ActorRef; reason?: string; summary?: string }): Promise<Task> {
     const task = await this.requireTask(input.taskId);
     const now = nowIso();
     const updated: Task = {
@@ -188,7 +197,11 @@ export class AgentRoomService {
 
     if (input.actor.kind === 'agent') {
       await this.events.append(
-        this.event('agent.blocked', { agentId: input.actor.id, taskId: input.taskId, reason: input.reason })
+        this.event('agent.blocked', {
+          agentId: input.actor.id,
+          taskId: input.taskId,
+          reason: input.reason
+        })
       );
     }
 
@@ -205,27 +218,18 @@ export class AgentRoomService {
 
     if (input.actor.kind === 'agent') {
       await this.events.append(
-        this.event(
-          'agent.done',
-          {
-            agentId: input.actor.id,
-            taskId: input.taskId,
-            ...(input.summary !== undefined ? { summary: input.summary } : {})
-          }
-        )
+        this.event('agent.done', {
+          agentId: input.actor.id,
+          taskId: input.taskId,
+          ...(input.summary !== undefined ? { summary: input.summary } : {})
+        })
       );
     }
 
     return task;
   }
 
-  async registerAgent(input: {
-    id: Id;
-    displayName?: string;
-    role: Agent['role'];
-    harness?: HarnessSpec;
-    capabilities?: string[];
-  }): Promise<Agent> {
+  async registerAgent(input: { id: Id; displayName?: string; role: Agent['role']; harness?: HarnessSpec; capabilities?: string[] }): Promise<Agent> {
     const now = nowIso();
     const agent: Agent = {
       id: input.id,
@@ -244,7 +248,12 @@ export class AgentRoomService {
   }
 
   async bindRuntime(input: { agentId: Id; runtime: RuntimeBinding }): Promise<void> {
-    await this.events.append(this.event('runtime.bound', { agentId: input.agentId, runtime: input.runtime }));
+    await this.events.append(
+      this.event('runtime.bound', {
+        agentId: input.agentId,
+        runtime: input.runtime
+      })
+    );
   }
 
   async getRuntimeBinding(agentId: Id): Promise<RuntimeBinding | undefined> {
@@ -271,7 +280,13 @@ export class AgentRoomService {
   }
 
   async recordRuntimeInput(input: { agentId: Id; text: string; source: ActorRef }): Promise<void> {
-    await this.events.append(this.event('runtime.input_sent', { agentId: input.agentId, text: input.text, source: input.source.id }));
+    await this.events.append(
+      this.event('runtime.input_sent', {
+        agentId: input.agentId,
+        text: input.text,
+        source: input.source.id
+      })
+    );
   }
 
   async recordLinearIssueEvent(input: {
@@ -294,12 +309,7 @@ export class AgentRoomService {
     );
   }
 
-  async askHuman(input: {
-    question: string;
-    from: ActorRef;
-    taskId?: Id;
-    priority?: Importance;
-  }): Promise<HumanEscalation> {
+  async askHuman(input: { question: string; from: ActorRef; taskId?: Id; priority?: Importance }): Promise<HumanEscalation> {
     const now = nowIso();
     const escalation: HumanEscalation = {
       id: createId('q'),
@@ -316,11 +326,7 @@ export class AgentRoomService {
     return escalation;
   }
 
-  private event<T extends RoomEvent['type']>(
-    type: T,
-    payload: Extract<RoomEvent, { type: T }>['payload'],
-    createdAt = nowIso()
-  ): Extract<RoomEvent, { type: T }> {
+  private event<T extends RoomEvent['type']>(type: T, payload: Extract<RoomEvent, { type: T }>['payload'], createdAt = nowIso()): Extract<RoomEvent, { type: T }> {
     return {
       id: createId('evt'),
       roomId: this.roomId,

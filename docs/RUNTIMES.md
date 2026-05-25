@@ -14,6 +14,8 @@ agent-room stop impl
 
 Provider-specific commands belong in adapter work, adapter docs, or manual recovery. Do not make worker agents depend on a specific terminal multiplexer.
 
+Runtime `read`, `send`, and `stop` require an AgentRoom binding by default so input/output stays audited. `--unaudited` is reserved for manual recovery against non-bound runtime sessions.
+
 ## Herdr Adapter
 
 Herdr support lives behind `@agentroom/runtime-herdr`. If Herdr is the selected runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
@@ -48,6 +50,15 @@ agent-room launch lead --placement workspace --harness shell --command "bash"
 agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash"
 agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash"
 ```
+
+For fresh pane-grid work, use a workspace label that is unique to the team or task:
+
+```bash
+agent-room launch impl-a --workspace squad-foo --cwd .
+agent-room launch impl-b --workspace squad-foo --cwd .
+```
+
+This avoids crowding new agents into stale panes from an older Herdr workspace. Clean up old Herdr workspaces or panes only when you have verified they are no longer running useful work; Herdr supports `workspace close` and `pane close` for manual recovery.
 
 ## tmux Adapter
 

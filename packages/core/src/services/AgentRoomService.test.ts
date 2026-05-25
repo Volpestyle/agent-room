@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { EventStore, RoomEvent } from '../index.js';
+import type { EventBatch, EventCursor, EventCursorPosition, EventStore, RoomEvent } from '../index.js';
 import { AgentRoomService } from './AgentRoomService.js';
 
 class TestStore implements EventStore {
@@ -9,6 +9,16 @@ class TestStore implements EventStore {
   }
   async appendMany(events: RoomEvent[]) {
     this.events.push(...events);
+  }
+  async cursor(position: EventCursorPosition = 'end'): Promise<EventCursor> {
+    return { position: position === 'start' ? 0 : this.events.length };
+  }
+  async listFromCursor(cursor: EventCursor): Promise<EventBatch> {
+    const start = Math.max(0, Math.min(cursor.position, this.events.length));
+    return {
+      events: this.events.slice(start),
+      cursor: { position: this.events.length }
+    };
   }
   async list() {
     return this.events;
@@ -43,7 +53,11 @@ describe('AgentRoomService', () => {
     });
 
     expect(await service.listMessages({ channelId: 'implementation' })).toHaveLength(1);
-    expect(await service.listMessages({ participant: { kind: 'agent', id: 'reviewer' } })).toMatchObject([
+    expect(
+      await service.listMessages({
+        participant: { kind: 'agent', id: 'reviewer' }
+      })
+    ).toMatchObject([
       {
         body: 'Please review',
         recipients: [{ kind: 'agent', id: 'reviewer' }]
@@ -56,9 +70,7 @@ describe('AgentRoomService', () => {
     const service = new AgentRoomService(store, { roomId: 'room-test' });
 
     const created = await service.createTask({ title: 'Wire task commands' });
-    expect(created.id).toMatch(
-      /^task_wire_task_commands_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-    );
+    expect(created.id).toMatch(/^task_wire_task_commands_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     const claimed = await service.claimTask({
       taskId: created.id,
       assignee: { kind: 'agent', id: 'impl' }

@@ -1,9 +1,51 @@
 import { z } from 'zod';
 import type { ActorRef, Ref } from './domain.js';
 
+export const actorKindSchema = z.enum([
+  'human',
+  'agent',
+  'system',
+  'connector'
+]);
+
+export const agentRoleSchema = z.enum([
+  'lead',
+  'planner',
+  'implementer',
+  'reviewer',
+  'runner',
+  'qa',
+  'observer',
+  'custom'
+]);
+
+export const harnessKindSchema = z.enum([
+  'claude-code',
+  'pi',
+  'codex',
+  'gemini-cli',
+  'shell',
+  'custom'
+]);
+
+export const messageKindSchema = z.enum([
+  'chat',
+  'announcement',
+  'status',
+  'question',
+  'answer',
+  'decision',
+  'handoff',
+  'review',
+  'approval-request',
+  'approval-result'
+]);
+
+export const importanceSchema = z.enum(['low', 'normal', 'high', 'urgent']);
+
 export const actorRefSchema = z
   .object({
-    kind: z.enum(['human', 'agent', 'system', 'connector']),
+    kind: actorKindSchema,
     id: z.string().min(1),
     displayName: z.string().optional()
   })
@@ -11,7 +53,9 @@ export const actorRefSchema = z
     (actor): ActorRef => ({
       kind: actor.kind,
       id: actor.id,
-      ...(actor.displayName !== undefined ? { displayName: actor.displayName } : {})
+      ...(actor.displayName !== undefined
+        ? { displayName: actor.displayName }
+        : {})
     })
   );
 
@@ -65,11 +109,9 @@ export const messageCreateSchema = z.object({
   threadId: z.string().optional(),
   sender: actorRefSchema.default({ kind: 'human', id: 'local' }),
   recipients: z.array(actorRefSchema).optional(),
-  kind: z
-    .enum(['chat', 'announcement', 'status', 'question', 'answer', 'decision', 'handoff', 'review', 'approval-request', 'approval-result'])
-    .default('chat'),
+  kind: messageKindSchema.default('chat'),
   body: z.string().min(1),
-  importance: z.enum(['low', 'normal', 'high', 'urgent']).default('normal')
+  importance: importanceSchema.default('normal')
 });
 
 export const taskCreateSchema = z.object({
@@ -100,7 +142,7 @@ export const humanEscalationCreateSchema = z.object({
   question: z.string().min(1),
   from: actorRefSchema.default({ kind: 'human', id: 'local' }),
   taskId: z.string().optional(),
-  priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal')
+  priority: importanceSchema.default('normal')
 });
 
 export type MessageCreateInput = z.infer<typeof messageCreateSchema>;
@@ -108,4 +150,6 @@ export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskLinkRefInput = z.infer<typeof taskLinkRefSchema>;
 export type TaskClaimInput = z.infer<typeof taskClaimSchema>;
 export type TaskStatusUpdateInput = z.infer<typeof taskStatusUpdateSchema>;
-export type HumanEscalationCreateInput = z.infer<typeof humanEscalationCreateSchema>;
+export type HumanEscalationCreateInput = z.infer<
+  typeof humanEscalationCreateSchema
+>;

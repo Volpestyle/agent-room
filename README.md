@@ -79,6 +79,15 @@ agent-room daemon
 curl http://127.0.0.1:4317/health
 ```
 
+For managed background use, the CLI writes `.agentroom/daemon.pid` and allows human operators plus enrolled `lead`/`gateway` agents to change daemon lifecycle state:
+
+```bash
+agent-room daemon start
+agent-room daemon status
+agent-room daemon stop
+agent-room daemon restart
+```
+
 Try the fake runtime smoke test:
 
 ```bash
@@ -111,9 +120,25 @@ agent-room read impl --lines 40
 agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
 ```
 
-Prefer `agent-room send` over raw provider commands for bound agents so terminal input is recorded in the AgentRoom event log. Use provider-specific commands only for adapter work, manual recovery, or sessions that are not AgentRoom-bound.
+Prefer `agent-room send` over raw provider commands for bound agents so terminal input is recorded in the AgentRoom event log. `read`, `send`, and `stop` require a room binding by default; use `--unaudited` only for manual recovery or sessions that are not AgentRoom-bound.
 
 See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
+
+Wait for room activity from scripts or handoffs:
+
+```bash
+agent-room wait --message "ready for review" --timeout 300 --json
+agent-room wait --task-status task_xxx:done --timeout 60
+agent-room wait --dm-to-me --since now
+```
+
+`wait` polls the room event log from a cursor and exits 0 on the first matching message, task status change, or DM to `AGENTROOM_AGENT_ID`; it exits non-zero on timeout. `--since now` starts at the moment `wait` begins running.
+
+Stream the room audit log as newline-delimited JSON:
+
+```bash
+agent-room events --follow --json
+```
 
 Runtime selection is config-driven, and each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform. Adapter-specific setup lives in `docs/RUNTIMES.md`.
 

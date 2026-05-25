@@ -20,10 +20,6 @@ if [ ! -x "$TSX" ]; then
 fi
 
 case "${1:-}" in
-  daemon|server|serve)
-    shift
-    exec "$TSX" "$ROOT/apps/daemon/src/index.ts" "$@"
-    ;;
   "")
     exec "$TSX" "$ROOT/apps/cli/src/index.ts" --help
     ;;

@@ -39,7 +39,9 @@ describe('agentroom daemon app', () => {
     expect(dmResponse.status).toBe(201);
 
     const messagesResponse = await app.request('/v1/messages?participant=reviewer');
-    const { messages } = (await messagesResponse.json()) as { messages: Array<{ body: string }> };
+    const { messages } = (await messagesResponse.json()) as {
+      messages: Array<{ body: string }>;
+    };
     expect(messages).toEqual([expect.objectContaining({ body: 'Ready for review' })]);
   });
 
@@ -56,7 +58,9 @@ describe('agentroom daemon app', () => {
       })
     });
     expect(createResponse.status).toBe(201);
-    const { task } = (await createResponse.json()) as { task: { id: string; status: string } };
+    const { task } = (await createResponse.json()) as {
+      task: { id: string; status: string };
+    };
 
     const claimResponse = await app.request(`/v1/tasks/${task.id}/claim`, {
       method: 'POST',
@@ -68,12 +72,18 @@ describe('agentroom daemon app', () => {
     const statusResponse = await app.request(`/v1/tasks/${task.id}/status`, {
       method: 'PATCH',
       headers: jsonHeaders(),
-      body: JSON.stringify({ status: 'done', actor: { kind: 'agent', id: 'impl' }, summary: 'Done' })
+      body: JSON.stringify({
+        status: 'done',
+        actor: { kind: 'agent', id: 'impl' },
+        summary: 'Done'
+      })
     });
     expect(statusResponse.status).toBe(200);
 
     const listResponse = await app.request('/v1/tasks');
-    const { tasks } = (await listResponse.json()) as { tasks: Array<{ id: string; status: string; assignee?: { id: string } }> };
+    const { tasks } = (await listResponse.json()) as {
+      tasks: Array<{ id: string; status: string; assignee?: { id: string } }>;
+    };
     expect(tasks).toEqual([
       expect.objectContaining({
         id: task.id,
@@ -110,13 +120,10 @@ describe('agentroom daemon app', () => {
     await outputResponse.json();
 
     const eventsResponse = await app.request('/v1/events?limit=20');
-    const { events } = (await eventsResponse.json()) as { events: Array<{ type: string }> };
-    expect(events.map((event) => event.type)).toEqual([
-      'agent.joined',
-      'runtime.bound',
-      'runtime.input_sent',
-      'runtime.output_observed'
-    ]);
+    const { events } = (await eventsResponse.json()) as {
+      events: Array<{ type: string }>;
+    };
+    expect(events.map((event) => event.type)).toEqual(['agent.joined', 'runtime.bound', 'runtime.input_sent', 'runtime.output_observed']);
   });
 });
 
@@ -125,7 +132,8 @@ async function appOptions() {
   tempDirs.push(dir);
   return {
     roomId: 'test-room',
-    eventLogPath: join(dir, 'events.jsonl')
+    eventLogPath: join(dir, 'events.jsonl'),
+    cwd: dir
   };
 }
 

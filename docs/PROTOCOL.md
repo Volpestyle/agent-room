@@ -24,6 +24,7 @@ agent-room whoami --json
 agent-room post "Starting task" --channel implementation --kind status
 agent-room dm reviewer "Ready for review on ENG-123"
 agent-room messages --channel implementation --limit 20
+agent-room task show AR-42 --json
 agent-room task claim AR-42
 agent-room task link-linear AR-42 ENG-123
 agent-room task comment AR-42 "Implemented callback and tests pass"

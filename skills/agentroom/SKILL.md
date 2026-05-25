@@ -25,10 +25,38 @@ If `AGENTROOM` is not set, do not assume the current process is part of the room
 - Use `agent-room ask-human` for decisions that require the user.
 - Use `agent-room block` when blocked.
 - Use `agent-room done` only after tests/checks, or state clearly what was not checked.
+- Use `agent-room task status` for intermediate workflow states such as `working` and `ready-for-review`.
 - Do not send input to another agent unless your role permits it.
 - Do not read all runtime sessions unless your role permits it.
 - Prefer structured commands over plain chat.
 - If Linear tools are unavailable, report `tracker_update_skipped` with the reason.
+
+## Do not idle at end-of-turn while waiting
+
+If your next step depends on someone else posting a message, DMing you, or finishing a task, your turn must not end with "waiting". A worker that just polled once and stopped is functionally deadlocked until a human nudges it. Use `agent-room wait` inside the same turn — it blocks until the matching event lands or the timeout elapses.
+
+```bash
+# Wait for review feedback to land as a DM:
+agent-room wait --dm-to-me --timeout 600 --json
+
+# Wait for the reviewer to post the trigger phrase:
+agent-room wait --message 'ready for review' --timeout 600 --json
+
+# Wait for a specific task to flip status:
+agent-room wait --task-status "$TASK:ready-for-review" --timeout 600
+```
+
+`wait` exits 0 with the matching event (JSON with `--json`) or non-zero on timeout. `--since now` (default) only matches events that arrive after the command starts. Pair it with the action you want to take next, so the worker stays in-turn until the work is real.
+
+## Known CLI surface (don't waste turns rediscovering)
+
+Commands that **do** exist: `init`, `whoami`, `post`, `dm`, `messages`, `wait`, `task {create,list,show,claim,status,link-linear,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `read`, `send`, `stop`.
+
+`subscribe` and `watch` are not CLI commands. Use `agent-room wait` to block for one matching future event, `agent-room events --follow --json` to stream audit events, `agent-room messages` for channel/DM history, and `agent-room events` for audit snapshots. To inspect a task by id: `agent-room task show <id> --json`.
+
+Channel ids you'll see: `announcements`, `implementation`, `dm`. To read DMs already sent to you: `agent-room messages -c dm --limit 20`. The `--with <agent>` filter matches messages where that agent is sender OR recipient. To **block until a new DM arrives**, use `agent-room wait --dm-to-me`.
+
+For room audit or debugging context, use `agent-room events --limit 20 --json`. Runtime `read`, `send`, and `stop` require an AgentRoom binding by default; `--unaudited` is manual recovery only.
 
 ## Workflow
 
