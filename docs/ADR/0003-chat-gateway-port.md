@@ -33,14 +33,16 @@ Discord is the first adapter. Its package may support Discord-specific credentia
 
 This addendum clarifies how `ChatGatewayProvider` is used in practice. It does not change the port shape; it pins down deployment, ownership, attribution, and what still needs to be built.
 
-### Two deployment topologies
+### Two independent axes
 
-The same `@agentroom/chat-discord` package supports two lifecycle owners. The token-ownership question collapses to "which process opens the socket."
+The same `@agentroom/chat-discord` package supports two lifecycle owners. The token-ownership question collapses to "which process opens the socket." Room participation is separate from gateway ownership.
 
-1. **Standalone agent (no daemon).** An agent such as a single Clanky instance imports the package as a library and runs the gateway in-process with its own token. Direct Discord <-> agent. The agent owns the token because there is no daemon. The agent is free to skip `ChatGatewayRouter` entirely and consume `ChatInboundMessage` directly. This is the mode that preserves the legacy Clanky selfbot use case.
-2. **Enrolled multi-agent room (daemon running).** `agentroomd` owns the gateway and the token. The Discord identity is the _room's_ connector, not any individual agent's. Inbound traffic flows through `ChatGatewayRouter`, whose route table maps `{ providerId, conversationId, threadId? } -> target`. The typical target for a chat-driven room is `agent-stdin:<lead-agent>`. Worker agents do not see Discord directly; the lead distributes work via AgentRoom native channel posts, DMs, and tasks.
+- **Agent-owned gateway.** An agent such as Clanky imports the package as a library and runs the gateway in-process with its own token. Direct Discord <-> agent. The agent can skip `ChatGatewayRouter` entirely and consume `ChatInboundMessage` directly. This preserves the legacy Clanky selfbot use case and can run whether or not the agent is also participating in AgentRoom.
+- **Room-owned gateway.** `agentroomd` owns the gateway and token for a specific conversation. The Discord identity is the _room's_ connector, not any individual agent's. Inbound traffic flows through `ChatGatewayRouter`, whose route table maps `{ providerId, conversationId, threadId? } -> target`. The typical target for a chat-driven room is `agent-stdin:<lead-agent>`. Worker agents do not see that room-owned Discord conversation directly; the lead distributes work via AgentRoom native channel posts, DMs, and tasks.
 
 The lead/worker distinction is **not** an agent-code concern. It is an emergent property of how routes are configured and how the lead chooses to fan out work. The agent harness is identical in both roles.
+
+One Discord channel or DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
 
 ### Multi-channel rooms
 

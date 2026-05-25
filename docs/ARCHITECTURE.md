@@ -76,14 +76,18 @@ Chat gateways are not the core state store; rooms and the event log remain autho
 - the adapter (`ChatGatewayProvider`) — owns the socket, credential mode, inbound normalization, and outbound send.
 - the router (`ChatGatewayRouter`, in core) — consumes normalized inbound messages and routes them to `room-channel | agent-dm | agent-stdin` targets via a static route table keyed by `{ providerId, conversationId, threadId? }`.
 
-### Deployment topologies
+### Room Participation And Gateway Ownership
 
-Same adapter, two lifecycle owners:
+Room participation and chat gateway ownership are separate axes:
 
-1. **Standalone agent.** No daemon. The agent imports `@agentroom/chat-discord` as a library, runs the gateway in-process with its own token, and consumes `ChatInboundMessage` directly. Preserves the single-Clanky-with-its-own-Discord use case.
-2. **Enrolled multi-agent room.** `agentroomd` owns the gateway and the token. The Discord identity is the room's connector. Inbound traffic flows through `ChatGatewayRouter`. Workers never touch Discord; the lead distributes work via AgentRoom native channels/DMs/tasks.
+- An agent can run outside AgentRoom or participate in a room.
+- Each external conversation is owned either by an agent process or by `agentroomd`.
 
-Lead vs worker is configuration, not agent code. Pointing the route at `agent-stdin:<id>` makes that agent the lead; the rest of the room is reached only via AgentRoom native messaging from the lead.
+Agent-owned Discord preserves the single-Clanky-with-its-own-Discord identity and can coexist with AgentRoom participation. Room-owned Discord uses the room connector identity, flows through `ChatGatewayRouter`, and is the right fit for shared public channels or one-bot-to-many-agents fanout.
+
+Lead vs worker is configuration, not agent code. Pointing a room-owned route at `agent-stdin:<id>` makes that agent the lead for that conversation; the rest of the room is reached through AgentRoom native messaging from the lead.
+
+One Discord channel/DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
 
 ### Outbound dispatcher
 

@@ -68,16 +68,18 @@ Workers with the `agentroom` skill use `agent-room wait` to block on events inst
 
 Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, Discord webhook-mode posting, and daemon config loading exist.
 
-### Topology choice
+### Ownership choice
 
-Two valid topologies:
+Room participation and gateway ownership are separate choices:
 
-1. **Standalone agent.** No daemon involvement; a single agent (e.g. one Clanky) embeds `@agentroom/chat-discord` and owns its own token. Use when you want a personal agent with its own Discord identity and no room around it.
-2. **Enrolled multi-agent room.** Daemon owns the gateway and the token; the Discord identity is the room's connector. Use when several agents must share a public face in a single Discord channel.
+1. **Agent-owned gateway.** A single agent (e.g. Clanky) embeds `@agentroom/chat-discord` and owns its own token. Use when you want that agent to keep its Discord identity. This can coexist with AgentRoom participation.
+2. **Room-owned gateway.** Daemon owns the gateway and token for a specific conversation; the Discord identity is the room's connector. Use when several agents must share a public face in a single Discord channel.
+
+One Discord channel or DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
 
 ### Lead-as-public-face pattern (multi-agent room)
 
-When mirroring Discord into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to Discord and are only reached via AgentRoom DMs/tasks from the lead.
+When mirroring a room-owned Discord conversation into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to that Discord conversation and are only reached via AgentRoom DMs/tasks from the lead.
 
 Sample launch:
 
@@ -131,9 +133,9 @@ chat:
 
 Messages posted through the daemon HTTP API are mirrored through outbound routes. Messages posted by separate CLI processes are recorded in the event log but are not yet streamed through the daemon dispatcher.
 
-### Standalone embedding (not an operator task)
+### Agent-owned embedding (not an operator task)
 
-If a user wants a single agent with its own Discord identity, the agent imports `@agentroom/chat-discord` directly and runs the gateway in its own process. The operator surface here is empty — no daemon, no routes, no enrollment. Mention this to the user when they describe a single-agent use case so they don't pay the multi-agent room overhead unnecessarily.
+If a user wants a single agent with its own Discord identity, the agent imports `@agentroom/chat-discord` directly and runs the gateway in its own process. The operator surface here is empty for that conversation — no daemon route is needed. The same agent may still be launched into AgentRoom for coordination.
 
 ## Runtime Boundary
 

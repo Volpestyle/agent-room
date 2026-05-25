@@ -7,7 +7,7 @@ can launch any other runtime-backed agent.
 ## Boundary
 
 - Clanky owns its persona, memory, profile state, Pi `InteractiveMode`, and bundled skills.
-- AgentRoom owns rooms, runtime bindings, tasks, communication gateways, and audited send/read coordination.
+- AgentRoom owns rooms, runtime bindings, tasks, room-owned communication gateways, and audited send/read coordination.
 - AgentRoom does not vendor or special-case Clanky source.
 
 ## Launch From Any Room
