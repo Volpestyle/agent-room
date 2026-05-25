@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Editor,
@@ -223,6 +223,7 @@ class AgentRoomTuiApp implements Component {
   private refreshTimer: NodeJS.Timeout | undefined;
   private viewIndex = 0;
   private selectedProviderId: string | undefined;
+  private activeAgentId: string | undefined;
   private selectedAgentIndex = 0;
   private selectedTaskIndex = 0;
   private selectedMessageIndex = Number.MAX_SAFE_INTEGER;
@@ -488,7 +489,7 @@ class AgentRoomTuiApp implements Component {
     if (this.promptActive) {
       return [section("operator input"), ...this.editor.render(width)];
     }
-    const selectedAgent = this.selectedAgent()?.id ?? "no agent";
+    const selectedAgent = this.inputAgentId() ?? "no agent";
     return [
       style.dim(
         `browse mode  / slash commands  ? palette  i ask ${selectedAgent}  enter actions  n task  p post`,
@@ -735,7 +736,7 @@ class AgentRoomTuiApp implements Component {
   }
 
   private renderFooter(width: number): string[] {
-    const selectedAgent = this.selectedAgent()?.id ?? "none";
+    const selectedAgent = this.inputAgentId() ?? "none";
     const selectedTask = this.selectedTask()?.id ?? "none";
     const selectedMessage = this.selectedMessage()?.id ?? "none";
     return [
@@ -757,8 +758,8 @@ class AgentRoomTuiApp implements Component {
     try {
       if (value.startsWith("/")) {
         await this.runCommand(value.slice(1));
-      } else if (this.selectedAgent()) {
-        await this.sendToAgent(this.selectedAgent()!.id, value);
+      } else if (this.inputAgentId()) {
+        await this.sendToAgent(this.inputAgentId()!, value);
       } else {
         throw new Error(
           "No agent selected; use /operator, /launch, or /post #channel",
@@ -826,7 +827,7 @@ class AgentRoomTuiApp implements Component {
       }
       case "ask":
       case "send": {
-        const selected = this.selectedAgent()?.id;
+        const selected = this.inputAgentId();
         const target = args[0] && this.hasAgent(args[0]) ? args[0] : selected;
         const body =
           target === args[0] ? args.slice(1).join(" ") : args.join(" ");
@@ -957,6 +958,7 @@ class AgentRoomTuiApp implements Component {
       }
       case "operator": {
         const [agentId = "operator", ...commandParts] = args;
+        this.activeAgentId = agentId;
         await this.launchAgent(agentId, "lead", operatorHarness(commandParts));
         return;
       }
@@ -999,6 +1001,7 @@ class AgentRoomTuiApp implements Component {
       role,
       harness,
     });
+    this.activeAgentId = agentId;
     this.notice(`launched ${agentId}`);
   }
 
@@ -1200,6 +1203,7 @@ class AgentRoomTuiApp implements Component {
         );
         if (index >= 0) {
           this.selectedAgentIndex = index;
+          this.activeAgentId = item.value;
           this.viewIndex = VIEWS.indexOf("agents");
           void this.refresh();
           this.tui.requestRender();
@@ -1677,6 +1681,7 @@ class AgentRoomTuiApp implements Component {
         this.selectedAgentIndex + delta,
         Math.max(1, this.snapshot.agents.length),
       );
+      this.activeAgentId = this.selectedAgent()?.id;
     }
     this.tui.requestRender();
   }
@@ -1700,6 +1705,12 @@ class AgentRoomTuiApp implements Component {
     );
     if (agentIndex >= 0) {
       this.selectedAgentIndex = agentIndex;
+      this.activeAgentId = id;
+      this.viewIndex = VIEWS.indexOf("agents");
+      return;
+    }
+    if (this.knownAgentIds().has(id)) {
+      this.activeAgentId = id;
       this.viewIndex = VIEWS.indexOf("agents");
       return;
     }
@@ -1722,6 +1733,10 @@ class AgentRoomTuiApp implements Component {
 
   private selectedAgent(): RuntimeAgent | undefined {
     return this.snapshot.agents[this.selectedAgentIndex];
+  }
+
+  private inputAgentId(): string | undefined {
+    return this.activeAgentId ?? this.selectedAgent()?.id;
   }
 
   private selectedTask(): Task | undefined {
@@ -2024,16 +2039,6 @@ function operatorHarness(commandParts: string[]): HarnessSpec {
     }
   }
 
-  const pi = findExecutableInPath("pi");
-  if (pi) {
-    return {
-      kind: "pi",
-      command: pi,
-      args: ["--session-dir", ".agentroom/pi-sessions"],
-      cwd: process.cwd(),
-    };
-  }
-
   const localPi = findSiblingPiCheckout();
   const node = findExecutableInPath("node");
   if (localPi && node) {
@@ -2050,20 +2055,45 @@ function operatorHarness(commandParts: string[]): HarnessSpec {
     };
   }
 
+  const pi = findExecutableInPath("pi");
+  if (pi) {
+    return {
+      kind: "pi",
+      command: pi,
+      args: ["--session-dir", ".agentroom/pi-sessions"],
+      cwd: process.cwd(),
+    };
+  }
+
   return {
     kind: "pi",
-    command: "pi",
-    args: ["--session-dir", ".agentroom/pi-sessions"],
+    command: "/bin/sh",
+    args: [
+      "-lc",
+      "echo 'agent-room: could not find pi. Set AGENTROOM_OPERATOR_COMMAND or keep the pi checkout at ../pi or ./pi.' >&2; exit 127",
+    ],
     cwd: process.cwd(),
   };
 }
 
 function findSiblingPiCheckout(): string | undefined {
-  const root = resolve(process.cwd(), "..", "pi");
-  return existsSync(resolve(root, "packages/coding-agent/src/cli.ts")) &&
-    existsSync(resolve(root, "node_modules/tsx/dist/cli.mjs"))
-    ? root
-    : undefined;
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    process.env.AGENTROOM_PI_ROOT,
+    resolve(process.cwd(), "pi"),
+    resolve(process.cwd(), "..", "pi"),
+    resolve(process.cwd(), "..", "..", "pi"),
+    resolve(moduleDir, "..", "..", "..", "..", "pi"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  for (const root of [...new Set(candidates)]) {
+    if (
+      existsSync(resolve(root, "packages/coding-agent/src/cli.ts")) &&
+      existsSync(resolve(root, "node_modules/tsx/dist/cli.mjs"))
+    ) {
+      return root;
+    }
+  }
+  return undefined;
 }
 
 function findExecutableInPath(name: string): string | undefined {
