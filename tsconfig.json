@@ -15,6 +15,7 @@
     { "path": "packages/integrations/notify-discord" },
     { "path": "packages/integrations/chat-discord" },
     { "path": "apps/daemon" },
+    { "path": "apps/tui" },
     { "path": "apps/cli" },
     { "path": "apps/mcp-server" }
   ]

@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Command } from "commander";
 import {
@@ -50,6 +50,13 @@ const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
+
+type AgentRoomTuiModule = {
+  runAgentRoomTui: (options: {
+    baseUrl?: string;
+    refreshMs?: number;
+  }) => Promise<void>;
+};
 
 type DaemonMode = "foreground" | "start" | "status" | "stop" | "restart";
 
@@ -112,6 +119,21 @@ interface RoomConfig {
   roomId: string;
   roomName: string;
   createdAt: string;
+}
+
+async function loadTui(): Promise<AgentRoomTuiModule> {
+  try {
+    return (await import("@agentroom/tui")) as AgentRoomTuiModule;
+  } catch (error) {
+    const sourceUrl = pathToFileURL(
+      join(REPO_ROOT, "apps", "tui", "src", "index.ts"),
+    ).href;
+    try {
+      return (await import(sourceUrl)) as AgentRoomTuiModule;
+    } catch {
+      throw error;
+    }
+  }
 }
 
 const program = new Command();
@@ -222,6 +244,27 @@ program
   .action(async (mode: string, options: DaemonCommandOptions) => {
     await handleDaemonCommand(parseDaemonMode(mode), options);
   });
+
+program
+  .command("tui")
+  .description("Open the interactive AgentRoom terminal UI")
+  .option(
+    "--daemon <url>",
+    "daemon base URL",
+    process.env.AGENTROOM_DAEMON ?? `http://127.0.0.1:${DEFAULT_PORT}`,
+  )
+  .option("--refresh-ms <ms>", "refresh interval in milliseconds", parseInteger)
+  .action(
+    async (options: { daemon: string; refreshMs?: number }) => {
+      const { runAgentRoomTui } = await loadTui();
+      await runAgentRoomTui({
+        baseUrl: options.daemon,
+        ...(options.refreshMs !== undefined
+          ? { refreshMs: options.refreshMs }
+          : {}),
+      });
+    },
+  );
 
 program
   .command("post")

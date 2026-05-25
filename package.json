@@ -19,6 +19,7 @@
     "clean": "pnpm -r --parallel clean && rm -rf coverage",
     "dev:daemon": "pnpm --filter @agentroom/daemon dev",
     "dev:cli": "pnpm --filter @agentroom/cli dev --",
+    "dev:tui": "pnpm --filter @agentroom/tui dev --",
     "test": "vitest run",
     "typecheck": "tsc -b",
     "format": "prettier --write ."
