@@ -4,8 +4,10 @@ import {
   AgentRoomService,
   ChatGatewayOutboundDispatcher,
   ChatGatewayRouter,
+  createId,
   humanEscalationCreateSchema,
   messageCreateSchema,
+  nowIso,
   taskClaimSchema,
   taskCreateSchema,
   taskDeleteSchema,
@@ -13,6 +15,7 @@ import {
   taskLinkRefSchema,
   taskStatusUpdateSchema,
   type ChatGatewayProvider,
+  type RoomEvent,
   type RuntimeProvider,
   type RuntimeBinding,
   type StartAgentRequest,
@@ -437,6 +440,15 @@ export function createAppWithLifecycle(
     return c.json({ ok: true });
   });
 
+  app.delete("/v1/runtime/:providerId/agents/:agentId", async (c) => {
+    const provider = registry.runtime(c.req.param("providerId"));
+    const agentId = c.req.param("agentId");
+    const binding = await service.getRuntimeBinding(agentId);
+    await provider.stopAgent(stopTargetFor(provider, agentId, binding));
+    await store.append(agentLeftEvent(roomId, agentId, "stopped via api"));
+    return c.json({ ok: true, agentId, runtime: provider.id });
+  });
+
   app.get("/v1/chat/gateways", async (c) => {
     const gateways = await Promise.all(
       chatRegistry.listGateways().map(async (provider) => ({
@@ -546,6 +558,34 @@ function bindingIdFor(
   binding?: RuntimeBinding,
 ): string | undefined {
   return binding?.providerId === provider.id ? binding.bindingId : undefined;
+}
+
+function stopTargetFor(
+  provider: RuntimeProvider,
+  agentId: string,
+  binding?: RuntimeBinding,
+): string {
+  if (provider.kind === "herdr" && binding?.providerId === provider.id) {
+    return binding.bindingId;
+  }
+  return agentId;
+}
+
+function agentLeftEvent(
+  roomId: string,
+  agentId: string,
+  reason?: string,
+): Extract<RoomEvent, { type: "agent.left" }> {
+  return {
+    id: createId("evt"),
+    roomId,
+    type: "agent.left",
+    payload: {
+      agentId,
+      ...(reason !== undefined ? { reason } : {}),
+    },
+    createdAt: nowIso(),
+  };
 }
 
 function actorKind(value: string): "human" | "agent" | "system" | "connector" {

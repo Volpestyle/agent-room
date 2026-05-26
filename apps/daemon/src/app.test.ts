@@ -282,6 +282,16 @@ describe("agentroom daemon app", () => {
     expect(outputResponse.status).toBe(200);
     await outputResponse.json();
 
+    const stopResponse = await app.request("/v1/runtime/fake-local/agents/demo", {
+      method: "DELETE",
+    });
+    expect(stopResponse.status).toBe(200);
+    await expect(stopResponse.json()).resolves.toMatchObject({
+      ok: true,
+      agentId: "demo",
+      runtime: "fake-local",
+    });
+
     const eventsResponse = await app.request("/v1/events?limit=20");
     const { events } = (await eventsResponse.json()) as {
       events: Array<{ type: string }>;
@@ -291,6 +301,7 @@ describe("agentroom daemon app", () => {
       "runtime.bound",
       "runtime.input_sent",
       "runtime.output_observed",
+      "agent.left",
     ]);
   });
 

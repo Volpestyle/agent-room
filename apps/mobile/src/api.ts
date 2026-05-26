@@ -68,6 +68,21 @@ export interface RuntimeAgent {
   state: string;
 }
 
+export interface StartRuntimeAgentInput {
+  agentId: string;
+  displayName?: string;
+  role: string;
+  harness: {
+    kind: string;
+    command: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+  };
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
 export interface DaemonHealth {
   ok: boolean;
   pid: number;
@@ -145,6 +160,14 @@ export function createAgentRoomClient(options: AgentRoomClientOptions) {
       request<{ agents: RuntimeAgent[] }>(
         `/v1/runtime/${encodeURIComponent(providerId)}/agents`,
       ),
+    startRuntimeAgent: (providerId: string, input: StartRuntimeAgentInput) =>
+      request<{ agent: RuntimeAgent }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
     readRuntimeAgent: (providerId: string, agentId: string, lines = 80) =>
       request<{ output: AgentOutput }>(
         `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/output?lines=${encodeURIComponent(lines)}`,
@@ -160,6 +183,11 @@ export function createAgentRoomClient(options: AgentRoomClientOptions) {
           method: "POST",
           body: JSON.stringify({ text, submit: true }),
         },
+      ),
+    stopRuntimeAgent: (providerId: string, agentId: string) =>
+      request<{ ok: true }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}`,
+        { method: "DELETE" },
       ),
     postMessage: (body: string, channelId = "announcements") =>
       request<{ message: Message }>("/v1/messages", {
