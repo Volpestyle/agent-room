@@ -4,7 +4,7 @@ Status: proposed
 
 ## Context
 
-AgentRoom should start with Herdr but must not be locked to it.
+AgentRoom needs local runtime adapters such as Herdr and tmux without being locked to either one.
 
 ## Decision
 
@@ -48,4 +48,4 @@ packages/runtime-kubernetes  # future
 
 ## Consequences
 
-Herdr can be the best local runtime without becoming the architecture.
+A local runtime can be useful without becoming the architecture.

@@ -35,11 +35,11 @@ The core domain does not own terminal multiplexing, cloud scheduling, durable wo
 
 ## Coordination Split
 
-AgentRoom is not a Linear replacement.
+AgentRoom is not a durable work tracker replacement.
 
-Linear is the canonical work tracker for issues, assignment, priority, workflow status, and durable comments. Agents should use Linear MCP, CLI, or skills for that layer.
+The selected external tracker is canonical for issues, assignment, priority, workflow status, and durable comments. Agents should use that tracker's MCP server, CLI, skill, or AgentRoom provider bridge for that layer.
 
-AgentRoom owns the local room around active execution: channel messages, direct messages, handoffs, human questions, runtime launch/input/output audit, and local task shadows that can point to Linear issues through refs.
+AgentRoom owns the local room around active execution: channel messages, direct messages, handoffs, human questions, runtime launch/input/output audit, and local task shadows that can point to external tracker issues through refs.
 
 ## Ports
 

@@ -1,8 +1,8 @@
 id: lead
 role: lead
 harness:
-  kind: claude-code
-  command: claude
+  kind: custom
+  command: "AGENT_COMMAND"
   args: []
 permissions:
   - room:read_all

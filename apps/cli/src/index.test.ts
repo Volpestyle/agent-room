@@ -16,6 +16,24 @@ const agentRoomBin = fileURLToPath(
   new URL('../../../bin/agent-room', import.meta.url)
 );
 
+describe('agent-room init', () => {
+  it('requires an explicit runtime provider choice', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-init-runtime-'));
+    const env = testEnv('cli-init-runtime-test');
+
+    try {
+      await expectAgentRoomFailure(
+        cwd,
+        ['init', '--room', 'cli-init-runtime-test'],
+        env,
+        "required option '--runtime <runtime>' not specified"
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('agent-room wait', () => {
   it('waits for a matching message event and emits JSON', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'agentroom-wait-'));
@@ -208,13 +226,33 @@ describe('agent-room runtime command safety', () => {
       );
       await expectAgentRoomFailure(
         cwd,
-        ['launch', 'impl', '--role', 'boss', '--runtime', 'fake'],
+        [
+          'launch',
+          'impl',
+          '--role',
+          'boss',
+          '--harness',
+          'shell',
+          '--command',
+          'bash',
+          '--runtime',
+          'fake'
+        ],
         env,
         'Invalid agent role: boss'
       );
       await expectAgentRoomFailure(
         cwd,
-        ['launch', 'impl', '--harness', 'unknown', '--runtime', 'fake'],
+        [
+          'launch',
+          'impl',
+          '--harness',
+          'unknown',
+          '--command',
+          'bash',
+          '--runtime',
+          'fake'
+        ],
         env,
         'Invalid harness kind: unknown'
       );

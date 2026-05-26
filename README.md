@@ -2,7 +2,7 @@
 
 AgentRoom is a local-first, runtime-agnostic coordination plane for long-running coding agents.
 
-The first runtime target is Herdr, but the core is intentionally built around replaceable provider ports so the same room/task/message/approval system can later run on tmux, Docker, SSH, ECS, Kubernetes, or a custom runtime.
+The core is built around replaceable provider ports so the same room/task/message/approval system can run on Herdr, tmux, Docker, SSH, ECS, Kubernetes, or a custom runtime without changing core room behavior.
 
 ## What is in this scaffold
 
@@ -40,12 +40,14 @@ examples/
 - Hono for the daemon HTTP API.
 - Vitest for contract and unit tests.
 - Zod for schemas at process and network boundaries.
-- Linear MCP is the preferred durable work tracker integration; AgentRoom keeps local room/audit state.
+- Work tracker, design, code host, notification, and chat integrations live behind provider ports; AgentRoom keeps local room/audit state.
 - SQLite should be added as the durable local event store after the JSONL event log MVP is validated.
 
 See `docs/ADR/0001-tech-stack.md` for the rationale.
 
 ## Quick start
+
+For first-time setup, follow `docs/SETUP.md`. It walks through choosing the runtime provider, work tracker, design integration, messaging surface, Discord/`discord_mcp` usage, and agent skills without assuming a specific stack.
 
 Prerequisites:
 
@@ -60,10 +62,10 @@ pnpm test
 Initialize a project room:
 
 ```bash
-agent-room init --room my-project
+agent-room init --room my-project --runtime RUNTIME
 agent-room post "hello from the room" --channel announcements
 agent-room dm api-impl "Can you take auth callback?"
-agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
+agent-room task create "Implement auth callback" --assignee api-impl
 agent-room events --limit 20
 ```
 
@@ -71,7 +73,7 @@ agent-room events --limit 20
 
 For room layout choices, including one room per project versus one room coordinating agents across many repositories, see `docs/TOPOLOGY.md`.
 
-AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, review transitions, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
+AgentRoom does not try to replace your durable work tracker. Use the tracker you choose for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, review transitions, runtime audit, and local task shadows linked to external tracker refs. See `docs/COORDINATION.md`.
 
 Agent-facing room behavior lives in `skills/agentroom/SKILL.md`. Operator and lead-agent launch behavior lives in `skills/agentroom-operator/SKILL.md`.
 
@@ -122,7 +124,7 @@ If `runtime doctor` reports adapter-specific setup requirements, see `docs/RUNTI
 Launch an agent using the configured default runtime:
 
 ```bash
-agent-room launch impl --harness codex --command "codex" --cwd .
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
 agent-room read impl --lines 40
 ```
 
@@ -130,7 +132,7 @@ agent-room read impl --lines 40
 
 ```bash
 agent-room launch impl --harness shell --command "bash" --cwd .
-agent-room send impl "codex"
+agent-room send impl "AGENT_COMMAND"
 agent-room read impl --lines 40
 agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
 ```
@@ -139,7 +141,7 @@ Prefer `agent-room send` over raw provider commands for bound agents so terminal
 
 See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
 
-When the daemon is running with a Herdr-backed room, it subscribes to Herdr pane lifecycle events and auto-enrolls any pane in the configured session that does not already have a binding. CLI writes resolve identity by `HERDR_PANE_ID` against the daemon, so shells inside Herdr panes participate in the room without `AGENTROOM_*` env vars. For one-off manual enrollment of a pane (no daemon running), use `agent-room enroll --json`.
+When the selected runtime supports adoption, the daemon can enroll existing runtime sessions through the adapter. For one-off manual enrollment of a supported pane or shell when the daemon is not running, use `agent-room enroll --json`. Adapter-specific behavior lives in `docs/RUNTIMES.md`.
 
 Open the dashboard:
 
@@ -147,15 +149,15 @@ Open the dashboard:
 agent-room tui
 ```
 
-The TUI starts in a chat view and launches a lead agent named `operator` by default. Type normally to ask what is happening or request room actions; use `/commands` to browse manual slash-command templates, `Esc` to browse dashboard views, and `Tab` to move through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
+The TUI starts in a chat view and can launch a lead agent named `operator` when `operator.command` or `AGENTROOM_OPERATOR_COMMAND` is configured. Type normally to ask what is happening or request room actions; use `/commands` to browse manual slash-command templates, `Esc` to browse dashboard views, and `Tab` to move through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
 
 Configure the dashboard operator in `.agentroom/config.yaml` or with env overrides:
 
 ```yaml
 operator:
   agentId: operator
-  kind: codex # claude-code, codex, pi, clanky, shell, gemini-cli, custom
-  command: codex
+  kind: custom # claude-code, codex, pi, clanky, shell, gemini-cli, custom
+  command: "AGENT_COMMAND"
 ```
 
 For Clanky-backed operation, use `kind: clanky` with either the default `clanky --profile <agentId> --home .agentroom/clanky` launch or an explicit command such as `clanky --profile operator --home .agentroom/clanky` or `clanky subagent --profile operator`. The matching env overrides are `AGENTROOM_OPERATOR_KIND`, `AGENTROOM_OPERATOR_COMMAND`, `AGENTROOM_OPERATOR_CWD`, `AGENTROOM_OPERATOR_SESSION_DIR`, and `AGENTROOM_OPERATOR_DISPLAY_NAME`.
@@ -178,7 +180,7 @@ agent-room events --follow --json
 
 Runtime selection is config-driven, and each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform. Adapter-specific setup lives in `docs/RUNTIMES.md`.
 
-Example `.agentroom/config.yaml`:
+Example `.agentroom/config.yaml` shape after choosing a runtime:
 
 ```yaml
 room:
@@ -186,23 +188,12 @@ room:
   name: My Project
 
 runtime:
-  default: herdr
+  default: runtime-id
 
 runtimes:
-  herdr:
-    type: herdr
-    session: agentroom
-    cli: herdr
-    layout:
-      mode: pane-grid
-      workspace: my-project
-      panesPerTab: 2
-      split: largest
-      balance: true
-  tmux:
-    type: tmux
-    sessionPrefix: my-project
-    cli: tmux
+  runtime-id:
+    type: RUNTIME
+    # runtime-specific settings live here
   fake:
     type: fake
 
@@ -218,10 +209,10 @@ storage:
 3. The event log is source of truth.
 4. Terminal input/output is privileged and auditable.
 5. Agents coordinate through structured room commands plus lightweight channel/DM messages.
-6. Linear is the canonical work tracker; AgentRoom keeps local execution context and audit events.
+6. The selected external tracker remains canonical; AgentRoom keeps local execution context and audit events.
 7. Third-party chat systems are gateways, not the core state store.
 8. The MVP should run locally on one machine, but the ports should survive a hosted/AWS version.
 
 ## Current maturity
 
-This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, chat gateway routing/dispatch primitives, daemon-level chat gateway config loading, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, complete Herdr provider contract tests against a real Herdr server, make the Linear MCP/bridge path ergonomic, and add operator CLI support for chat route inspection — see `docs/ADR/0003-chat-gateway-port.md`.
+This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, chat gateway routing/dispatch primitives, daemon-level chat gateway config loading, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, harden real runtime provider contract tests, make external tracker bridges ergonomic, and add operator CLI support for chat route inspection — see `docs/ADR/0003-chat-gateway-port.md`.

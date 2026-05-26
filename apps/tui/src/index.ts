@@ -97,7 +97,7 @@ const AGENT_ROLES: AgentRole[] = [
   "observer",
   "custom",
 ];
-const DEFAULT_OPERATOR_SESSION_DIR = ".agentroom/pi-sessions";
+const DEFAULT_OPERATOR_SESSION_DIR = ".agentroom/operator-sessions";
 
 type OperatorBootstrapState = "pending" | "starting" | "ready" | "failed";
 
@@ -2796,6 +2796,9 @@ function operatorNoticeFromOutput(
   if (text.includes("No models available")) {
     return `${config.displayName} has no models available; log in or configure a model in the operator pane.`;
   }
+  if (text.includes("operator.kind custom requires operator.command")) {
+    return `${config.displayName} is not configured. Set AGENTROOM_OPERATOR_COMMAND or configure operator.command.`;
+  }
   if (text.includes("could not find pi")) {
     return `${config.displayName} could not start Pi. Set AGENTROOM_OPERATOR_COMMAND or configure operator.command.`;
   }
@@ -2908,7 +2911,7 @@ function operatorConfigForCommand(
 }
 
 function operatorHarness(config: ResolvedOperatorConfig): HarnessSpec {
-  const kind = config.kind ?? inferOperatorKind(config.command) ?? "pi";
+  const kind = config.kind ?? inferOperatorKind(config.command) ?? "custom";
   const commandParts = commandPartsForOperator(kind, config);
   const [command, ...args] = commandParts;
   if (command === undefined) {

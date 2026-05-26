@@ -122,7 +122,7 @@ export function agentRoomConfigPath(cwd = process.cwd()): string {
 export function createDefaultAgentRoomConfig(
   options: CreateDefaultConfigOptions,
 ): AgentRoomConfig {
-  const defaultRuntime = options.defaultRuntime ?? "herdr";
+  const defaultRuntime = options.defaultRuntime ?? "fake";
   const herdrSession = options.runtimeSession ?? DEFAULT_HERDR_SESSION;
   const tmuxSessionPrefix = options.runtimeSession ?? options.roomId;
 

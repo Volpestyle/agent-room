@@ -3,17 +3,20 @@ room:
   name: My Project
 
 runtime:
-  default: herdr
+  # Choose one configured runtime id for this room.
+  default: local-runtime
 
 runtimes:
-  herdr:
+  # Example tmux runtime. Replace with Herdr, fake, or a custom adapter if that
+  # is the runtime you chose for the room.
+  local-runtime:
+    type: tmux
+    sessionPrefix: my-project
+    cli: tmux
+  herdr-example:
     type: herdr
     session: my-project
     cli: herdr
-  tmux:
-    type: tmux
-    sessionPrefix: agentroom
-    cli: tmux
   fake:
     type: fake
 

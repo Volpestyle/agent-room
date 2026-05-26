@@ -6,23 +6,23 @@
 - Fake runtime provider
 - JSONL event store
 - Native channel/DM messages
-- Local task shadows with Linear refs
+- Local task shadows with external tracker refs
 - CLI `init`, `post`, `dm`, `messages`, `task create`, `task link-linear`, `task comment`, `events`
 - Hono daemon `/health`, `/v1/events`, `/v1/messages`, `/v1/tasks`
 
-## MVP 1: Herdr-backed local orchestration
+## MVP 1: Runtime-backed local orchestration
 
-- Complete Herdr provider contract tests
-- Launch/read/send/list agents through Herdr
-- Detect Herdr socket/session health
+- Complete real runtime provider contract tests
+- Launch/read/send/list agents through selected local runtimes
+- Detect runtime health and adapter-specific setup problems
 - Skill-installed opted-in agent behavior
 
-## MVP 2: Linear-first work tracking
+## MVP 2: External work tracking
 
-- Linear MCP setup guidance
-- Tracker comments/status updates delegated to Linear MCP/CLI/skills
+- Work tracker setup guidance
+- Tracker comments/status updates delegated to the selected MCP/CLI/skill/provider
 - Explicit `tracker_update_skipped` events when tracker tools are unavailable
-- Local task projections that stay secondary to linked Linear issues
+- Local task projections that stay secondary to linked external issues
 
 ## MVP 3: human escalation
 

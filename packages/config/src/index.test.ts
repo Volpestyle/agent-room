@@ -28,9 +28,10 @@ describe("AgentRoom config", () => {
     );
   });
 
-  it("defaults Herdr to the shared agentroom session and room workspace", () => {
+  it("includes Herdr and tmux runtime settings without making them implicit choices", () => {
     const config = createDefaultAgentRoomConfig({ roomId: "my-project" });
 
+    expect(config.runtime.default).toBe("fake");
     expect(config.runtimes.herdr).toEqual(
       expect.objectContaining({
         type: "herdr",

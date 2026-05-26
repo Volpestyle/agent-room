@@ -188,10 +188,9 @@ program
   .description("Initialize AgentRoom metadata in the current project")
   .option("--room <id>", "room id", basename(process.cwd()))
   .option("--name <name>", "human-readable room name")
-  .option(
+  .requiredOption(
     "--runtime <runtime>",
-    "default runtime provider: herdr|tmux|fake",
-    "herdr",
+    "runtime provider to write as the room default: herdr|tmux|fake",
   )
   .option(
     "--runtime-session <name>",
@@ -230,12 +229,12 @@ program
 
       await writeFile(
         join(dir, "agents", "lead.yaml"),
-        `id: lead\nrole: lead\nharness:\n  kind: claude-code\n  command: claude\npermissions:\n  - room:read_all\n  - task:assign\n  - human:escalate\n`,
+        `# Template only. Choose the harness and command for your stack before launching.\nid: lead\nrole: lead\nharness:\n  kind: custom\n  command: "AGENT_COMMAND"\npermissions:\n  - room:read_all\n  - task:assign\n  - human:escalate\n`,
         "utf8",
       );
 
       console.log(`Initialized AgentRoom room '${options.room}' in ${dir}`);
-      console.log(`Default runtime: ${appConfig.runtime.default}`);
+      console.log(`Configured runtime: ${appConfig.runtime.default}`);
     },
   );
 
@@ -579,7 +578,7 @@ task
 
 task
   .command("link-linear")
-  .description("Link a local task shadow to the canonical Linear issue")
+  .description("Link a local task shadow to a Linear issue")
   .argument("<taskId>", "local task id")
   .argument("<issueId>", "Linear issue id or key")
   .option("--url <url>", "Linear issue URL")
@@ -889,7 +888,7 @@ runtime
     output(
       [
         { id: "fake", kind: "fake", default: false },
-        { id: "herdr", kind: "herdr", default: true },
+        { id: "herdr", kind: "herdr", default: false },
         { id: "tmux", kind: "tmux", default: false },
       ],
       options.json,
@@ -970,8 +969,11 @@ program
   )
   .option("--split <strategy>", "Herdr pane split strategy: largest|focused")
   .option("--role <role>", "agent role", "implementer")
-  .option("--harness <kind>", "harness kind", "claude-code")
-  .option("--command <command>", "command to run", "claude")
+  .requiredOption(
+    "--harness <kind>",
+    "harness kind: claude-code|codex|pi|gemini-cli|shell|custom",
+  )
+  .requiredOption("--command <command>", "command to run")
   .option("--cwd <cwd>", "working directory", process.cwd())
   .option("--json", "print JSON")
   .action(
@@ -1040,7 +1042,7 @@ program
   )
   .option(
     "--agent-id <id>",
-    "agent id; defaults to herdr:<HERDR_SESSION>:<HERDR_PANE_ID>",
+    "agent id; defaults to the runtime-derived pane id when available",
   )
   .option(
     "--pane-id <id>",
@@ -1051,11 +1053,11 @@ program
     "runtime provider; defaults to .agentroom/config.yaml",
   )
   .option("--role <role>", "agent role", "implementer")
-  .option("--harness <kind>", "harness kind", "claude-code")
+  .option("--harness <kind>", "harness kind", "custom")
   .option(
     "--command <command>",
     "harness command (recorded only; adoption does not execute it)",
-    "claude",
+    "adopted-pane",
   )
   .option("--cwd <cwd>", "working directory", process.cwd())
   .option("--shell", "print shell exports for `eval` instead of JSON")
@@ -1298,9 +1300,17 @@ async function runtimeProviderForCwd(
   config?: AgentRoomConfig;
 }> {
   const config = await maybeLoadAgentRoomConfig();
+  if (!config && runtimeName === undefined) {
+    throw new Error(
+      "No AgentRoom config found. Run 'agent-room init --runtime RUNTIME' or pass --runtime.",
+    );
+  }
   const name = config
     ? runtimeNameFor(config, runtimeName)
-    : (runtimeName ?? "herdr");
+    : runtimeName;
+  if (name === undefined) {
+    throw new Error("Runtime provider is required.");
+  }
   const runtime = config
     ? ensureRuntimeConfig(config, name)
     : builtInRuntimeConfig(name);
@@ -2256,7 +2266,7 @@ async function runtimeAccessForAgent(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Audited runtime access requires an initialized AgentRoom. Run 'agent-room init' first, or pass --unaudited for manual recovery. ${reason}`,
+      `Audited runtime access requires an initialized AgentRoom. Run 'agent-room init --runtime RUNTIME' first, or pass --unaudited for manual recovery. ${reason}`,
     );
   }
 
@@ -2334,7 +2344,7 @@ async function loadProjectConfig(): Promise<{
     };
   } catch (error) {
     throw new Error(
-      `No AgentRoom found. Run 'agent-room init' first. Missing ${path}`,
+      `No AgentRoom found. Run 'agent-room init --runtime RUNTIME' first. Missing ${path}`,
     );
   }
 }
@@ -2344,7 +2354,7 @@ async function loadAgentRoomConfigForCwd(): Promise<AgentRoomConfig> {
     return await loadAgentRoomConfig();
   } catch (error) {
     throw new Error(
-      `No AgentRoom config found. Run 'agent-room init' first. Missing ${agentRoomConfigPath()}`,
+      `No AgentRoom config found. Run 'agent-room init --runtime RUNTIME' first. Missing ${agentRoomConfigPath()}`,
     );
   }
 }

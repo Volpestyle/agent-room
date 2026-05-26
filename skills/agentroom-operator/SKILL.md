@@ -12,9 +12,15 @@ Use this skill to manage a room from the outside. For worker or reviewer behavio
 Verify the project room and runtime before launching agents:
 
 ```bash
-test -f .agentroom/config.yaml || agent-room init --room "$(basename "$PWD")"
+test -f .agentroom/config.yaml
 agent-room runtime providers
 agent-room runtime doctor
+```
+
+If `.agentroom/config.yaml` is missing, choose the runtime provider first and initialize explicitly:
+
+```bash
+agent-room init --room "$(basename "$PWD")" --runtime RUNTIME
 ```
 
 If runtime health reports a provider-specific problem, fix it through AgentRoom configuration or the relevant adapter docs. Do not bypass AgentRoom for normal launch, read, send, or stop flows.
@@ -35,7 +41,7 @@ The copied `agentroom://connect?...` link includes the daemon URL and bearer tok
 Prefer launching the intended harness directly when known:
 
 ```bash
-agent-room launch impl --harness codex --command "codex" --cwd .
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
 agent-room read impl --lines 40
 ```
 
@@ -43,7 +49,7 @@ If allocating a shell first, treat it as a bound shell session until a coding-ag
 
 ```bash
 agent-room launch impl --harness shell --command "bash" --cwd .
-agent-room send impl "codex"
+agent-room send impl "AGENT_COMMAND"
 agent-room read impl --lines 40
 agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
 ```
@@ -63,8 +69,8 @@ When the daemon is not running, `agent-room enroll --json` from inside a pane pe
 If the selected runtime is Herdr with `pane-grid`, stale panes from earlier work can crowd a reused workspace. When starting fresh work, prefer a new Herdr workspace label so the new agents get full-size panes:
 
 ```bash
-agent-room launch impl-a --workspace squad-foo --cwd .
-agent-room launch impl-b --workspace squad-foo --cwd .
+agent-room launch impl-a --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch impl-b --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
 ```
 
 A workspace with `panesPerTab: 2` plus two agents = one tab, two side-by-side panes in Herdr. See `docs/RUNTIMES.md` for provider-specific layout details and cleanup notes.
@@ -102,7 +108,7 @@ Discord is a projection surface, not AgentRoom's source of truth. AgentRoom owns
 
 When mirroring a room-owned Discord conversation into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to that Discord conversation and are only reached via AgentRoom DMs/tasks from the lead.
 
-Sample launch:
+Example launch for a Pi/Clanky-style room:
 
 ```bash
 agent-room launch clanky-lead     --harness pi --command "clanky --profile lead     --home ./.clanky-room" --cwd .

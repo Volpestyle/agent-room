@@ -21,7 +21,7 @@ Rules for using these references:
 - Preserve AgentRoom's runtime-provider boundary and event-first model.
 - Keep core AgentRoom guidance provider-neutral. Do not encode Herdr, tmux, or other runtime-specific operations in `AGENTS.md` or agent-facing skills unless the file is explicitly adapter-specific.
 - Use AgentRoom runtime commands and provider ports as the normal control surface. Raw multiplexer/provider commands are for adapter implementation, adapter docs, or manual recovery only.
-- Treat Linear MCP/CLI/skills as the canonical work tracker. AgentRoom local tasks are shadows/audit context when linked to Linear issues.
+- Treat the configured external work tracker as canonical. AgentRoom local tasks are shadows/audit context when linked to external tracker issues.
 - Use AgentRoom native messages for active channel/DM coordination between agents.
 - Prefer local AgentRoom conventions when they conflict with a reference repo.
 - Mention any reference repo paths that materially shaped your implementation.
@@ -33,7 +33,7 @@ Agent handling:
 - Use `skills/agentroom/SKILL.md` as the enrolled-agent playbook for worker/reviewer behavior inside a room.
 - If runtime health reports a provider-specific problem, fix it through AgentRoom configuration or the relevant adapter docs instead of bypassing AgentRoom as the normal workflow.
 - Treat `agent-room launch ... --harness shell --command "bash"` as shell allocation plus AgentRoom binding only. The resulting session is not an active coding agent until a coding-agent startup command or task command is sent into that shell.
-- Prefer launching the intended harness command directly when known, for example `--harness codex --command "codex"`. If using shell sessions, immediately follow launch with `agent-room send <agentId> "<startup command>"`, then read back output before sending the first task prompt.
+- Prefer launching the intended harness command directly when known, for example `--harness <kind> --command "<agent-command>"`. If using shell sessions, immediately follow launch with `agent-room send <agentId> "<startup command>"`, then read back output before sending the first task prompt.
 - Use `agent-room send/read/stop` for bound agents so runtime input and output are audited. Use raw provider commands only for manual recovery or non-AgentRoom sessions.
 
 Good lookup starting points:
@@ -43,4 +43,4 @@ Good lookup starting points:
 - Hermes gateway/skills/memory/cron work: `/Users/jamesvolpe/web/hermes-agent/README.md`, `providers`, `environments`, `web`, `ui-tui`
 - Clanky daemon/MCP/HTTP/profile work: `/Users/jamesvolpe/web/clanky-pi/README.md`
 
-Operator-facing AgentRoom commands and `.agentroom/config.yaml` runtime setup are documented in `README.md`; link there instead of duplicating the workflow in this file.
+Operator-facing AgentRoom commands and `.agentroom/config.yaml` runtime setup are documented in `README.md` and `docs/SETUP.md`; link there instead of duplicating the workflow in this file.

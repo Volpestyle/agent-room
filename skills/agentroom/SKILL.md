@@ -1,6 +1,6 @@
 ---
 name: agentroom
-description: Coordinate as an enrolled AgentRoom worker or reviewer. Use when AGENTROOM=1, when AgentRoom enrollment variables are present, when `HERDR_PANE_ID` is set inside an AgentRoom-monitored Herdr session, or when the agent was explicitly launched into an AgentRoom room. Do not use for launching or managing other agents; use the agentroom-operator skill for that.
+description: Coordinate as an enrolled AgentRoom worker or reviewer. Use when AGENTROOM=1, when AgentRoom enrollment variables are present, when the current runtime session was adopted by AgentRoom, or when the agent was explicitly launched into an AgentRoom room. Do not use for launching or managing other agents; use the agentroom-operator skill for that.
 ---
 
 # AgentRoom Participant
@@ -14,7 +14,7 @@ agent-room whoami --json
 The resolved identity comes from one of two sources:
 
 - `source: "env"` — `AGENTROOM_AGENT_ID` was set in the process environment (typically by `agent-room launch`).
-- `source: "pane"` — the daemon's Herdr observer auto-enrolled the current pane and the CLI resolved the agent id from `HERDR_PANE_ID` against the local event log.
+- `source: "pane"` — the daemon's runtime observer auto-enrolled the current pane/session and the CLI resolved the agent id against the local event log.
 
 If `enrolled: false` is reported (no env var and no pane binding found), do not assume the current process is part of the room.
 
@@ -22,7 +22,7 @@ If `enrolled: false` is reported (no env var and no pane binding found), do not 
 
 - Post a short status when starting meaningful work.
 - Claim or confirm your assigned task before editing.
-- Use Linear MCP/CLI/skills as the canonical tracker for issues, ownership, status, and durable comments.
+- Use the configured external work tracker as canonical for issues, ownership, status, and durable comments.
 - Use AgentRoom channel/DM messages for active coordination and short-lived coworker chatter.
 - Use threads for task-specific discussion when available.
 - Ask another agent before interrupting its active work.
@@ -33,7 +33,7 @@ If `enrolled: false` is reported (no env var and no pane binding found), do not 
 - Do not send input to another agent unless your role permits it.
 - Do not read all runtime sessions unless your role permits it.
 - Prefer structured commands over plain chat.
-- If Linear tools are unavailable, report `tracker_update_skipped` with the reason.
+- If tracker tools are unavailable, report `tracker_update_skipped` with the reason.
 
 ## Do not idle at end-of-turn while waiting
 
@@ -93,7 +93,7 @@ agent-room dm reviewer "AR-42 is ready for review"
 agent-room messages --channel implementation --limit 20
 ```
 
-Update durable tracker state through Linear MCP/CLI/skills. If using the AgentRoom bridge:
+Update durable tracker state through the configured tracker MCP/CLI/skill/provider. If using the current Linear bridge:
 
 ```bash
 agent-room task comment AR-42 "Implemented callback and unit tests pass"

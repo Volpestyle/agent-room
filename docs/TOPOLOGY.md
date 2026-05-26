@@ -22,12 +22,12 @@ The CLI discovers the room from the current working directory:
 ```bash
 cd /path/to/workspace
 agent-room daemon status
-agent-room launch impl --cwd .
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
 ```
 
-`agent-room init --room <id>` creates `.agentroom/config.yaml` in the current
-directory. That config selects the room id, default runtime provider, runtime
-settings, and local event log path.
+`agent-room init --room ROOM_ID --runtime RUNTIME` creates
+`.agentroom/config.yaml` in the current directory. That config selects the room
+id, default runtime provider, runtime settings, and local event log path.
 
 Use a dedicated room directory or a project repository root by default. A room
 at the user's home directory is possible, but it makes all room state global:
@@ -42,13 +42,13 @@ An agent's working directory is independent from the room root:
 cd /Users/jamesvolpe/web/agent-room
 
 agent-room launch portfolio-impl \
-  --harness codex \
-  --command "codex" \
+  --harness HARNESS_KIND \
+  --command "AGENT_COMMAND" \
   --cwd /Users/jamesvolpe/web/portfolio
 
 agent-room launch browser-reviewer \
-  --harness codex \
-  --command "codex" \
+  --harness HARNESS_KIND \
+  --command "AGENT_COMMAND" \
   --cwd /Users/jamesvolpe/web/agent-browser
 ```
 
@@ -67,15 +67,15 @@ lifecycle.
 
 ```bash
 cd /Users/jamesvolpe/web/project-a
-agent-room init --room project-a
+agent-room init --room project-a --runtime RUNTIME
 agent-room daemon start --port 4317
 
 cd /Users/jamesvolpe/web/project-b
-agent-room init --room project-b
+agent-room init --room project-b --runtime RUNTIME
 agent-room daemon start --port 4318
 
 cd /Users/jamesvolpe/web/project-c
-agent-room init --room project-c
+agent-room init --room project-c --runtime RUNTIME
 agent-room daemon start --port 4319
 ```
 
@@ -98,9 +98,9 @@ repositories.
 cd /Users/jamesvolpe/web/agent-room
 agent-room daemon start
 
-agent-room launch api-impl --cwd /Users/jamesvolpe/web/api
-agent-room launch web-impl --cwd /Users/jamesvolpe/web/frontend
-agent-room launch reviewer --cwd /Users/jamesvolpe/web/review-tools
+agent-room launch api-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/api
+agent-room launch web-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/frontend
+agent-room launch reviewer --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/review-tools
 ```
 
 This keeps all room messages, local tasks, handoffs, and runtime audit events in
@@ -123,8 +123,8 @@ shared workspace with a pane grid.
 For fresh work in a shared Herdr session, pass an explicit workspace label:
 
 ```bash
-agent-room launch impl-a --workspace project-a --cwd /Users/jamesvolpe/web/project-a
-agent-room launch impl-b --workspace project-a --cwd /Users/jamesvolpe/web/project-a
+agent-room launch impl-a --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/project-a
+agent-room launch impl-b --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/project-a
 ```
 
 Use distinct daemon ports for distinct AgentRoom daemons. Use distinct Herdr
