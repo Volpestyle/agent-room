@@ -85,7 +85,7 @@ Workers with the `agentroom` skill use `agent-room wait` to block on events inst
 
 ## Configuring chat gateways
 
-Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, Discord webhook-mode posting, and daemon config loading exist.
+Chat gateways (Discord, Telegram, etc.) attach external conversations to room state. See `docs/ADR/0003-chat-gateway-port.md` and `docs/ARCHITECTURE.md` for the model. As of this writing, the port, inbound router, outbound dispatcher primitive, Discord webhook-mode posting, and daemon config loading exist. For Discord-specific reads/actions outside the room projection, use the local `discord-mcp` package rather than adding Discord REST logic to AgentRoom.
 
 ### Ownership choice
 
@@ -95,6 +95,8 @@ Room participation and gateway ownership are separate choices:
 2. **Room-owned gateway.** Daemon owns the gateway and token for a specific conversation; the Discord identity is the room's connector. Use when several agents must share a public face in a single Discord channel.
 
 One Discord channel or DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
+
+Discord is a projection surface, not AgentRoom's source of truth. AgentRoom owns rooms, tasks, channels, routing, and the event log; Discord messages are imported/mirrored through the gateway. Use AgentRoom tools for room coordination and `discord-mcp` for Discord-only operations like reading a separate channel, loading attachment pixels, sending a one-off Discord message, or adding reactions.
 
 ### Lead-as-public-face pattern (multi-agent room)
 

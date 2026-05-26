@@ -19,7 +19,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agentroom/core": "workspace:*"
+    "@agentroom/config": "workspace:*",
+    "@agentroom/core": "workspace:*",
+    "@agentroom/storage-jsonl": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

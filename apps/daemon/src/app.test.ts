@@ -54,6 +54,40 @@ describe("agentroom daemon app", () => {
     }
   });
 
+  it("serves dashboard config from the daemon room config", async () => {
+    const options = await appOptions();
+    const app = createApp({
+      ...options,
+      config: {
+        room: { id: "test-room" },
+        runtime: { default: "fake" },
+        operator: {
+          agentId: "operator",
+          displayName: "Clanky Operator",
+          kind: "clanky",
+          command: "clanky --profile operator",
+          sessionDir: ".agentroom/clanky/profiles/operator/sessions",
+        },
+        runtimes: { fake: { type: "fake" } },
+        storage: { driver: "jsonl", path: ".agentroom/events.jsonl" },
+      },
+    });
+
+    const response = await app.request("/v1/dashboard/config");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      roomId: "test-room",
+      cwd: options.cwd,
+      operator: {
+        agentId: "operator",
+        displayName: "Clanky Operator",
+        kind: "clanky",
+        command: "clanky --profile operator",
+        sessionDir: ".agentroom/clanky/profiles/operator/sessions",
+      },
+    });
+  });
+
   it("posts and filters room messages", async () => {
     const app = createApp(await appOptions());
 

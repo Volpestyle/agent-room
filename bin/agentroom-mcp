@@ -15,19 +15,8 @@ ROOT=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")/.." && pwd)
 TSX="$ROOT/node_modules/.bin/tsx"
 
 if [ ! -x "$TSX" ]; then
-  echo "agent-room: missing local dependencies. Run install in $ROOT first." >&2
+  echo "agentroom-mcp: missing local dependencies. Run install in $ROOT first." >&2
   exit 1
 fi
 
-case "${1:-}" in
-  "")
-    exec "$TSX" "$ROOT/apps/cli/src/index.ts" --help
-    ;;
-  mcp)
-    shift
-    exec "$TSX" "$ROOT/apps/mcp-server/src/index.ts" "$@"
-    ;;
-  *)
-    exec "$TSX" "$ROOT/apps/cli/src/index.ts" "$@"
-    ;;
-esac
+exec "$TSX" "$ROOT/apps/mcp-server/src/index.ts" "$@"

@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   AgentOutput,
+  DashboardConfig,
   DaemonHealth,
   Importance,
   Message,
@@ -111,6 +112,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
   return {
     base,
     health: () => apiRequest<DaemonHealth>("/health"),
+    dashboardConfig: () =>
+      apiRequest<DashboardConfig>("/v1/dashboard/config"),
     listEvents: (limit = 80) =>
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,

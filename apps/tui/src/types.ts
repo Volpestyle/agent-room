@@ -15,6 +15,7 @@ import type {
   Task,
   TaskStatus,
 } from "@agentroom/core";
+import type { DashboardOperatorConfig } from "@agentroom/config";
 
 export type {
   ActorRef,
@@ -33,6 +34,7 @@ export type {
   Task,
   TaskStatus,
 };
+export type { DashboardOperatorConfig };
 
 export interface RuntimeProviderSummary {
   id: string;
@@ -70,6 +72,12 @@ export interface DaemonHealth {
     };
     startupError?: string;
   }>;
+}
+
+export interface DashboardConfig {
+  roomId: string;
+  cwd: string;
+  operator?: DashboardOperatorConfig | null;
 }
 
 export interface RuntimeAgentLaunchInput {

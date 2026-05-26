@@ -5,6 +5,13 @@ room:
 runtime:
   default: herdr
 
+operator:
+  agentId: operator
+  displayName: Clanky Operator
+  kind: clanky
+  command: pnpm --dir /Users/jamesvolpe/web/clanky-pi clanky --profile operator --home /Users/jamesvolpe/web/agent-room/.agentroom/clanky
+  sessionDir: /Users/jamesvolpe/web/agent-room/.agentroom/clanky/profiles/operator/sessions
+
 runtimes:
   fake:
     type: fake

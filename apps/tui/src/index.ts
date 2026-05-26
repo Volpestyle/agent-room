@@ -25,6 +25,8 @@ import type {
   ActorRef,
   AgentRole,
   DaemonHealth,
+  DashboardConfig,
+  DashboardOperatorConfig,
   HarnessSpec,
   Message,
   RoomEvent,
@@ -418,8 +420,7 @@ class AgentRoomTuiApp implements Component {
   private selectedTaskIndex = 0;
   private selectedMessageIndex = Number.MAX_SAFE_INTEGER;
   private promptActive = false;
-  private readonly operatorConfig = dashboardOperatorConfig();
-  private readonly operatorAgentId = this.operatorConfig.agentId;
+  private operatorConfig = dashboardOperatorConfig();
   private operatorBootstrapState: OperatorBootstrapState = "pending";
   private operatorBootstrapError: string | undefined;
   private operatorLaunchPromise: Promise<OperatorTarget> | undefined;
@@ -451,6 +452,10 @@ class AgentRoomTuiApp implements Component {
       this.leavePrompt(false);
       void this.submit(value);
     };
+  }
+
+  private get operatorAgentId(): string {
+    return this.operatorConfig.agentId;
   }
 
   start(): void {
@@ -611,7 +616,11 @@ class AgentRoomTuiApp implements Component {
       this.selectedMessageIndex >= this.snapshot.messages.length - 1;
 
     try {
-      const health = await this.client.health();
+      const [health, dashboardConfig] = await Promise.all([
+        this.client.health(),
+        this.loadDashboardConfig(),
+      ]);
+      this.applyDashboardConfig(dashboardConfig);
       const providers = await this.client.listRuntimeProviders();
       const providerRows = mergeProviderHealth(providers.providers, health);
       const providerAgents = await this.loadProviderAgents(providerRows);
@@ -706,12 +715,7 @@ class AgentRoomTuiApp implements Component {
       footerLines.length +
       promptLines.length;
     const contentHeight = Math.max(4, this.terminal.rows - reserved);
-    const contentStartRow = headerLines.length + navLines.length + 1;
-    const contentLines = this.renderCurrentView(
-      fullWidth,
-      contentHeight,
-      contentStartRow,
-    );
+    const contentLines = this.renderCurrentView(fullWidth, contentHeight);
     const lines = [
       ...headerLines,
       ...navLines,
@@ -759,23 +763,19 @@ class AgentRoomTuiApp implements Component {
     return truncateToWidth(parts.join(" "), width, "");
   }
 
-  private renderCurrentView(
-    width: number,
-    height: number,
-    startRow: number,
-  ): string[] {
+  private renderCurrentView(width: number, height: number): string[] {
     const view = VIEWS[this.viewIndex] ?? "chat";
     const lines =
       view === "chat"
         ? this.renderChat(width)
         : view === "overview"
-          ? this.renderOverview(width, startRow)
+          ? this.renderOverview(width)
           : view === "agents"
-            ? this.renderAgents(width, startRow)
+            ? this.renderAgents(width)
             : view === "tasks"
-              ? this.renderTasks(width, startRow)
+              ? this.renderTasks(width)
               : view === "messages"
-                ? this.renderMessages(width, startRow)
+                ? this.renderMessages(width)
                 : this.renderEvents(width);
 
     return view === "chat"
@@ -797,8 +797,10 @@ class AgentRoomTuiApp implements Component {
     const transcriptTurns =
       this.snapshot.operatorTranscript &&
       this.snapshot.operatorTranscript.length > 0
-        ? [...this.snapshot.operatorTranscript, ...this.chatTurns].sort(
-            compareChatTurns,
+        ? dedupeChatTurns(
+            [...this.snapshot.operatorTranscript, ...this.chatTurns].sort(
+              compareChatTurns,
+            ),
           )
         : this.chatTurns;
     const noticeTurn = this.snapshot.operatorNotice
@@ -831,7 +833,7 @@ class AgentRoomTuiApp implements Component {
     return [statusLine, "", ...transcript];
   }
 
-  private renderOverview(width: number, startRow: number): string[] {
+  private renderOverview(width: number): string[] {
     const activeTasks = this.snapshot.tasks.filter((task) =>
       [
         "assigned",
@@ -867,7 +869,7 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderAgents(width: number, startRow: number): string[] {
+  private renderAgents(width: number): string[] {
     const providerLabel = this.selectedProviderId ?? "none";
     const selectedAgent = this.selectedAgent();
     const agents = this.snapshot.agents.length
@@ -930,7 +932,7 @@ class AgentRoomTuiApp implements Component {
     );
   }
 
-  private renderTasks(width: number, startRow: number): string[] {
+  private renderTasks(width: number): string[] {
     const tasks = this.snapshot.tasks.length
       ? this.snapshot.tasks.map((task, index) => {
           const prefix = index === this.selectedTaskIndex ? "> " : "  ";
@@ -968,7 +970,7 @@ class AgentRoomTuiApp implements Component {
     ];
   }
 
-  private renderMessages(width: number, startRow: number): string[] {
+  private renderMessages(width: number): string[] {
     const { startIndex, messages } = this.visibleMessages();
     const selected = this.selectedMessage();
     return [
@@ -2082,6 +2084,25 @@ class AgentRoomTuiApp implements Component {
     }
   }
 
+  private async loadDashboardConfig(): Promise<DashboardConfig | undefined> {
+    try {
+      return await this.client.dashboardConfig();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private applyDashboardConfig(config: DashboardConfig | undefined): void {
+    const previousAgentId = this.operatorConfig.agentId;
+    this.operatorConfig = dashboardOperatorConfig(
+      config?.operator ?? undefined,
+      config?.cwd,
+    );
+    if (this.activeAgentId === previousAgentId) {
+      this.activeAgentId = this.operatorConfig.agentId;
+    }
+  }
+
   private async detectOperatorTarget(): Promise<OperatorTarget | undefined> {
     const providerIds = [
       this.snapshot.operatorBinding?.providerId,
@@ -2412,6 +2433,10 @@ class AgentRoomTuiApp implements Component {
   }
 
   private notice(text: string): void {
+    if (this.notices.at(-1) === text) {
+      this.tui.requestRender();
+      return;
+    }
     this.notices.push(text);
     this.notices = this.notices.slice(-6);
     this.tui.requestRender();
@@ -2484,6 +2509,21 @@ function renderChatTurn(turn: ChatTurn, width: number): string[] {
 
 function compareChatTurns(a: ChatTurn, b: ChatTurn): number {
   return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
+function dedupeChatTurns(turns: ChatTurn[]): ChatTurn[] {
+  const deduped: ChatTurn[] = [];
+  for (const turn of turns) {
+    const duplicate = deduped.some(
+      (candidate) =>
+        candidate.role === turn.role &&
+        candidate.text === turn.text &&
+        Math.abs(Date.parse(candidate.createdAt) - Date.parse(turn.createdAt)) <
+          5000,
+    );
+    if (!duplicate) deduped.push(turn);
+  }
+  return deduped;
 }
 
 function normalizeSingleLine(text: string): string {
@@ -2791,8 +2831,12 @@ function isHarnessKind(
   );
 }
 
-function dashboardOperatorConfig(): ResolvedOperatorConfig {
-  const fileConfig = maybeLoadAgentRoomConfigSync(process.cwd())?.operator;
+function dashboardOperatorConfig(
+  daemonConfig?: DashboardOperatorConfig,
+  daemonCwd?: string,
+): ResolvedOperatorConfig {
+  const fileConfig =
+    daemonConfig ?? maybeLoadAgentRoomConfigSync(process.cwd())?.operator;
   const agentId =
     envValue("AGENTROOM_TUI_OPERATOR_ID") ??
     envValue("AGENTROOM_OPERATOR_AGENT_ID") ??
@@ -2810,7 +2854,8 @@ function dashboardOperatorConfig(): ResolvedOperatorConfig {
       "AGENTROOM_OPERATOR_KIND",
     ) ?? fileConfig?.kind;
   const command = envValue("AGENTROOM_OPERATOR_COMMAND") ?? fileConfig?.command;
-  const cwd = envValue("AGENTROOM_OPERATOR_CWD") ?? fileConfig?.cwd;
+  const cwd =
+    envValue("AGENTROOM_OPERATOR_CWD") ?? fileConfig?.cwd ?? daemonCwd;
   const sessionDir =
     envValue("AGENTROOM_OPERATOR_SESSION_DIR") ??
     envValue("AGENTROOM_PI_SESSION_DIR") ??
