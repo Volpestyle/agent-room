@@ -21,6 +21,39 @@ afterEach(async () => {
 });
 
 describe("agentroom daemon app", () => {
+  it("requires an API token for /v1 routes when AGENTROOM_API_TOKEN is set", async () => {
+    const previousToken = process.env.AGENTROOM_API_TOKEN;
+    process.env.AGENTROOM_API_TOKEN = "mobile-secret";
+    try {
+      const app = createApp(await appOptions());
+
+      const healthResponse = await app.request("/health");
+      expect(healthResponse.status).toBe(200);
+      await expect(healthResponse.json()).resolves.toMatchObject({
+        auth: { apiTokenRequired: true },
+      });
+
+      const deniedResponse = await app.request("/v1/tasks");
+      expect(deniedResponse.status).toBe(401);
+
+      const bearerResponse = await app.request("/v1/tasks", {
+        headers: { authorization: "Bearer mobile-secret" },
+      });
+      expect(bearerResponse.status).toBe(200);
+
+      const headerResponse = await app.request("/v1/tasks", {
+        headers: { "x-agentroom-api-token": "mobile-secret" },
+      });
+      expect(headerResponse.status).toBe(200);
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.AGENTROOM_API_TOKEN;
+      } else {
+        process.env.AGENTROOM_API_TOKEN = previousToken;
+      }
+    }
+  });
+
   it("posts and filters room messages", async () => {
     const app = createApp(await appOptions());
 
@@ -189,6 +222,15 @@ describe("agentroom daemon app", () => {
       }),
     });
     expect(launchResponse.status).toBe(201);
+
+    const bindingResponse = await app.request("/v1/runtime/bindings/demo");
+    expect(bindingResponse.status).toBe(200);
+    await expect(bindingResponse.json()).resolves.toMatchObject({
+      binding: {
+        providerId: "fake-local",
+        bindingId: "fake:demo",
+      },
+    });
 
     const inputResponse = await app.request(
       "/v1/runtime/fake-local/agents/demo/input",

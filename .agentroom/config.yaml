@@ -1,0 +1,28 @@
+room:
+  id: agent-room
+  name: agent-room
+
+runtime:
+  default: herdr
+
+runtimes:
+  fake:
+    type: fake
+  herdr:
+    type: herdr
+    session: agentroom
+    cli: /Users/jamesvolpe/web/herdr/target/debug/herdr
+    layout:
+      mode: pane-grid
+      workspace: agent-room
+      panesPerTab: 2
+      split: largest
+      balance: true
+  tmux:
+    type: tmux
+    sessionPrefix: agent-room
+    cli: tmux
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl

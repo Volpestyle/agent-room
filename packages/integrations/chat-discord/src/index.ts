@@ -27,6 +27,19 @@ import {
 const DISCORD_MESSAGE_LIMIT = 2000;
 const DEFAULT_WEBHOOK_NAME = "AgentRoom";
 
+// Re-export discord.js primitives so downstream consumers (clanky-pi, etc.)
+// resolve the SAME discord.js instance that discordUserTokenPatches.ts
+// patches via createRequire. Without this, a second workspace that imports
+// `discord.js` directly gets its own copy and the user-token READY patch
+// silently fails to apply.
+export {
+  Client as DiscordClient,
+  type ClientOptions as DiscordClientOptions,
+  GatewayIntentBits as DiscordGatewayIntentBits,
+  Partials as DiscordPartials,
+} from "discord.js";
+export { applyDiscordUserTokenPatches } from "./discordUserTokenPatches.js";
+
 export interface DiscordChatGatewayProviderOptions {
   id?: string;
   token?: string;

@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import type {
   ChatConversationKind,
   ChatCredentialKind,
+  HarnessSpec,
   RuntimeProviderKind,
 } from "@agentroom/core";
 
@@ -25,6 +26,7 @@ export interface AgentRoomConfig {
   runtime: {
     default: string;
   };
+  operator?: DashboardOperatorConfig;
   runtimes: Record<string, RuntimeConfig>;
   chat?: ChatConfig;
   storage: {
@@ -42,6 +44,16 @@ export type RuntimeConfig =
       layout?: HerdrLayoutConfig;
     }
   | { type: "tmux"; sessionPrefix?: string; cli?: string };
+
+export interface DashboardOperatorConfig {
+  agentId?: string;
+  displayName?: string;
+  kind?: HarnessSpec["kind"] | "clanky";
+  command?: string;
+  cwd?: string;
+  sessionDir?: string;
+  env?: Record<string, string>;
+}
 
 export type HerdrLayoutMode =
   | "workspace-per-agent"
@@ -269,6 +281,9 @@ export function formatAgentRoomConfig(config: AgentRoomConfig): string {
     "runtime:",
     `  default: ${yamlScalar(config.runtime.default)}`,
     "",
+    ...(config.operator !== undefined
+      ? [...formatDashboardOperator(config.operator), ""]
+      : []),
     "runtimes:",
     ...Object.entries(config.runtimes).flatMap(([name, runtime]) =>
       formatRuntime(name, runtime),
@@ -285,6 +300,7 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
   const parsed = parseSimpleYaml(text);
   const room = objectAt(parsed, "room");
   const runtime = objectAt(parsed, "runtime");
+  const operator = parseDashboardOperatorConfig(objectAt(parsed, "operator"));
   const runtimes = objectAt(parsed, "runtimes");
   const chat = parseChatConfig(objectAt(parsed, "chat"));
   const storage = objectAt(parsed, "storage");
@@ -304,6 +320,7 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
     runtime: {
       default: required(defaultRuntime, "runtime.default"),
     },
+    ...(operator !== undefined ? { operator } : {}),
     runtimes: runtimeConfigs,
     ...(chat !== undefined ? { chat } : {}),
     storage: {
@@ -311,6 +328,38 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
       path: stringAt(storage, "path") || DEFAULT_EVENT_LOG_PATH,
     },
   };
+}
+
+function formatDashboardOperator(operator: DashboardOperatorConfig): string[] {
+  return [
+    "operator:",
+    ...(operator.agentId !== undefined
+      ? [`  agentId: ${yamlScalar(operator.agentId)}`]
+      : []),
+    ...(operator.displayName !== undefined
+      ? [`  displayName: ${yamlScalar(operator.displayName)}`]
+      : []),
+    ...(operator.kind !== undefined
+      ? [`  kind: ${yamlScalar(operator.kind)}`]
+      : []),
+    ...(operator.command !== undefined
+      ? [`  command: ${yamlScalar(operator.command)}`]
+      : []),
+    ...(operator.cwd !== undefined
+      ? [`  cwd: ${yamlScalar(operator.cwd)}`]
+      : []),
+    ...(operator.sessionDir !== undefined
+      ? [`  sessionDir: ${yamlScalar(operator.sessionDir)}`]
+      : []),
+    ...(operator.env !== undefined && Object.keys(operator.env).length > 0
+      ? [
+          "  env:",
+          ...Object.entries(operator.env).map(
+            ([key, value]) => `    ${key}: ${yamlScalar(value)}`,
+          ),
+        ]
+      : []),
+  ];
 }
 
 function formatChat(chat: ChatConfig): string[] {
@@ -449,6 +498,44 @@ function formatRuntime(name: string, runtime: RuntimeConfig): string[] {
       lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
   }
   return lines;
+}
+
+function parseDashboardOperatorConfig(
+  input: Record<string, unknown>,
+): DashboardOperatorConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+
+  const agentId = stringAt(input, "agentId");
+  const displayName = stringAt(input, "displayName");
+  const kind = stringAt(input, "kind");
+  const command = stringAt(input, "command");
+  const cwd = stringAt(input, "cwd");
+  const sessionDir = stringAt(input, "sessionDir");
+  if (
+    kind !== undefined &&
+    kind !== "claude-code" &&
+    kind !== "pi" &&
+    kind !== "codex" &&
+    kind !== "gemini-cli" &&
+    kind !== "shell" &&
+    kind !== "custom" &&
+    kind !== "clanky"
+  ) {
+    throw new Error(`Unsupported dashboard operator kind '${kind}'`);
+  }
+
+  const env = stringRecordAt(input, "env");
+  const operator: DashboardOperatorConfig = {};
+  if (agentId !== undefined) operator.agentId = agentId;
+  if (displayName !== undefined) operator.displayName = displayName;
+  if (kind !== undefined) {
+    operator.kind = kind as NonNullable<DashboardOperatorConfig["kind"]>;
+  }
+  if (command !== undefined) operator.command = command;
+  if (cwd !== undefined) operator.cwd = cwd;
+  if (sessionDir !== undefined) operator.sessionDir = sessionDir;
+  if (Object.keys(env).length > 0) operator.env = env;
+  return operator;
 }
 
 function parseChatConfig(
@@ -756,6 +843,18 @@ function stringAt(
   key: string,
 ): string | undefined {
   return typeof value[key] === "string" ? value[key] : undefined;
+}
+
+function stringRecordAt(
+  value: Record<string, unknown>,
+  key: string,
+): Record<string, string> {
+  const record = objectAt(value, key);
+  return Object.fromEntries(
+    Object.entries(record).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 function numberAt(

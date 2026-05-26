@@ -3,5 +3,6 @@ packages:
   - "packages/*"
   - "packages/integrations/*"
 allowBuilds:
-  '@google/genai': true
+  "@google/genai": true
+  msgpackr-extract: true
   protobufjs: true

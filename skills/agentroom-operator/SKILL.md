@@ -19,6 +19,17 @@ agent-room runtime doctor
 
 If runtime health reports a provider-specific problem, fix it through AgentRoom configuration or the relevant adapter docs. Do not bypass AgentRoom for normal launch, read, send, or stop flows.
 
+## Mobile pairing
+
+For iOS/mobile access over Tailscale, start the daemon with tailnet binding and copy the pairing link:
+
+```bash
+agent-room daemon start --tailnet
+agent-room mobile-connect --copy
+```
+
+The copied `agentroom://connect?...` link includes the daemon URL and bearer token. Open it on the iPhone to save the connection in AgentRoom and connect without typing the fields manually.
+
 ## Launch Agents
 
 Prefer launching the intended harness directly when known:

@@ -141,4 +141,44 @@ storage:
       },
     });
   });
+
+  it("parses dashboard operator config from YAML", () => {
+    const parsed = parseAgentRoomConfig(`room:
+  id: agent-room
+
+runtime:
+  default: fake
+
+operator:
+  agentId: operator
+  displayName: Dashboard Operator
+  kind: clanky
+  command: "clanky --profile operator --home .agentroom/clanky"
+  cwd: /tmp/work
+  sessionDir: .agentroom/clanky/profiles/operator/sessions
+  env:
+    CLANKY_PROFILE: operator
+
+runtimes:
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl
+`);
+
+    expect(parsed.operator).toEqual({
+      agentId: "operator",
+      displayName: "Dashboard Operator",
+      kind: "clanky",
+      command: "clanky --profile operator --home .agentroom/clanky",
+      cwd: "/tmp/work",
+      sessionDir: ".agentroom/clanky/profiles/operator/sessions",
+      env: {
+        CLANKY_PROFILE: "operator",
+      },
+    });
+    expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
+  });
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -19,6 +19,7 @@ import {
   type SelectListTheme,
   type Terminal,
 } from "@earendil-works/pi-tui";
+import { maybeLoadAgentRoomConfigSync } from "@agentroom/config";
 import { createApiClient, type ApiClient } from "./api.js";
 import type {
   ActorRef,
@@ -28,15 +29,23 @@ import type {
   Message,
   RoomEvent,
   RuntimeAgent,
+  RuntimeBinding,
   RuntimeProviderSummary,
   Task,
   TaskStatus,
 } from "./types.js";
 
-type ViewName = "overview" | "agents" | "tasks" | "messages" | "events";
+type ViewName =
+  | "chat"
+  | "overview"
+  | "agents"
+  | "tasks"
+  | "messages"
+  | "events";
 
 export interface AgentRoomTuiOptions {
   baseUrl?: string;
+  apiToken?: string;
   refreshMs?: number;
 }
 
@@ -48,10 +57,21 @@ interface Snapshot {
   tasks: Task[];
   messages: Message[];
   events: RoomEvent[];
+  operatorBinding?: RuntimeBinding;
   output?: string;
+  operatorOutput?: string;
+  operatorTranscript?: ChatTurn[];
+  operatorNotice?: string;
 }
 
-const VIEWS: ViewName[] = ["overview", "agents", "tasks", "messages", "events"];
+const VIEWS: ViewName[] = [
+  "chat",
+  "overview",
+  "agents",
+  "tasks",
+  "messages",
+  "events",
+];
 const TASK_STATUSES: TaskStatus[] = [
   "planned",
   "assigned",
@@ -74,6 +94,175 @@ const AGENT_ROLES: AgentRole[] = [
   "qa",
   "observer",
   "custom",
+];
+const DEFAULT_OPERATOR_SESSION_DIR = ".agentroom/pi-sessions";
+
+type OperatorBootstrapState = "pending" | "starting" | "ready" | "failed";
+
+interface OperatorTarget {
+  providerId: string;
+  agentId: string;
+}
+
+type OperatorKind = HarnessSpec["kind"] | "clanky";
+
+interface ResolvedOperatorConfig {
+  agentId: string;
+  displayName: string;
+  kind?: OperatorKind;
+  command?: string;
+  cwd?: string;
+  sessionDir: string;
+  env?: Record<string, string>;
+}
+
+interface SlashCommandSpec {
+  value: string;
+  label: string;
+  description: string;
+  template?: string;
+  run?: string;
+}
+
+interface ChatTurn {
+  role: "user" | "assistant" | "system";
+  text: string;
+  createdAt: string;
+}
+
+const SLASH_COMMANDS: SlashCommandSpec[] = [
+  {
+    value: "/ask [agent] <text>",
+    label: "ask agent",
+    description: "Send input to the selected or named runtime agent",
+    template: "/ask ",
+  },
+  {
+    value: "/post [#channel] <text>",
+    label: "post message",
+    description: "Post a room message to a channel",
+    template: "/post #announcements ",
+  },
+  {
+    value: "/task <title>",
+    label: "create task",
+    description: "Create a local AgentRoom task",
+    template: "/task ",
+  },
+  {
+    value: "/rename [task] <title>",
+    label: "rename task",
+    description: "Rename the selected or named task",
+    template: "/rename ",
+  },
+  {
+    value: "/desc [task] <text|--clear>",
+    label: "describe task",
+    description: "Edit or clear a task description",
+    template: "/desc ",
+  },
+  {
+    value: "/status [task] <status> [summary]",
+    label: "set status",
+    description: "Move a task through the workflow",
+    template: "/status ",
+  },
+  {
+    value: "/claim [task] <agent>",
+    label: "claim task",
+    description: "Assign a task to an agent",
+    template: "/claim ",
+  },
+  {
+    value: "/cancel [task] [reason]",
+    label: "cancel task",
+    description: "Mark a task canceled without deleting it",
+    template: "/cancel ",
+  },
+  {
+    value: "/delete [task] [reason]",
+    label: "delete task",
+    description: "Remove a task from active room state",
+    template: "/delete ",
+  },
+  {
+    value: "/launch <agent> [role] [harness] [command...]",
+    label: "launch agent",
+    description: "Start a runtime-backed worker",
+    template: "/launch ",
+  },
+  {
+    value: "/operator [agent] [kind] [command...]",
+    label: "restart operator",
+    description: "Launch or relaunch the dashboard operator agent",
+    template: "/operator ",
+  },
+  {
+    value: "/provider <id>",
+    label: "select provider",
+    description: "Switch the active runtime provider",
+    template: "/provider ",
+  },
+  {
+    value: "/select <id>",
+    label: "select item",
+    description: "Select an agent, task, or message by id",
+    template: "/select ",
+  },
+  {
+    value: "/view <name>",
+    label: "switch view",
+    description: "Jump to chat, overview, agents, tasks, messages, or events",
+    template: "/view ",
+  },
+  {
+    value: "/actions",
+    label: "actions",
+    description: "Open actions for the current selection",
+    run: "/actions",
+  },
+  {
+    value: "/tasks",
+    label: "tasks",
+    description: "Open the task selector",
+    run: "/tasks",
+  },
+  {
+    value: "/agents",
+    label: "agents",
+    description: "Open the agent selector",
+    run: "/agents",
+  },
+  {
+    value: "/messages",
+    label: "messages",
+    description: "Open the message selector",
+    run: "/messages",
+  },
+  {
+    value: "/refresh",
+    label: "refresh",
+    description: "Reload daemon, runtime, task, message, and event state",
+    run: "/refresh",
+  },
+  {
+    value: "/palette",
+    label: "palette",
+    description: "Open the high-level operator action palette",
+    run: "/palette",
+  },
+  {
+    value: "/commands",
+    label: "commands",
+    description: "Browse these slash command templates",
+    run: "/commands",
+  },
+  {
+    value: "/help",
+    label: "help",
+    description: "Show operator input help and command templates",
+    run: "/help",
+  },
 ];
 
 const RESET = "\x1b[0m";
@@ -190,9 +379,10 @@ export async function runAgentRoomTui(
 ): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
-  const client = createApiClient(
-    options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {},
-  );
+  const client = createApiClient({
+    ...(options.baseUrl !== undefined ? { baseUrl: options.baseUrl } : {}),
+    ...(options.apiToken !== undefined ? { token: options.apiToken } : {}),
+  });
   const app = new AgentRoomTuiApp(tui, terminal, client, options);
 
   tui.addChild(app);
@@ -228,6 +418,12 @@ class AgentRoomTuiApp implements Component {
   private selectedTaskIndex = 0;
   private selectedMessageIndex = Number.MAX_SAFE_INTEGER;
   private promptActive = false;
+  private readonly operatorConfig = dashboardOperatorConfig();
+  private readonly operatorAgentId = this.operatorConfig.agentId;
+  private operatorBootstrapState: OperatorBootstrapState = "pending";
+  private operatorBootstrapError: string | undefined;
+  private operatorLaunchPromise: Promise<OperatorTarget> | undefined;
+  private chatTurns: ChatTurn[] = [];
   private isRefreshing = false;
   private lastError: string | undefined;
   private notices: string[] = [];
@@ -258,9 +454,11 @@ class AgentRoomTuiApp implements Component {
   }
 
   start(): void {
+    this.enterPrompt();
     this.refreshTimer = setInterval(() => {
       void this.refresh();
     }, this.refreshMs);
+    void this.bootstrapOperator();
   }
 
   dispose(): void {
@@ -336,6 +534,10 @@ class AgentRoomTuiApp implements Component {
       this.enterPrompt("/");
       return { consume: true };
     }
+    if (this.currentView() === "chat" && isPlainTextInput(data)) {
+      this.enterPrompt(data);
+      return { consume: true };
+    }
     if (matchesKey(data, "i")) {
       this.enterPrompt();
       return { consume: true };
@@ -357,22 +559,26 @@ class AgentRoomTuiApp implements Component {
       return { consume: true };
     }
     if (matchesKey(data, "1")) {
-      this.setView("overview");
+      this.setView("chat");
       return { consume: true };
     }
     if (matchesKey(data, "2")) {
-      this.setView("agents");
+      this.setView("overview");
       return { consume: true };
     }
     if (matchesKey(data, "3")) {
-      this.setView("tasks");
+      this.setView("agents");
       return { consume: true };
     }
     if (matchesKey(data, "4")) {
-      this.setView("messages");
+      this.setView("tasks");
       return { consume: true };
     }
     if (matchesKey(data, "5")) {
+      this.setView("messages");
+      return { consume: true };
+    }
+    if (matchesKey(data, "6")) {
       this.setView("events");
       return { consume: true };
     }
@@ -415,20 +621,49 @@ class AgentRoomTuiApp implements Component {
       );
       this.selectedProviderId = selectedProviderId;
 
-      const [tasks, messages, events] = await Promise.all([
+      const [tasks, messages, events, operatorBinding] = await Promise.all([
         this.client.listTasks(),
         this.client.listMessages(80),
         this.client.listEvents(100),
+        this.loadRuntimeBinding(this.operatorAgentId),
       ]);
 
       const agents = selectedProviderId
         ? (providerAgents[selectedProviderId] ?? [])
         : [];
+      const activeAgentIndex = this.activeAgentId
+        ? agents.findIndex((agent) => agent.id === this.activeAgentId)
+        : -1;
+      if (activeAgentIndex >= 0) this.selectedAgentIndex = activeAgentIndex;
       const selectedAgent = agents[this.selectedAgentIndex] ?? agents[0];
       const output =
         selectedProviderId && selectedAgent
           ? await this.readAgentOutput(selectedProviderId, selectedAgent.id)
           : undefined;
+      const operatorTarget =
+        (operatorBinding
+          ? {
+              providerId: operatorBinding.providerId,
+              agentId: this.operatorAgentId,
+            }
+          : undefined) ??
+        this.operatorTargetFromEvents(events.events) ??
+        this.operatorTargetFrom(providerAgents) ??
+        (selectedProviderId
+          ? { providerId: selectedProviderId, agentId: this.operatorAgentId }
+          : undefined);
+      const operatorOutput = operatorTarget
+        ? await this.readAgentOutput(
+            operatorTarget.providerId,
+            operatorTarget.agentId,
+          )
+        : undefined;
+      const operatorTranscript = loadPiSessionTranscript(
+        operatorSessionDirs(this.operatorConfig),
+      );
+      const operatorNotice = operatorOutput
+        ? operatorNoticeFromOutput(operatorOutput, this.operatorConfig)
+        : undefined;
 
       this.snapshot = {
         health,
@@ -438,7 +673,11 @@ class AgentRoomTuiApp implements Component {
         tasks: tasks.tasks,
         messages: messages.messages,
         events: events.events,
+        ...(operatorBinding !== undefined ? { operatorBinding } : {}),
         ...(output !== undefined ? { output } : {}),
+        ...(operatorOutput !== undefined ? { operatorOutput } : {}),
+        ...(operatorTranscript.length > 0 ? { operatorTranscript } : {}),
+        ...(operatorNotice !== undefined ? { operatorNotice } : {}),
       };
       if (wasFollowingMessages && messages.messages.length > 0) {
         this.selectedMessageIndex = messages.messages.length - 1;
@@ -487,13 +726,11 @@ class AgentRoomTuiApp implements Component {
 
   private renderPrompt(width: number): string[] {
     if (this.promptActive) {
-      return [section("operator input"), ...this.editor.render(width)];
+      return [section("chat"), ...this.editor.render(width)];
     }
-    const selectedAgent = this.inputAgentId() ?? "no agent";
+    const operator = this.renderOperatorStatus();
     return [
-      style.dim(
-        `browse mode  / slash commands  ? palette  i ask ${selectedAgent}  enter actions  n task  p post`,
-      ),
+      `${style.dim("operator")} ${operator}  ${style.dim("type to chat  / commands  esc dashboard keys")}`,
     ];
   }
 
@@ -527,19 +764,71 @@ class AgentRoomTuiApp implements Component {
     height: number,
     startRow: number,
   ): string[] {
-    const view = VIEWS[this.viewIndex] ?? "overview";
+    const view = VIEWS[this.viewIndex] ?? "chat";
     const lines =
-      view === "overview"
-        ? this.renderOverview(width, startRow)
-        : view === "agents"
-          ? this.renderAgents(width, startRow)
-          : view === "tasks"
-            ? this.renderTasks(width, startRow)
-            : view === "messages"
-              ? this.renderMessages(width, startRow)
-              : this.renderEvents(width);
+      view === "chat"
+        ? this.renderChat(width)
+        : view === "overview"
+          ? this.renderOverview(width, startRow)
+          : view === "agents"
+            ? this.renderAgents(width, startRow)
+            : view === "tasks"
+              ? this.renderTasks(width, startRow)
+              : view === "messages"
+                ? this.renderMessages(width, startRow)
+                : this.renderEvents(width);
 
-    return fitLines(lines, width, height);
+    return view === "chat"
+      ? fitTailLines(lines, width, height)
+      : fitLines(lines, width, height);
+  }
+
+  private renderChat(width: number): string[] {
+    const room = this.snapshot.health?.roomId ?? "offline";
+    const activeTasks = this.snapshot.tasks.filter((task) =>
+      [
+        "assigned",
+        "claimed",
+        "working",
+        "ready-for-review",
+        "blocked",
+      ].includes(task.status),
+    );
+    const transcriptTurns =
+      this.snapshot.operatorTranscript &&
+      this.snapshot.operatorTranscript.length > 0
+        ? [...this.snapshot.operatorTranscript, ...this.chatTurns].sort(
+            compareChatTurns,
+          )
+        : this.chatTurns;
+    const noticeTurn = this.snapshot.operatorNotice
+      ? [
+          {
+            role: "system" as const,
+            text: this.snapshot.operatorNotice,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      : [];
+    const roomTurns = this.snapshot.messages.slice(-6).map((message) => ({
+      role: "system" as const,
+      text: `${actorLabel(message.sender)} #${message.channelId ?? "announcements"}: ${message.body}`,
+      createdAt: message.createdAt,
+    }));
+    const turns = [...transcriptTurns, ...noticeTurn, ...roomTurns]
+      .slice(-14)
+      .flatMap((turn) => renderChatTurn(turn, width));
+    const statusLine = `${style.bold("operator")} ${this.renderOperatorStatus()}  ${style.dim(`room ${room}  active tasks ${activeTasks.length}  agents ${this.totalAgentCount()}`)}`;
+    const transcript =
+      turns.length > 0
+        ? turns
+        : [
+            style.dim(
+              "Ask the operator here, or use /commands for room actions.",
+            ),
+          ];
+
+    return [statusLine, "", ...transcript];
   }
 
   private renderOverview(width: number, startRow: number): string[] {
@@ -552,10 +841,7 @@ class AgentRoomTuiApp implements Component {
         "blocked",
       ].includes(task.status),
     );
-    const totalAgents = Object.values(this.snapshot.providerAgents).reduce(
-      (total, agents) => total + agents.length,
-      0,
-    );
+    const totalAgents = this.totalAgentCount();
     const providerLines =
       this.snapshot.providers.length === 0
         ? [style.dim("no runtime providers loaded")]
@@ -567,6 +853,7 @@ class AgentRoomTuiApp implements Component {
       section("status"),
       `providers ${this.snapshot.providers.length}  agents ${totalAgents} total / ${this.snapshot.agents.length} selected  tasks ${this.snapshot.tasks.length}  messages ${this.snapshot.messages.length}`,
       `active tasks ${activeTasks.length}  events ${this.snapshot.events.length}`,
+      `operator ${this.renderOperatorStatus()}`,
       "",
       section("providers"),
       ...providerLines,
@@ -743,7 +1030,7 @@ class AgentRoomTuiApp implements Component {
       rule(width),
       truncateToWidth(
         style.dim(
-          `↑/↓ j/k select  tab/←/→ view  enter actions  / commands  ? palette  i ask  selected agent ${selectedAgent} task ${selectedTask} msg ${selectedMessage}`,
+          `chat first  / commands  tab views  esc browse  selected ${selectedAgent} task ${selectedTask} msg ${selectedMessage}`,
         ),
         width,
         "",
@@ -758,17 +1045,17 @@ class AgentRoomTuiApp implements Component {
     try {
       if (value.startsWith("/")) {
         await this.runCommand(value.slice(1));
-      } else if (this.inputAgentId()) {
-        await this.sendToAgent(this.inputAgentId()!, value);
       } else {
-        throw new Error(
-          "No agent selected; use /operator, /launch, or /post #channel",
-        );
+        await this.sendToOperator(value);
       }
       await this.refresh();
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
       this.tui.requestRender();
+    } finally {
+      if (!this.tui.hasOverlay() && this.currentView() === "chat") {
+        this.enterPrompt();
+      }
     }
   }
 
@@ -779,13 +1066,16 @@ class AgentRoomTuiApp implements Component {
       case "":
       case "?":
       case "commands":
+        this.showSlashCommandReference();
+        return;
       case "palette":
         this.showCommandPalette();
         return;
       case "help":
         this.notice(
-          "/ask [agent] text | /post [#channel] text | /tasks | /agents | /messages | /actions | /task title | /rename [task] title | /desc [task] text | /delete [task] [reason]",
+          "Plain text asks the dashboard operator. Slash commands run manual actions.",
         );
+        this.showSlashCommandReference();
         return;
       case "refresh":
         await this.refresh();
@@ -831,7 +1121,10 @@ class AgentRoomTuiApp implements Component {
         const target = args[0] && this.hasAgent(args[0]) ? args[0] : selected;
         const body =
           target === args[0] ? args.slice(1).join(" ") : args.join(" ");
-        if (!target) throw new Error("No agent selected");
+        if (!target) {
+          await this.sendToOperator(body);
+          return;
+        }
         await this.sendToAgent(target, body);
         return;
       }
@@ -957,9 +1250,13 @@ class AgentRoomTuiApp implements Component {
         return;
       }
       case "operator": {
-        const [agentId = "operator", ...commandParts] = args;
-        this.activeAgentId = agentId;
-        await this.launchAgent(agentId, "lead", operatorHarness(commandParts));
+        const operator = operatorConfigForCommand(args, this.operatorConfig);
+        this.activeAgentId = operator.agentId;
+        await this.launchAgent(
+          operator.agentId,
+          "lead",
+          operatorHarness(operator),
+        );
         return;
       }
       default:
@@ -978,15 +1275,35 @@ class AgentRoomTuiApp implements Component {
     this.notice(`posted to #${channelId}`);
   }
 
-  private async sendToAgent(agentId: string, text: string): Promise<void> {
+  private async sendToOperator(text: string): Promise<void> {
+    if (!text.trim()) throw new Error("Operator request is required");
+    this.viewIndex = VIEWS.indexOf("chat");
+    this.addChatTurn("user", text);
+    const target = await this.ensureOperatorAgent();
+    await this.sendToAgent(target.agentId, text, {
+      providerId: target.providerId,
+      notice: `asked operator ${target.agentId}`,
+    });
+  }
+
+  private async sendToAgent(
+    agentId: string,
+    text: string,
+    options: { providerId?: string; notice?: string | false } = {},
+  ): Promise<void> {
     if (!text.trim()) throw new Error("Input text is required");
-    const providerId = this.selectedProviderId;
+    const providerId =
+      options.providerId ??
+      this.providerIdForAgent(agentId) ??
+      this.selectedProviderId;
     if (!providerId) throw new Error("No runtime provider selected");
     await this.client.sendRuntimeAgentInput(providerId, agentId, {
       text,
       submit: true,
     });
-    this.notice(`sent input to ${agentId}`);
+    if (options.notice !== false) {
+      this.notice(options.notice ?? `sent input to ${agentId}`);
+    }
   }
 
   private async launchAgent(
@@ -1021,6 +1338,91 @@ class AgentRoomTuiApp implements Component {
     }
   }
 
+  private async bootstrapOperator(): Promise<void> {
+    try {
+      await this.ensureOperatorAgent({ quiet: true });
+      await this.refresh();
+    } catch (error) {
+      this.operatorBootstrapState = "failed";
+      this.operatorBootstrapError =
+        error instanceof Error ? error.message : String(error);
+      this.notice(`operator not started: ${this.operatorBootstrapError}`);
+    }
+  }
+
+  private async ensureOperatorAgent(
+    options: { quiet?: boolean } = {},
+  ): Promise<OperatorTarget> {
+    const existing = this.operatorTarget();
+    if (existing) {
+      this.operatorBootstrapState = "ready";
+      this.operatorBootstrapError = undefined;
+      this.activeAgentId = this.operatorAgentId;
+      return existing;
+    }
+
+    if (this.operatorLaunchPromise) return this.operatorLaunchPromise;
+
+    const detected = await this.detectOperatorTarget();
+    if (detected) {
+      this.operatorBootstrapState = "ready";
+      this.operatorBootstrapError = undefined;
+      this.activeAgentId = this.operatorAgentId;
+      return detected;
+    }
+
+    const provider = this.preferredOperatorProvider();
+    if (!provider) {
+      throw new Error("No runtime provider is available for the operator");
+    }
+    if (!provider.capabilities.startAgent) {
+      throw new Error(`Runtime provider ${provider.id} cannot launch agents`);
+    }
+    if (provider.health?.ok === false) {
+      throw new Error(
+        `Runtime provider ${provider.id} is ${provider.health.status}: ${provider.health.message ?? "unavailable"}`,
+      );
+    }
+
+    this.operatorBootstrapState = "starting";
+    this.operatorBootstrapError = undefined;
+    if (!options.quiet) {
+      this.notice(`starting operator ${this.operatorAgentId}`);
+    }
+
+    this.operatorLaunchPromise = (async () => {
+      await this.client.launchRuntimeAgent(provider.id, {
+        agentId: this.operatorAgentId,
+        role: "lead",
+        displayName: this.operatorConfig.displayName,
+        harness: operatorHarness(this.operatorConfig),
+        env: {
+          AGENTROOM_DASHBOARD_OPERATOR: "1",
+          ...(this.operatorConfig.env ?? {}),
+        },
+      });
+      this.selectedProviderId = provider.id;
+      this.activeAgentId = this.operatorAgentId;
+      this.operatorBootstrapState = "ready";
+      this.operatorBootstrapError = undefined;
+      if (!options.quiet) {
+        this.notice(`operator ${this.operatorAgentId} ready`);
+      }
+      return { providerId: provider.id, agentId: this.operatorAgentId };
+    })();
+
+    try {
+      return await this.operatorLaunchPromise;
+    } catch (error) {
+      this.operatorBootstrapState = "failed";
+      this.operatorBootstrapError =
+        error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      this.operatorLaunchPromise = undefined;
+    }
+  }
+
   private enterPrompt(initialText = ""): void {
     this.promptActive = true;
     this.editor.setText(initialText);
@@ -1041,8 +1443,13 @@ class AgentRoomTuiApp implements Component {
       [
         {
           value: "ask",
-          label: "ask agent",
-          description: "Send plain text to the selected runtime agent",
+          label: "ask operator",
+          description: "Ask the dashboard operator about this room",
+        },
+        {
+          value: "ask-selected",
+          label: "ask selected",
+          description: "Send input to the selected runtime agent",
         },
         {
           value: "post",
@@ -1077,19 +1484,24 @@ class AgentRoomTuiApp implements Component {
         },
         {
           value: "operator",
-          label: "launch operator",
-          description: "Launch a Pi lead agent named operator",
+          label: "operator",
+          description: "Start or focus the dashboard operator",
         },
         {
           value: "slash",
-          label: "slash command",
-          description: "Type a raw slash command",
+          label: "slash commands",
+          description: "Browse manual dashboard commands",
         },
       ],
       async (item) => {
         switch (item.value) {
           case "ask":
             this.enterPrompt();
+            return;
+          case "ask-selected":
+            this.enterPrompt(
+              this.inputAgentId() ? `/ask ${this.inputAgentId()} ` : "/ask ",
+            );
             return;
           case "post":
             this.enterPrompt("/post #announcements ");
@@ -1113,11 +1525,37 @@ class AgentRoomTuiApp implements Component {
             this.enterPrompt("/launch ");
             return;
           case "operator":
-            this.enterPrompt("/operator operator");
+            await this.ensureOperatorAgent();
+            await this.refresh();
             return;
           case "slash":
-            this.enterPrompt("/");
+            this.showSlashCommandReference();
             return;
+        }
+      },
+    );
+  }
+
+  private showSlashCommandReference(): void {
+    this.showSelectDialog(
+      "slash commands",
+      SLASH_COMMANDS.map((command) => ({
+        value: command.value,
+        label: command.label,
+        description: `${command.value} - ${command.description}`,
+      })),
+      async (item) => {
+        const command = SLASH_COMMANDS.find(
+          (candidate) => candidate.value === item.value,
+        );
+        if (!command) return;
+        if (command.template !== undefined) {
+          this.enterPrompt(command.template);
+          return;
+        }
+        if (command.run !== undefined) {
+          await this.runCommand(command.run.slice(1));
+          await this.refresh();
         }
       },
     );
@@ -1137,7 +1575,7 @@ class AgentRoomTuiApp implements Component {
       this.showMessageActions();
       return;
     }
-    if (view === "overview") {
+    if (view === "chat" || view === "overview") {
       this.showCommandPalette();
       return;
     }
@@ -1187,7 +1625,9 @@ class AgentRoomTuiApp implements Component {
 
   private showAgentSelector(): void {
     if (this.snapshot.agents.length === 0) {
-      this.notice("no agents for selected provider; use /launch or /operator");
+      this.notice(
+        "no agents for selected provider; use /launch or ask operator",
+      );
       return;
     }
     this.showSelectDialog(
@@ -1274,8 +1714,8 @@ class AgentRoomTuiApp implements Component {
         },
         {
           value: "ask",
-          label: "ask agent",
-          description: "Ask the selected agent about this task",
+          label: "ask operator",
+          description: "Ask the dashboard operator about this task",
         },
       ],
       (item) => {
@@ -1336,7 +1776,7 @@ class AgentRoomTuiApp implements Component {
       async (item) => {
         switch (item.value) {
           case "ask":
-            this.enterPrompt();
+            this.enterPrompt(`/ask ${agent.id} `);
             return;
           case "output":
             this.viewIndex = VIEWS.indexOf("agents");
@@ -1369,8 +1809,8 @@ class AgentRoomTuiApp implements Component {
         },
         {
           value: "ask",
-          label: "ask agent",
-          description: "Ask selected agent about this message",
+          label: "ask operator",
+          description: "Ask the dashboard operator about this message",
         },
         { value: "select", label: "select only", description: message.id },
       ],
@@ -1631,6 +2071,35 @@ class AgentRoomTuiApp implements Component {
     return Object.fromEntries(entries);
   }
 
+  private async loadRuntimeBinding(
+    agentId: string,
+  ): Promise<RuntimeBinding | undefined> {
+    try {
+      const { binding } = await this.client.getRuntimeBinding(agentId);
+      return binding ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async detectOperatorTarget(): Promise<OperatorTarget | undefined> {
+    const providerIds = [
+      this.snapshot.operatorBinding?.providerId,
+      this.selectedProviderId,
+      ...this.snapshot.providers.map((provider) => provider.id),
+    ].filter((providerId): providerId is string => Boolean(providerId));
+
+    for (const providerId of [...new Set(providerIds)]) {
+      try {
+        await this.client.readRuntimeAgent(providerId, this.operatorAgentId, 1);
+        return { providerId, agentId: this.operatorAgentId };
+      } catch {
+        // Keep probing providers; older daemons do not expose binding lookup.
+      }
+    }
+    return undefined;
+  }
+
   private nextSelectedProvider(
     providers: RuntimeProviderSummary[],
     providerAgents: Record<string, RuntimeAgent[]>,
@@ -1651,6 +2120,115 @@ class AgentRoomTuiApp implements Component {
       (provider) => provider.kind !== "fake" && provider.health?.ok !== false,
     );
     return availableNonFake?.id ?? providers[0]?.id;
+  }
+
+  private operatorTarget(): OperatorTarget | undefined {
+    if (this.snapshot.operatorBinding) {
+      return {
+        providerId: this.snapshot.operatorBinding.providerId,
+        agentId: this.operatorAgentId,
+      };
+    }
+    return (
+      this.operatorTargetFromEvents(this.snapshot.events) ??
+      this.operatorTargetFrom(this.snapshot.providerAgents)
+    );
+  }
+
+  private operatorTargetFrom(
+    providerAgents: Record<string, RuntimeAgent[]>,
+  ): OperatorTarget | undefined {
+    for (const [providerId, agents] of Object.entries(providerAgents)) {
+      if (agents.some((agent) => agent.id === this.operatorAgentId)) {
+        return { providerId, agentId: this.operatorAgentId };
+      }
+    }
+    return undefined;
+  }
+
+  private operatorTargetFromEvents(
+    events: RoomEvent[],
+  ): OperatorTarget | undefined {
+    for (const event of events.slice().reverse()) {
+      if (
+        event.type === "runtime.bound" &&
+        event.payload.agentId === this.operatorAgentId
+      ) {
+        return {
+          providerId: event.payload.runtime.providerId,
+          agentId: this.operatorAgentId,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  private totalAgentCount(): number {
+    return Object.values(this.snapshot.providerAgents).reduce(
+      (total, agents) => total + agents.length,
+      0,
+    );
+  }
+
+  private providerIdForAgent(agentId: string): string | undefined {
+    for (const [providerId, agents] of Object.entries(
+      this.snapshot.providerAgents,
+    )) {
+      if (agents.some((agent) => agent.id === agentId)) return providerId;
+    }
+    return undefined;
+  }
+
+  private preferredOperatorProvider(): RuntimeProviderSummary | undefined {
+    const launchable = (provider: RuntimeProviderSummary) =>
+      provider.capabilities.startAgent && provider.health?.ok !== false;
+    const selected = this.snapshot.providers.find(
+      (provider) => provider.id === this.selectedProviderId,
+    );
+    if (selected && launchable(selected)) return selected;
+
+    const active = this.snapshot.providers.find(
+      (provider) =>
+        launchable(provider) &&
+        (this.snapshot.providerAgents[provider.id]?.length ?? 0) > 0,
+    );
+    if (active) return active;
+
+    const nonFake = this.snapshot.providers.find(
+      (provider) => provider.kind !== "fake" && launchable(provider),
+    );
+    return nonFake ?? this.snapshot.providers.find(launchable);
+  }
+
+  private renderOperatorStatus(): string {
+    const target = this.operatorTarget();
+    const kind = this.operatorKindLabel();
+    const label = `${this.operatorAgentId}${kind ? ` ${kind}` : ""}`;
+    if (target) {
+      return `${style.green(label)} ${style.dim(target.providerId)}`;
+    }
+    if (this.operatorBootstrapState === "starting") {
+      return style.amber(`${label} starting`);
+    }
+    if (this.operatorBootstrapState === "failed") {
+      const reason = this.operatorBootstrapError
+        ? ` ${normalizeSingleLine(this.operatorBootstrapError)}`
+        : "";
+      return style.red(`${label} offline${reason}`);
+    }
+    if (this.operatorBootstrapState === "ready") {
+      const provider = this.selectedProviderId
+        ? ` ${this.selectedProviderId}`
+        : "";
+      return `${style.green(label)}${style.dim(provider)}`;
+    }
+    return style.amber(`${label} pending`);
+  }
+
+  private operatorKindLabel(): string | undefined {
+    return (
+      this.operatorConfig.kind ?? inferOperatorKind(this.operatorConfig.command)
+    );
   }
 
   private changeView(delta: number): void {
@@ -1700,11 +2278,15 @@ class AgentRoomTuiApp implements Component {
 
   private selectById(id: string | undefined): void {
     if (!id) throw new Error("Usage: /select <agentId|taskId|messageId>");
-    const agentIndex = this.snapshot.agents.findIndex(
-      (agent) => agent.id === id,
-    );
-    if (agentIndex >= 0) {
-      this.selectedAgentIndex = agentIndex;
+    const providerId = this.providerIdForAgent(id);
+    if (providerId) {
+      this.selectedProviderId = providerId;
+      this.selectedAgentIndex = Math.max(
+        0,
+        (this.snapshot.providerAgents[providerId] ?? []).findIndex(
+          (agent) => agent.id === id,
+        ),
+      );
       this.activeAgentId = id;
       this.viewIndex = VIEWS.indexOf("agents");
       return;
@@ -1748,7 +2330,10 @@ class AgentRoomTuiApp implements Component {
   }
 
   private hasAgent(agentId: string): boolean {
-    return this.knownAgentIds().has(agentId);
+    return (
+      this.providerIdForAgent(agentId) !== undefined ||
+      this.knownAgentIds().has(agentId)
+    );
   }
 
   private hasTask(taskId: string): boolean {
@@ -1756,7 +2341,11 @@ class AgentRoomTuiApp implements Component {
   }
 
   private knownAgentIds(): Set<string> {
-    const ids = new Set(this.snapshot.agents.map((agent) => agent.id));
+    const ids = new Set(
+      Object.values(this.snapshot.providerAgents).flatMap((agents) =>
+        agents.map((agent) => agent.id),
+      ),
+    );
     for (const event of this.snapshot.events) {
       if (event.type === "runtime.bound") {
         ids.add(event.payload.agentId);
@@ -1801,7 +2390,7 @@ class AgentRoomTuiApp implements Component {
   }
 
   private currentView(): ViewName {
-    return VIEWS[this.viewIndex] ?? "overview";
+    return VIEWS[this.viewIndex] ?? "chat";
   }
 
   private clampSelections(): void {
@@ -1827,6 +2416,16 @@ class AgentRoomTuiApp implements Component {
     this.notices = this.notices.slice(-6);
     this.tui.requestRender();
   }
+
+  private addChatTurn(role: ChatTurn["role"], text: string): void {
+    this.chatTurns.push({
+      role,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+    });
+    this.chatTurns = this.chatTurns.slice(-24);
+    this.tui.requestRender();
+  }
 }
 
 function section(label: string): string {
@@ -1849,12 +2448,50 @@ function fitLines(lines: string[], width: number, height: number): string[] {
   return visible;
 }
 
+function fitTailLines(
+  lines: string[],
+  width: number,
+  height: number,
+): string[] {
+  const fitted = lines.flatMap((line) => wrapTextWithAnsi(line, width));
+  if (height <= 1) return fitted.slice(-height);
+  const [header, ...body] = fitted;
+  const visible =
+    header === undefined
+      ? []
+      : fitted.length <= height
+        ? fitted
+        : [header, ...body.slice(-(height - 1))];
+  while (visible.length < height) visible.unshift("");
+  return visible;
+}
+
 function emptyHint<T>(items: readonly T[], hint: string): string[] {
   return items.length === 0 ? [style.dim(hint)] : [];
 }
 
+function renderChatTurn(turn: ChatTurn, width: number): string[] {
+  const time = style.dim(turn.createdAt.slice(11, 19));
+  const label =
+    turn.role === "user"
+      ? style.cyan("you")
+      : turn.role === "assistant"
+        ? style.green("operator")
+        : style.dim("system");
+  const firstLine = `${time} ${label} ${turn.text}`;
+  return wrapTextWithAnsi(firstLine, width);
+}
+
+function compareChatTurns(a: ChatTurn, b: ChatTurn): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
 function normalizeSingleLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function isPlainTextInput(data: string): boolean {
+  return data.length === 1 && data >= " " && data !== "\x7f";
 }
 
 function plural(count: number, singular: string): string {
@@ -1996,6 +2633,143 @@ function humanActor(): ActorRef {
   return { kind: "human", id: process.env.USER || "operator" };
 }
 
+function operatorSessionDirs(config: ResolvedOperatorConfig): string[] {
+  const configured =
+    process.env.AGENTROOM_OPERATOR_SESSION_DIR?.trim() ||
+    process.env.AGENTROOM_PI_SESSION_DIR?.trim() ||
+    config.sessionDir;
+  const candidates = [
+    configured,
+    resolve(process.cwd(), DEFAULT_OPERATOR_SESSION_DIR),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return [...new Set(candidates.map((candidate) => resolve(candidate)))];
+}
+
+function loadPiSessionTranscript(sessionDirs: string[]): ChatTurn[] {
+  const sessionFile = findMostRecentPiSession(sessionDirs);
+  if (!sessionFile) return [];
+
+  try {
+    return readFileSync(sessionFile, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => parseJsonLine(line))
+      .flatMap((entry) => {
+        const turn = piSessionTurnFromEntry(entry);
+        return turn ? [turn] : [];
+      })
+      .slice(-24);
+  } catch {
+    return [];
+  }
+}
+
+function findMostRecentPiSession(sessionDirs: string[]): string | undefined {
+  const files: Array<{ path: string; mtime: number }> = [];
+  for (const dir of sessionDirs) {
+    try {
+      if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
+      for (const fileName of readdirSync(dir)) {
+        if (!fileName.endsWith(".jsonl")) continue;
+        const path = resolve(dir, fileName);
+        const stat = statSync(path);
+        if (stat.isFile()) files.push({ path, mtime: stat.mtimeMs });
+      }
+    } catch {
+      // Session transcript is best-effort; the live TUI must keep rendering.
+    }
+  }
+  return files.sort((a, b) => b.mtime - a.mtime)[0]?.path;
+}
+
+function parseJsonLine(line: string): unknown {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+}
+
+function piSessionTurnFromEntry(entry: unknown): ChatTurn | undefined {
+  if (!isRecord(entry) || entry.type !== "message") return undefined;
+  const message = entry.message;
+  if (!isRecord(message)) return undefined;
+  if (message.role !== "user" && message.role !== "assistant") {
+    return undefined;
+  }
+
+  const text = piMessageText(message).trim();
+  if (!text) return undefined;
+
+  return {
+    role: message.role,
+    text,
+    createdAt: piMessageTimestamp(message, entry),
+  };
+}
+
+function piMessageText(message: Record<string, unknown>): string {
+  const content = message.content;
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    const parts = content.flatMap((part) => {
+      if (!isRecord(part)) return [];
+      if (part.type === "text" && typeof part.text === "string") {
+        return [part.text];
+      }
+      if (part.type === "toolCall") {
+        const name = typeof part.name === "string" ? part.name : "tool";
+        return [`[tool: ${name}]`];
+      }
+      return [];
+    });
+    if (parts.length > 0) return parts.join("\n");
+  }
+
+  if (typeof message.errorMessage === "string") {
+    return `Error: ${message.errorMessage}`;
+  }
+  return "";
+}
+
+function piMessageTimestamp(
+  message: Record<string, unknown>,
+  entry: Record<string, unknown>,
+): string {
+  if (typeof message.timestamp === "number") {
+    return new Date(message.timestamp).toISOString();
+  }
+  if (typeof entry.timestamp === "string") return entry.timestamp;
+  return new Date().toISOString();
+}
+
+function operatorNoticeFromOutput(
+  output: string,
+  config: ResolvedOperatorConfig,
+): string | undefined {
+  const text = stripAnsi(output).replace(/\s+/g, " ");
+  if (text.includes("No API key found")) {
+    return `${config.displayName} needs a model login or API key before it can answer.`;
+  }
+  if (text.includes("No models available")) {
+    return `${config.displayName} has no models available; log in or configure a model in the operator pane.`;
+  }
+  if (text.includes("could not find pi")) {
+    return `${config.displayName} could not start Pi. Set AGENTROOM_OPERATOR_COMMAND or configure operator.command.`;
+  }
+  return undefined;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function isTaskStatus(value: string | undefined): value is TaskStatus {
   return TASK_STATUSES.includes(value as TaskStatus);
 }
@@ -2017,27 +2791,128 @@ function isHarnessKind(
   );
 }
 
-function operatorHarness(commandParts: string[]): HarnessSpec {
-  if (commandParts.length > 0) {
-    const [command, ...args] = commandParts;
+function dashboardOperatorConfig(): ResolvedOperatorConfig {
+  const fileConfig = maybeLoadAgentRoomConfigSync(process.cwd())?.operator;
+  const agentId =
+    envValue("AGENTROOM_TUI_OPERATOR_ID") ??
+    envValue("AGENTROOM_OPERATOR_AGENT_ID") ??
+    fileConfig?.agentId ??
+    "operator";
+  const displayName =
+    envValue("AGENTROOM_OPERATOR_DISPLAY_NAME") ??
+    fileConfig?.displayName ??
+    "Operator";
+  const configuredKind =
+    parseOperatorKind(
+      envValue("AGENTROOM_OPERATOR_KIND") ??
+        envValue("AGENTROOM_OPERATOR") ??
+        fileConfig?.kind,
+      "AGENTROOM_OPERATOR_KIND",
+    ) ?? fileConfig?.kind;
+  const command = envValue("AGENTROOM_OPERATOR_COMMAND") ?? fileConfig?.command;
+  const cwd = envValue("AGENTROOM_OPERATOR_CWD") ?? fileConfig?.cwd;
+  const sessionDir =
+    envValue("AGENTROOM_OPERATOR_SESSION_DIR") ??
+    envValue("AGENTROOM_PI_SESSION_DIR") ??
+    fileConfig?.sessionDir ??
+    DEFAULT_OPERATOR_SESSION_DIR;
+  const env = fileConfig?.env;
+
+  return {
+    agentId,
+    displayName,
+    ...(configuredKind !== undefined ? { kind: configuredKind } : {}),
+    ...(command !== undefined ? { command } : {}),
+    ...(cwd !== undefined ? { cwd } : {}),
+    sessionDir,
+    ...(env !== undefined ? { env } : {}),
+  };
+}
+
+function operatorConfigForCommand(
+  args: string[],
+  base: ResolvedOperatorConfig,
+): ResolvedOperatorConfig {
+  if (args.length === 0) return base;
+
+  const first = args[0];
+  const second = args[1];
+  if (isOperatorKind(first)) {
     return {
-      kind: "pi",
-      command: command ?? "pi",
-      ...(args.length > 0 ? { args } : {}),
+      ...base,
+      kind: first,
+      ...(args.length > 1 ? { command: args.slice(1).join(" ") } : {}),
     };
   }
 
-  const configured = process.env.AGENTROOM_OPERATOR_COMMAND?.trim();
-  if (configured) {
-    const [command, ...args] = splitArgs(configured);
-    if (command) {
-      return {
-        kind: "pi",
-        command,
-        ...(args.length > 0 ? { args } : {}),
-      };
-    }
+  const agentId = first ?? base.agentId;
+  if (isOperatorKind(second)) {
+    return {
+      ...base,
+      agentId,
+      kind: second,
+      ...(args.length > 2 ? { command: args.slice(2).join(" ") } : {}),
+    };
   }
+
+  return {
+    ...base,
+    agentId,
+    ...(args.length > 1 ? { command: args.slice(1).join(" ") } : {}),
+  };
+}
+
+function operatorHarness(config: ResolvedOperatorConfig): HarnessSpec {
+  const kind = config.kind ?? inferOperatorKind(config.command) ?? "pi";
+  const commandParts = commandPartsForOperator(kind, config);
+  const [command, ...args] = commandParts;
+  if (command === undefined) {
+    return fallbackPiHarness(config);
+  }
+
+  return {
+    kind: harnessKindForOperator(kind),
+    command,
+    ...(args.length > 0 ? { args } : {}),
+    cwd: resolve(config.cwd ?? process.cwd()),
+    ...(config.env !== undefined ? { env: config.env } : {}),
+  };
+}
+
+function commandPartsForOperator(
+  kind: OperatorKind,
+  config: ResolvedOperatorConfig,
+): string[] {
+  if (config.command !== undefined && config.command.trim().length > 0) {
+    return splitArgs(config.command);
+  }
+
+  if (kind === "claude-code") return ["claude"];
+  if (kind === "codex") return ["codex"];
+  if (kind === "gemini-cli") return ["gemini"];
+  if (kind === "shell") return ["bash"];
+  if (kind === "custom") {
+    return [
+      "/bin/sh",
+      "-lc",
+      "echo 'agent-room: operator.kind custom requires operator.command.' >&2; exit 2",
+    ];
+  }
+  if (kind === "clanky") {
+    return [
+      "clanky",
+      "--profile",
+      config.agentId,
+      "--home",
+      ".agentroom/clanky",
+    ];
+  }
+  if (kind !== "pi") return [kind];
+  return [];
+}
+
+function fallbackPiHarness(config: ResolvedOperatorConfig): HarnessSpec {
+  const sessionDir = config.sessionDir || DEFAULT_OPERATOR_SESSION_DIR;
 
   const localPi = findSiblingPiCheckout();
   const node = findExecutableInPath("node");
@@ -2049,9 +2924,10 @@ function operatorHarness(commandParts: string[]): HarnessSpec {
         resolve(localPi, "node_modules/tsx/dist/cli.mjs"),
         resolve(localPi, "packages/coding-agent/src/cli.ts"),
         "--session-dir",
-        ".agentroom/pi-sessions",
+        sessionDir,
       ],
-      cwd: process.cwd(),
+      cwd: resolve(config.cwd ?? process.cwd()),
+      ...(config.env !== undefined ? { env: config.env } : {}),
     };
   }
 
@@ -2060,8 +2936,9 @@ function operatorHarness(commandParts: string[]): HarnessSpec {
     return {
       kind: "pi",
       command: pi,
-      args: ["--session-dir", ".agentroom/pi-sessions"],
-      cwd: process.cwd(),
+      args: ["--session-dir", sessionDir],
+      cwd: resolve(config.cwd ?? process.cwd()),
+      ...(config.env !== undefined ? { env: config.env } : {}),
     };
   }
 
@@ -2072,8 +2949,47 @@ function operatorHarness(commandParts: string[]): HarnessSpec {
       "-lc",
       "echo 'agent-room: could not find pi. Set AGENTROOM_OPERATOR_COMMAND or keep the pi checkout at ../pi or ./pi.' >&2; exit 127",
     ],
-    cwd: process.cwd(),
+    cwd: resolve(config.cwd ?? process.cwd()),
+    ...(config.env !== undefined ? { env: config.env } : {}),
   };
+}
+
+function harnessKindForOperator(kind: OperatorKind): HarnessSpec["kind"] {
+  return kind === "clanky" ? "pi" : kind;
+}
+
+function inferOperatorKind(
+  command: string | undefined,
+): OperatorKind | undefined {
+  const [executable] = command ? splitArgs(command) : [];
+  if (!executable) return undefined;
+  const name = executable.split("/").pop() ?? executable;
+  if (name === "claude") return "claude-code";
+  if (name === "codex") return "codex";
+  if (name === "clanky") return "clanky";
+  if (name === "pi") return "pi";
+  return undefined;
+}
+
+function parseOperatorKind(
+  value: string | undefined,
+  label: string,
+): OperatorKind | undefined {
+  if (value === undefined || value.trim().length === 0) return undefined;
+  const normalized = value.trim();
+  if (isOperatorKind(normalized)) return normalized;
+  throw new Error(
+    `${label} must be claude-code, codex, clanky, pi, shell, gemini-cli, or custom`,
+  );
+}
+
+function isOperatorKind(value: string | undefined): value is OperatorKind {
+  return isHarnessKind(value) || value === "clanky";
+}
+
+function envValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 function findSiblingPiCheckout(): string | undefined {
@@ -2117,14 +3033,16 @@ const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) : "";
 if (process.argv[1] && process.argv[1] === invokedPath) {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     process.stdout.write(
-      "Usage: agent-room-tui [--daemon <url>] [--refresh-ms <ms>]\n",
+      "Usage: agent-room-tui [--daemon <url>] [--api-token <token>] [--refresh-ms <ms>]\n",
     );
     process.exit(0);
   }
   const baseUrl = argValue("--daemon") ?? process.env.AGENTROOM_DAEMON;
+  const apiToken = argValue("--api-token") ?? process.env.AGENTROOM_API_TOKEN;
   const refreshMs = argValue("--refresh-ms");
   await runAgentRoomTui({
     ...(baseUrl ? { baseUrl } : {}),
+    ...(apiToken ? { apiToken } : {}),
     ...(refreshMs ? { refreshMs: Number(refreshMs) } : {}),
   });
 }

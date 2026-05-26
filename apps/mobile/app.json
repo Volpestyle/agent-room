@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "AgentRoom",
+    "slug": "agent-room-ios",
+    "scheme": "agentroom",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "dev.agentroom.mobile",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "AgentRoom connects to your local or Tailscale daemon.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "dev.agentroom.mobile",
+      "permissions": ["INTERNET"]
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

@@ -7,6 +7,7 @@ import type {
   MessageKind,
   Ref,
   RoomEvent,
+  RuntimeBinding,
   RuntimeAgent,
   RuntimeAgentLaunchInput,
   RuntimeProviderSummary,
@@ -27,6 +28,7 @@ export class AgentRoomApiError extends Error {
 
 export interface ApiClientOptions {
   baseUrl?: string;
+  token?: string;
 }
 
 export interface MessageCreateInput {
@@ -58,11 +60,16 @@ export interface TaskDeleteInput {
   reason?: string;
 }
 
-async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  url: string,
+  init: RequestInit = {},
+  token?: string,
+): Promise<T> {
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
   if (init.body) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
   if (init.headers) {
     Object.assign(headers, init.headers);
   }
@@ -97,42 +104,45 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
 export function createApiClient(options: ApiClientOptions = {}) {
   const base = (options.baseUrl ?? "http://127.0.0.1:4317").replace(/\/$/, "");
   const url = (path: string) => `${base}${path}`;
+  const token = options.token?.trim();
+  const apiRequest = <T>(path: string, init: RequestInit = {}) =>
+    request<T>(url(path), init, token);
 
   return {
     base,
-    health: () => request<DaemonHealth>(url("/health")),
+    health: () => apiRequest<DaemonHealth>("/health"),
     listEvents: (limit = 80) =>
-      request<{ events: RoomEvent[] }>(
-        url(`/v1/events?limit=${encodeURIComponent(limit)}`),
+      apiRequest<{ events: RoomEvent[] }>(
+        `/v1/events?limit=${encodeURIComponent(limit)}`,
       ),
     listMessages: (limit = 80) =>
-      request<{ messages: Message[] }>(
-        url(`/v1/messages?limit=${encodeURIComponent(limit)}`),
+      apiRequest<{ messages: Message[] }>(
+        `/v1/messages?limit=${encodeURIComponent(limit)}`,
       ),
     postMessage: (input: MessageCreateInput) =>
-      request<{ message: Message }>(url("/v1/messages"), {
+      apiRequest<{ message: Message }>("/v1/messages", {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    listTasks: () => request<{ tasks: Task[] }>(url("/v1/tasks")),
+    listTasks: () => apiRequest<{ tasks: Task[] }>("/v1/tasks"),
     createTask: (input: TaskCreateInput) =>
-      request<{ task: Task }>(url("/v1/tasks"), {
+      apiRequest<{ task: Task }>("/v1/tasks", {
         method: "POST",
         body: JSON.stringify(input),
       }),
     updateTaskDetails: (taskId: string, input: TaskDetailsUpdateInput) =>
-      request<{ task: Task }>(url(`/v1/tasks/${encodeURIComponent(taskId)}`), {
+      apiRequest<{ task: Task }>(`/v1/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
     deleteTask: (taskId: string, input: TaskDeleteInput = {}) =>
-      request<{ ok: true }>(url(`/v1/tasks/${encodeURIComponent(taskId)}`), {
+      apiRequest<{ ok: true }>(`/v1/tasks/${encodeURIComponent(taskId)}`, {
         method: "DELETE",
         body: JSON.stringify(input),
       }),
     claimTask: (taskId: string, assignee: ActorRef) =>
-      request<{ task: Task }>(
-        url(`/v1/tasks/${encodeURIComponent(taskId)}/claim`),
+      apiRequest<{ task: Task }>(
+        `/v1/tasks/${encodeURIComponent(taskId)}/claim`,
         {
           method: "POST",
           body: JSON.stringify({ assignee }),
@@ -147,47 +157,44 @@ export function createApiClient(options: ApiClientOptions = {}) {
         summary?: string;
       },
     ) =>
-      request<{ task: Task }>(
-        url(`/v1/tasks/${encodeURIComponent(taskId)}/status`),
+      apiRequest<{ task: Task }>(
+        `/v1/tasks/${encodeURIComponent(taskId)}/status`,
         {
           method: "PATCH",
           body: JSON.stringify(input),
         },
       ),
     listRuntimeProviders: () =>
-      request<{ providers: RuntimeProviderSummary[] }>(
-        url("/v1/runtime/providers"),
+      apiRequest<{ providers: RuntimeProviderSummary[] }>(
+        "/v1/runtime/providers",
       ),
     listRuntimeAgents: (providerId: string) =>
-      request<{ agents: RuntimeAgent[] }>(
-        url(`/v1/runtime/${encodeURIComponent(providerId)}/agents`),
+      apiRequest<{ agents: RuntimeAgent[] }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents`,
       ),
-    launchRuntimeAgent: (
-      providerId: string,
-      input: RuntimeAgentLaunchInput,
-    ) =>
-      request<{ agent: RuntimeAgent }>(
-        url(`/v1/runtime/${encodeURIComponent(providerId)}/agents`),
+    getRuntimeBinding: (agentId: string) =>
+      apiRequest<{ binding: RuntimeBinding | null }>(
+        `/v1/runtime/bindings/${encodeURIComponent(agentId)}`,
+      ),
+    launchRuntimeAgent: (providerId: string, input: RuntimeAgentLaunchInput) =>
+      apiRequest<{ agent: RuntimeAgent }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents`,
         {
           method: "POST",
           body: JSON.stringify(input),
         },
       ),
     readRuntimeAgent: (providerId: string, agentId: string, lines = 120) =>
-      request<{ output: AgentOutput }>(
-        url(
-          `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/output?lines=${encodeURIComponent(lines)}`,
-        ),
+      apiRequest<{ output: AgentOutput }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/output?lines=${encodeURIComponent(lines)}`,
       ),
     sendRuntimeAgentInput: (
       providerId: string,
       agentId: string,
       input: { text: string; submit?: boolean },
     ) =>
-      request<{ ok: true }>(
-        url(
-          `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/input`,
-        ),
+      apiRequest<{ ok: true }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/input`,
         {
           method: "POST",
           body: JSON.stringify(input),

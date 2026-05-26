@@ -69,6 +69,8 @@ agent-room events --limit 20
 
 `init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, and the local event log path.
 
+For room layout choices, including one room per project versus one room coordinating agents across many repositories, see `docs/TOPOLOGY.md`.
+
 AgentRoom does not try to replace Linear. Use Linear MCP/CLI/skills as the canonical work tracker for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, review transitions, runtime audit, and local task shadows linked to Linear issues. See `docs/COORDINATION.md`.
 
 Agent-facing room behavior lives in `skills/agentroom/SKILL.md`. Operator and lead-agent launch behavior lives in `skills/agentroom-operator/SKILL.md`.
@@ -90,6 +92,16 @@ agent-room daemon restart
 ```
 
 Daemon lifecycle commands print concise operator messages by default; pass `--json` when scripts or agents need the full health payload.
+
+For iOS/mobile access over a private tailnet, bind the daemon to this machine's Tailscale address. This also enables bearer-token protection for `/v1/*` API routes:
+
+```bash
+agent-room daemon start --tailnet
+agent-room mobile-connect
+```
+
+Enter the printed base URL and API token in the mobile app. The tailnet keeps the connection off the public internet, and the API token prevents other tailnet devices from reading or controlling the room accidentally.
+For one-tap pairing, run `agent-room mobile-connect --copy` and paste the copied `agentroom://connect?...` link on the iPhone with Universal Clipboard, Messages, AirDrop, or Notes. Opening the link in AgentRoom saves the URL and token and connects automatically.
 
 Try the fake runtime smoke test:
 
@@ -126,6 +138,25 @@ agent-room send impl "Use AgentRoom, claim your assigned task, and post a short 
 Prefer `agent-room send` over raw provider commands for bound agents so terminal input is recorded in the AgentRoom event log. `read`, `send`, and `stop` require a room binding by default; use `--unaudited` only for manual recovery or sessions that are not AgentRoom-bound.
 
 See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
+
+Open the dashboard:
+
+```bash
+agent-room tui
+```
+
+The TUI starts in a chat view and launches a lead agent named `operator` by default. Type normally to ask what is happening or request room actions; use `/commands` to browse manual slash-command templates, `Esc` to browse dashboard views, and `Tab` to move through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
+
+Configure the dashboard operator in `.agentroom/config.yaml` or with env overrides:
+
+```yaml
+operator:
+  agentId: operator
+  kind: codex # claude-code, codex, pi, clanky, shell, gemini-cli, custom
+  command: codex
+```
+
+For Clanky-backed operation, use `kind: clanky` with either the default `clanky --profile <agentId> --home .agentroom/clanky` launch or an explicit command such as `clanky --profile operator --home .agentroom/clanky` or `clanky subagent --profile operator`. The matching env overrides are `AGENTROOM_OPERATOR_KIND`, `AGENTROOM_OPERATOR_COMMAND`, `AGENTROOM_OPERATOR_CWD`, `AGENTROOM_OPERATOR_SESSION_DIR`, and `AGENTROOM_OPERATOR_DISPLAY_NAME`.
 
 Wait for room activity from scripts or handoffs:
 

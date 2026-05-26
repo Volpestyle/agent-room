@@ -1,5 +1,13 @@
 #!/usr/bin/env node
-import { access, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -54,6 +62,7 @@ const DEFAULT_PORT = 4317;
 type AgentRoomTuiModule = {
   runAgentRoomTui: (options: {
     baseUrl?: string;
+    apiToken?: string;
     refreshMs?: number;
   }) => Promise<void>;
 };
@@ -68,6 +77,9 @@ interface DaemonCommandOptions {
   timeout: number;
   force?: boolean;
   json?: boolean;
+  tailnet?: boolean;
+  apiToken?: string;
+  publicUrl?: string;
 }
 
 interface DaemonPidRecord {
@@ -79,6 +91,9 @@ interface DaemonPidRecord {
   command: string;
   logFile?: string;
   token?: string;
+  apiToken?: string;
+  publicUrl?: string;
+  tailnet?: boolean;
 }
 
 interface DaemonHealthCheck {
@@ -96,6 +111,8 @@ interface DaemonStatusPayload {
   pid?: number;
   host: string;
   port: number;
+  publicUrl?: string;
+  apiTokenRequired?: boolean;
   startedAt?: string;
   logFile?: string;
   command?: string;
@@ -113,6 +130,27 @@ interface DaemonProcessInfo {
   alive: boolean;
   verified: boolean;
   command?: string;
+}
+
+interface TailnetEndpoint {
+  bindHost: string;
+  publicHost: string;
+}
+
+interface MobileConnectOptions {
+  pidFile?: string;
+  copy?: boolean;
+  json?: boolean;
+}
+
+interface MobileConnectPayload {
+  baseUrl: string;
+  mode: "tailnet" | "custom";
+  token?: string;
+  authHeader?: string;
+  pairingLink: string;
+  tokenRequired: boolean;
+  pidFile: string;
 }
 
 interface RoomConfig {
@@ -224,6 +262,14 @@ program
   .option("--host <host>", "daemon host", DEFAULT_HOST)
   .option("--port <port>", "daemon port", parseInteger, DEFAULT_PORT)
   .option(
+    "--tailnet",
+    "bind to this machine's Tailscale address and require an API token",
+  )
+  .option(
+    "--api-token <token>",
+    "API bearer token for remote clients; prefer AGENTROOM_API_TOKEN to avoid shell history",
+  )
+  .option(
     "--pid-file <path>",
     "daemon pid metadata file",
     join(roomDir(), "daemon.pid"),
@@ -246,6 +292,24 @@ program
   });
 
 program
+  .command("mobile-connect")
+  .description("Print AgentRoom iOS/mobile connection settings")
+  .option(
+    "--pid-file <path>",
+    "daemon pid metadata file",
+    join(roomDir(), "daemon.pid"),
+  )
+  .option("--copy", "copy the AgentRoom iOS pairing link to the clipboard")
+  .option("--json", "print JSON")
+  .action(async (options: MobileConnectOptions) => {
+    const payload = await mobileConnectPayload(options);
+    if (options.copy === true) {
+      await copyToClipboard(payload.pairingLink);
+    }
+    outputMobileConnect(payload, options);
+  });
+
+program
   .command("tui")
   .description("Open the interactive AgentRoom terminal UI")
   .option(
@@ -253,12 +317,24 @@ program
     "daemon base URL",
     process.env.AGENTROOM_DAEMON ?? `http://127.0.0.1:${DEFAULT_PORT}`,
   )
+  .option(
+    "--api-token <token>",
+    "daemon API bearer token",
+    process.env.AGENTROOM_API_TOKEN,
+  )
   .option("--refresh-ms <ms>", "refresh interval in milliseconds", parseInteger)
   .action(
-    async (options: { daemon: string; refreshMs?: number }) => {
+    async (options: {
+      daemon: string;
+      apiToken?: string;
+      refreshMs?: number;
+    }) => {
       const { runAgentRoomTui } = await loadTui();
       await runAgentRoomTui({
         baseUrl: options.daemon,
+        ...(options.apiToken !== undefined
+          ? { apiToken: options.apiToken }
+          : {}),
         ...(options.refreshMs !== undefined
           ? { refreshMs: options.refreshMs }
           : {}),
@@ -1152,28 +1228,55 @@ async function handleDaemonCommand(
   mode: DaemonMode,
   options: DaemonCommandOptions,
 ): Promise<void> {
+  const resolvedOptions = await resolveDaemonCommandOptions(mode, options);
   if (mode !== "status") assertDaemonLifecycleAllowed(mode);
 
   switch (mode) {
     case "foreground":
-      await runDaemonForeground(options);
+      await runDaemonForeground(resolvedOptions);
       return;
     case "start":
-      outputDaemonResult(await startDaemon(options), options.json);
+      outputDaemonResult(await startDaemon(resolvedOptions), options.json);
       return;
     case "status":
-      outputDaemonResult(await daemonStatus(options), options.json);
+      outputDaemonResult(await daemonStatus(resolvedOptions), options.json);
       return;
     case "stop":
-      outputDaemonResult(await stopDaemon(options), options.json);
+      outputDaemonResult(await stopDaemon(resolvedOptions), options.json);
       return;
     case "restart": {
-      const stopped = await stopDaemon(options);
-      const started = await startDaemon(options);
-      outputDaemonResult({ ok: true, stopped, started }, options.json);
+      const stopped = await stopDaemon(resolvedOptions);
+      const started = await startDaemon(resolvedOptions);
+      outputDaemonResult({ ok: true, stopped, started }, resolvedOptions.json);
       return;
     }
   }
+}
+
+async function resolveDaemonCommandOptions(
+  mode: DaemonMode,
+  options: DaemonCommandOptions,
+): Promise<DaemonCommandOptions> {
+  const tailnet =
+    options.tailnet === true &&
+    (mode === "foreground" || mode === "start" || mode === "restart");
+  const endpoint = tailnet ? await resolveTailnetEndpoint() : undefined;
+  const apiToken =
+    normalizedToken(options.apiToken) ??
+    normalizedToken(process.env.AGENTROOM_API_TOKEN) ??
+    (tailnet ? randomUUID() : undefined);
+
+  return {
+    ...options,
+    ...(endpoint !== undefined
+      ? {
+          host: endpoint.bindHost,
+          publicUrl: daemonBaseUrl(endpoint.publicHost, options.port),
+          tailnet: true,
+        }
+      : {}),
+    ...(apiToken !== undefined ? { apiToken } : {}),
+  };
 }
 
 function assertDaemonLifecycleAllowed(mode: DaemonMode): void {
@@ -1285,16 +1388,21 @@ async function startDaemon(
     command,
     logFile,
     token,
+    ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
+    ...(options.publicUrl !== undefined
+      ? { publicUrl: options.publicUrl }
+      : {}),
+    ...(options.tailnet === true ? { tailnet: true } : {}),
   };
 
-  await writeJson(pidFile, record);
+  await writePrivateJson(pidFile, record);
 
   try {
     const health = await waitForDaemonHealth(record, options.timeout * 1000);
     const daemonPid = daemonHealthPid(health) ?? record.pid;
     const verifiedRecord = { ...record, pid: daemonPid };
     if (verifiedRecord.pid !== record.pid)
-      await writeJson(pidFile, verifiedRecord);
+      await writePrivateJson(pidFile, verifiedRecord);
     return daemonStatusPayload(
       "running",
       verifiedRecord,
@@ -1453,6 +1561,108 @@ async function stopDaemon(
   );
 }
 
+async function mobileConnectPayload(
+  options: MobileConnectOptions,
+): Promise<MobileConnectPayload> {
+  const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
+  const record = await readDaemonPidRecord(pidFile);
+  if (!record) {
+    throw new Error(
+      `No AgentRoom daemon pid record found at ${pidFile}. Start the daemon first.`,
+    );
+  }
+  const baseUrl = await mobileConnectBaseUrl(record);
+  const pairingLink = mobilePairingLink({
+    baseUrl,
+    mode: record.tailnet === true ? "tailnet" : "custom",
+    ...(record.apiToken !== undefined ? { token: record.apiToken } : {}),
+  });
+  return {
+    baseUrl,
+    mode: record.tailnet === true ? "tailnet" : "custom",
+    pairingLink,
+    tokenRequired: record.apiToken !== undefined,
+    pidFile,
+    ...(record.apiToken !== undefined ? { token: record.apiToken } : {}),
+    ...(record.apiToken !== undefined
+      ? { authHeader: `Authorization: Bearer ${record.apiToken}` }
+      : {}),
+  };
+}
+
+async function mobileConnectBaseUrl(record: DaemonPidRecord): Promise<string> {
+  if (record.tailnet === true) {
+    const endpoint = await resolveTailnetEndpoint().catch(() => undefined);
+    if (endpoint?.publicHost !== undefined) {
+      return daemonBaseUrl(endpoint.publicHost, record.port);
+    }
+  }
+  return record.publicUrl ?? daemonBaseUrl(record.host, record.port);
+}
+
+function outputMobileConnect(
+  payload: MobileConnectPayload,
+  options: Pick<MobileConnectOptions, "copy" | "json">,
+): void {
+  if (options.json) {
+    output(payload, true);
+    return;
+  }
+
+  const lines = [
+    "AgentRoom iOS connection",
+    `Mode: ${payload.mode}`,
+    `Base URL: ${payload.baseUrl}`,
+  ];
+  if (payload.token !== undefined) {
+    lines.push(`API token: ${payload.token}`);
+  } else {
+    lines.push(
+      "API token: not configured; restart with --tailnet or set AGENTROOM_API_TOKEN before exposing the daemon.",
+    );
+  }
+  lines.push(`Pairing link: ${payload.pairingLink}`);
+  if (options.copy === true) {
+    lines.push("Copied pairing link to clipboard.");
+  } else {
+    lines.push("Tip: run `agent-room mobile-connect --copy` to paste the pairing link on iPhone with Universal Clipboard.");
+  }
+  lines.push(`Source: ${payload.pidFile}`);
+  console.log(lines.join("\n"));
+}
+
+function mobilePairingLink(input: {
+  baseUrl: string;
+  mode: MobileConnectPayload["mode"];
+  token?: string;
+}): string {
+  const params = new URLSearchParams({
+    mode: input.mode,
+    baseUrl: input.baseUrl,
+  });
+  if (input.token !== undefined) {
+    params.set("token", input.token);
+  }
+  return `agentroom://connect?${params.toString()}`;
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("--copy currently requires macOS pbcopy.");
+  }
+  const child = spawn("pbcopy", {
+    stdio: ["pipe", "ignore", "inherit"],
+  });
+  child.stdin.end(value);
+  const code = await new Promise<number | null>((resolve) => {
+    child.on("error", () => resolve(1));
+    child.on("close", resolve);
+  });
+  if (code !== 0) {
+    throw new Error("Failed to copy pairing link with pbcopy.");
+  }
+}
+
 function parseDaemonMode(value: string): DaemonMode {
   switch (value) {
     case "foreground":
@@ -1484,6 +1694,9 @@ function daemonEnv(
     AGENTROOM_PORT: String(options.port),
     AGENTROOM_DAEMON: `${daemonBaseUrl(options.host, options.port)}`,
     ...(token !== undefined ? { AGENTROOM_DAEMON_TOKEN: token } : {}),
+    ...(options.apiToken !== undefined
+      ? { AGENTROOM_API_TOKEN: options.apiToken }
+      : {}),
   };
 }
 
@@ -1522,6 +1735,11 @@ async function readDaemonPidRecord(
       command: parsed.command ?? daemonBinPath(),
       ...(parsed.logFile !== undefined ? { logFile: parsed.logFile } : {}),
       ...(parsed.token !== undefined ? { token: parsed.token } : {}),
+      ...(parsed.apiToken !== undefined ? { apiToken: parsed.apiToken } : {}),
+      ...(parsed.publicUrl !== undefined
+        ? { publicUrl: parsed.publicUrl }
+        : {}),
+      ...(parsed.tailnet === true ? { tailnet: true } : {}),
     };
   } catch (error) {
     if (isNodeError(error, "ENOENT")) return undefined;
@@ -1684,6 +1902,78 @@ function daemonBaseUrl(host: string, port: number): string {
   return `http://${formattedHost}:${port}`;
 }
 
+async function resolveTailnetEndpoint(): Promise<TailnetEndpoint> {
+  const candidates = [
+    "tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+  ];
+  for (const candidate of candidates) {
+    try {
+      const { stdout } = await execFileAsync(candidate, ["status", "--json"], {
+        timeout: 5000,
+      });
+      const parsed = parseTailscaleStatus(stdout);
+      const bindHost = preferredTailnetBindHost(parsed?.Self?.TailscaleIPs);
+      if (bindHost === undefined) continue;
+      return {
+        bindHost,
+        publicHost: parsed?.Self?.DNSName ?? bindHost,
+      };
+    } catch {
+      continue;
+    }
+  }
+  throw new Error(
+    "Could not find a Tailscale address. Make sure Tailscale is installed and connected, then retry.",
+  );
+}
+
+function parseTailscaleStatus(raw: string): {
+  Self?: { DNSName?: string; TailscaleIPs?: string[] };
+} | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as {
+      Self?: { DNSName?: unknown; TailscaleIPs?: unknown };
+    };
+    const dnsName =
+      typeof parsed.Self?.DNSName === "string"
+        ? parsed.Self.DNSName.replace(/\.$/, "")
+        : undefined;
+    const tailscaleIPs = Array.isArray(parsed.Self?.TailscaleIPs)
+      ? parsed.Self.TailscaleIPs.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : undefined;
+    return {
+      Self: {
+        ...(dnsName !== undefined ? { DNSName: dnsName } : {}),
+        ...(tailscaleIPs !== undefined ? { TailscaleIPs: tailscaleIPs } : {}),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function preferredTailnetBindHost(
+  ips: string[] | undefined,
+): string | undefined {
+  if (!ips || ips.length === 0) return undefined;
+  return ips.find(isIpv4Address) ?? ips[0];
+}
+
+function isIpv4Address(value: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value);
+}
+
+function normalizedToken(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function daemonStatusPayload(
   state: string,
   record: DaemonPidRecord,
@@ -1702,6 +1992,8 @@ function daemonStatusPayload(
     ...(record.pid > 0 ? { pid: record.pid } : {}),
     host: record.host,
     port: record.port,
+    ...(record.publicUrl !== undefined ? { publicUrl: record.publicUrl } : {}),
+    apiTokenRequired: record.apiToken !== undefined,
     ...(record.startedAt ? { startedAt: record.startedAt } : {}),
     ...(record.logFile !== undefined ? { logFile: record.logFile } : {}),
     ...(processInfo?.command !== undefined
@@ -1730,21 +2022,23 @@ function outputDaemonResult(
 }
 
 function formatDaemonRestart(result: DaemonRestartPayload): string {
+  const url =
+    result.started.publicUrl ??
+    daemonBaseUrl(result.started.host, result.started.port);
   const lines = [
-    `AgentRoom daemon restarted at ${daemonBaseUrl(
-      result.started.host,
-      result.started.port,
-    )}${pidSuffix(result.started)}`,
+    `AgentRoom daemon restarted at ${url}${pidSuffix(result.started)}`,
   ];
   if (result.stopped.pid !== undefined)
     lines.push(`Stopped pid ${result.stopped.pid}`);
   if (result.started.logFile !== undefined)
     lines.push(`Log: ${result.started.logFile}`);
+  if (result.started.apiTokenRequired)
+    lines.push("Mobile token: run agent-room mobile-connect");
   return lines.join("\n");
 }
 
 function formatDaemonStatus(payload: DaemonStatusPayload): string {
-  const url = daemonBaseUrl(payload.host, payload.port);
+  const url = payload.publicUrl ?? daemonBaseUrl(payload.host, payload.port);
   const pid = pidSuffix(payload);
 
   switch (payload.state) {
@@ -1767,8 +2061,11 @@ function formatDaemonStatus(payload: DaemonStatusPayload): string {
 }
 
 function withOptionalLog(line: string, payload: DaemonStatusPayload): string {
-  if (payload.logFile === undefined) return line;
-  return `${line}\nLog: ${payload.logFile}`;
+  const lines = [line];
+  if (payload.logFile !== undefined) lines.push(`Log: ${payload.logFile}`);
+  if (payload.apiTokenRequired)
+    lines.push("Mobile token: run agent-room mobile-connect");
+  return lines.join("\n");
 }
 
 function pidSuffix(payload: DaemonStatusPayload): string {
@@ -1944,6 +2241,14 @@ function currentActor(): ActorRef {
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function writePrivateJson(path: string, value: unknown): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await chmod(path, 0o600);
 }
 
 function output(value: unknown, json?: boolean): void {

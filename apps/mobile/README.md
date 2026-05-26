@@ -1,10 +1,21 @@
-# AgentRoom mobile app
+# AgentRoom iOS
 
-Placeholder for a future iOS/custom app.
+Expo/React Native client for the AgentRoom daemon API.
 
-Recommended options:
+Run it locally:
 
-1. Expo/React Native for maximum shared TypeScript with the daemon API and web shell.
-2. Native Swift if terminal transcript UX and push notification polish become the dominant requirement.
+```bash
+pnpm install
+pnpm --filter @agentroom/mobile ios
+```
 
-The mobile app should never talk directly to Herdr, tmux, or cloud runtimes. It should talk to the AgentRoom API/gateway.
+Connect over Tailscale:
+
+```bash
+agent-room daemon start --tailnet
+agent-room mobile-connect
+```
+
+Open the Tailscale app on the iPhone or simulator host, then enter the printed base URL and API token in the AgentRoom app. The mobile client stores the token with Expo SecureStore and sends it as `Authorization: Bearer <token>` to the daemon.
+
+The mobile app talks only to the AgentRoom API/gateway. It does not talk directly to Herdr, tmux, or cloud runtimes.

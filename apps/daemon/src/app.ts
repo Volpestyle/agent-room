@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import {
   AgentRoomService,
@@ -50,7 +51,9 @@ export function createApp(options: CreateAppOptions = {}): Hono {
   return createAppWithLifecycle(options).app;
 }
 
-export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAppResult {
+export function createAppWithLifecycle(
+  options: CreateAppOptions = {},
+): CreateAppResult {
   const cwd = options.cwd ?? process.cwd();
   const configured = options.config ?? maybeLoadAgentRoomConfigSync(cwd);
   const roomId =
@@ -72,7 +75,9 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
     options.chatGatewayRegistry ??
     new ChatGatewayRegistry({
       ...(configured !== undefined ? { config: configured } : {}),
-      ...(options.chatGateways !== undefined ? { providers: options.chatGateways } : {}),
+      ...(options.chatGateways !== undefined
+        ? { providers: options.chatGateways }
+        : {}),
       ...(options.chatGatewayFactory !== undefined
         ? { gatewayFactory: options.chatGatewayFactory }
         : {}),
@@ -82,7 +87,8 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
   const chatRouter = new ChatGatewayRouter({
     service,
     routes: chatRoutes,
-    runtimeProviderForBinding: (binding) => registry.runtime(binding.providerId),
+    runtimeProviderForBinding: (binding) =>
+      registry.runtime(binding.providerId),
   });
   const chatDispatcher = new ChatGatewayOutboundDispatcher({
     service,
@@ -93,8 +99,27 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
     options.startChatGateways === false
       ? Promise.resolve()
       : chatRegistry.start(chatRouter);
+  const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
   const app = new Hono();
+
+  app.use("/v1/*", async (c, next) => {
+    if (isPublicV1Path(new URL(c.req.url).pathname)) {
+      await next();
+      return;
+    }
+    if (!apiToken) {
+      await next();
+      return;
+    }
+    if (isAuthorizedApiRequest(c.req.raw.headers, apiToken)) {
+      await next();
+      return;
+    }
+
+    c.header("WWW-Authenticate", 'Bearer realm="agentroom"');
+    return c.json({ error: "unauthorized" }, 401);
+  });
 
   app.get("/health", async (c) => {
     const runtimes = await Promise.all(
@@ -119,6 +144,9 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
       ok: true,
       pid: process.pid,
       roomId,
+      auth: {
+        apiTokenRequired: Boolean(apiToken),
+      },
       runtimes,
       chatGateways,
     });
@@ -302,6 +330,11 @@ export function createAppWithLifecycle(options: CreateAppOptions = {}): CreateAp
     return c.json({ agents: await provider.listAgents() });
   });
 
+  app.get("/v1/runtime/bindings/:agentId", async (c) => {
+    const binding = await service.getRuntimeBinding(c.req.param("agentId"));
+    return c.json({ binding: binding ?? null });
+  });
+
   app.post("/v1/runtime/:providerId/agents", async (c) => {
     const provider = registry.runtime(c.req.param("providerId"));
     const body = (await c.req.json()) as Partial<StartAgentRequest> & {
@@ -451,4 +484,35 @@ function actorKind(value: string): "human" | "agent" | "system" | "connector" {
   )
     return value;
   return "agent";
+}
+
+function isPublicV1Path(pathname: string): boolean {
+  return pathname.startsWith("/v1/admin/");
+}
+
+function isAuthorizedApiRequest(
+  headers: Headers,
+  expectedToken: string,
+): boolean {
+  const bearer = bearerToken(headers.get("authorization"));
+  const headerToken = headers.get("x-agentroom-api-token");
+  return (
+    (bearer !== undefined && tokenMatches(bearer, expectedToken)) ||
+    (headerToken !== null && tokenMatches(headerToken, expectedToken))
+  );
+}
+
+function bearerToken(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const match = value.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim();
+}
+
+function tokenMatches(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
 }

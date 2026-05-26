@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@agentroom/config": "workspace:*",
     "@agentroom/core": "workspace:*",
     "@earendil-works/pi-tui": "link:../../../pi/packages/tui"
   },

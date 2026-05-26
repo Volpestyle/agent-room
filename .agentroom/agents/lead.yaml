@@ -1,0 +1,9 @@
+id: lead
+role: lead
+harness:
+  kind: claude-code
+  command: claude
+permissions:
+  - room:read_all
+  - task:assign
+  - human:escalate
