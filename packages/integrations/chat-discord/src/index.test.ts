@@ -277,7 +277,7 @@ class FakeDiscordClient implements DiscordGatewayClient {
   };
 
   on(
-    event: typeof Events.MessageCreate,
+    _event: typeof Events.MessageCreate,
     listener: (message: Message) => void,
   ): unknown {
     this.messageListener = listener;
@@ -285,7 +285,7 @@ class FakeDiscordClient implements DiscordGatewayClient {
   }
 
   off(
-    event: typeof Events.MessageCreate,
+    _event: typeof Events.MessageCreate,
     listener: (message: Message) => void,
   ): unknown {
     if (this.messageListener === listener) this.messageListener = undefined;
