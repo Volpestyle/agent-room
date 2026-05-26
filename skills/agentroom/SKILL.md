@@ -1,18 +1,22 @@
 ---
 name: agentroom
-description: Coordinate as an enrolled AgentRoom worker or reviewer. Use when AGENTROOM=1, when AgentRoom enrollment variables are present, or when the agent was explicitly launched into an AgentRoom room. Do not use for launching or managing other agents; use the agentroom-operator skill for that.
+description: Coordinate as an enrolled AgentRoom worker or reviewer. Use when AGENTROOM=1, when AgentRoom enrollment variables are present, when `HERDR_PANE_ID` is set inside an AgentRoom-monitored Herdr session, or when the agent was explicitly launched into an AgentRoom room. Do not use for launching or managing other agents; use the agentroom-operator skill for that.
 ---
 
 # AgentRoom Participant
 
-Before using AgentRoom, verify this process is enrolled:
+Before using AgentRoom, resolve and verify this process's room identity:
 
 ```bash
-test "${AGENTROOM:-}" = "1" || exit 1
 agent-room whoami --json
 ```
 
-If `AGENTROOM` is not set, do not assume the current process is part of the room.
+The resolved identity comes from one of two sources:
+
+- `source: "env"` — `AGENTROOM_AGENT_ID` was set in the process environment (typically by `agent-room launch`).
+- `source: "pane"` — the daemon's Herdr observer auto-enrolled the current pane and the CLI resolved the agent id from `HERDR_PANE_ID` against the local event log.
+
+If `enrolled: false` is reported (no env var and no pane binding found), do not assume the current process is part of the room.
 
 ## Rules
 

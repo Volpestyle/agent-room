@@ -364,6 +364,52 @@ describe("HerdrRuntimeProvider", () => {
       ),
     ).toBe(false);
   });
+
+  it("adopts an existing pane without running any command", async () => {
+    const calls: string[][] = [];
+    const runtime = new HerdrRuntimeProvider({
+      runner: async (args) => {
+        calls.push(args);
+        if (matches(args, ["pane", "get", "p_42"])) {
+          return envelope({
+            type: "pane_info",
+            pane: {
+              pane_id: "p_42",
+              workspace_id: "w7",
+              tab_id: "w7:1",
+              focused: true,
+            },
+          });
+        }
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    });
+
+    const agent = await runtime.adoptAgent({
+      agentId: "herdr:agent-room:p_42",
+      bindingId: "p_42",
+      roomId: "agent-room",
+      role: "implementer",
+    });
+
+    expect(agent).toEqual(
+      expect.objectContaining({
+        id: "herdr:agent-room:p_42",
+        bindingId: "p_42",
+        sessionId: "w7",
+        state: "online",
+        metadata: expect.objectContaining({
+          workspaceId: "w7",
+          tabId: "w7:1",
+          adopted: true,
+        }),
+      }),
+    );
+    expect(
+      calls.some((args) => args[0] === "pane" && args[1] === "run"),
+    ).toBe(false);
+    expect(runtime.capabilities.adoptAgent).toBe(true);
+  });
 });
 
 function runnerFor(responses: Record<string, string>): HerdrCommandRunner {

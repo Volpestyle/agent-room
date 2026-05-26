@@ -22,6 +22,7 @@ export interface RuntimeCapabilities {
   fileMounts: boolean;
   worktrees: boolean;
   remoteExecution: boolean;
+  adoptAgent: boolean;
 }
 
 export interface RuntimeHealth {
@@ -55,6 +56,16 @@ export interface StartAgentRequest {
   harness: HarnessSpec;
   cwd?: string;
   env?: Record<string, string>;
+}
+
+export interface AdoptAgentRequest {
+  agentId: Id;
+  bindingId: string;
+  roomId: Id;
+  displayName?: string;
+  role: AgentRole;
+  harness?: HarnessSpec;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ReadAgentRequest {
@@ -102,6 +113,7 @@ export interface RuntimeProvider {
   listSessions(): Promise<RuntimeSession[]>;
   listAgents(): Promise<RuntimeAgent[]>;
   startAgent(request: StartAgentRequest): Promise<RuntimeAgent>;
+  adoptAgent?(request: AdoptAgentRequest): Promise<RuntimeAgent>;
   stopAgent(agentId: Id): Promise<void>;
   readAgent(request: ReadAgentRequest): Promise<AgentOutput>;
   sendInput(request: SendInputRequest): Promise<void>;
@@ -120,5 +132,6 @@ export const defaultRuntimeCapabilities: RuntimeCapabilities = {
   screenshots: false,
   fileMounts: false,
   worktrees: false,
-  remoteExecution: false
+  remoteExecution: false,
+  adoptAgent: false
 };

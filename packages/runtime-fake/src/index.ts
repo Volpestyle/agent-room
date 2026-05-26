@@ -1,4 +1,4 @@
-import { nowIso, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type StartAgentRequest } from '@agentroom/core';
+import { nowIso, type AdoptAgentRequest, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type StartAgentRequest } from '@agentroom/core';
 
 interface FakeAgentRecord extends RuntimeAgent {
   output: string[];
@@ -18,7 +18,8 @@ export class FakeRuntimeProvider implements RuntimeProvider {
     screenshots: false,
     fileMounts: false,
     worktrees: false,
-    remoteExecution: false
+    remoteExecution: false,
+    adoptAgent: true
   };
 
   private readonly agents = new Map<string, FakeAgentRecord>();
@@ -56,6 +57,25 @@ export class FakeRuntimeProvider implements RuntimeProvider {
       ]
     };
 
+    this.agents.set(request.agentId, record);
+    const { output, ...agent } = record;
+    return agent;
+  }
+
+  async adoptAgent(request: AdoptAgentRequest): Promise<RuntimeAgent> {
+    const record: FakeAgentRecord = {
+      id: request.agentId,
+      bindingId: request.bindingId,
+      displayName: request.displayName ?? request.agentId,
+      state: 'online',
+      sessionId: 'fake-session',
+      metadata: {
+        role: request.role,
+        adopted: true,
+        ...(request.metadata ?? {})
+      },
+      output: [`[${nowIso()}] adopted fake agent ${request.agentId} on ${request.bindingId}`]
+    };
     this.agents.set(request.agentId, record);
     const { output, ...agent } = record;
     return agent;

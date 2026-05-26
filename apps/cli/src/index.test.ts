@@ -274,6 +274,163 @@ describe('agent-room runtime command safety', () => {
   });
 });
 
+describe('agent-room enroll', () => {
+  it('adopts the current pane, binds it, and is idempotent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-enroll-'));
+    const env = {
+      ...process.env,
+      HERDR_SESSION: 'agent-room',
+      HERDR_PANE_ID: 'p_77',
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined,
+      AGENTROOM: undefined
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ['init', '--room', 'cli-enroll-test', '--runtime', 'fake'],
+        env
+      );
+
+      const first = JSON.parse(
+        (await execAgentRoom(cwd, ['enroll', '--json'], env)).stdout
+      ) as {
+        enrolled: boolean;
+        agentId: string;
+        roomId: string;
+        role: string;
+        bindingId: string;
+        alreadyBound: boolean;
+      };
+
+      expect(first).toMatchObject({
+        enrolled: true,
+        agentId: 'herdr:agent-room:p_77',
+        roomId: 'cli-enroll-test',
+        role: 'implementer',
+        bindingId: 'p_77',
+        alreadyBound: false
+      });
+
+      const second = JSON.parse(
+        (await execAgentRoom(cwd, ['enroll', '--json'], env)).stdout
+      ) as { alreadyBound: boolean; agentId: string };
+
+      expect(second).toMatchObject({
+        alreadyBound: true,
+        agentId: 'herdr:agent-room:p_77'
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('emits eval-able shell exports under --shell', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-enroll-shell-'));
+    const env = {
+      ...process.env,
+      HERDR_SESSION: 'agent-room',
+      HERDR_PANE_ID: 'p_88',
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined,
+      AGENTROOM: undefined
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ['init', '--room', 'cli-enroll-shell', '--runtime', 'fake'],
+        env
+      );
+      const { stdout } = await execAgentRoom(cwd, ['enroll', '--shell'], env);
+      expect(stdout).toContain("export AGENTROOM='1'");
+      expect(stdout).toContain(
+        "export AGENTROOM_AGENT_ID='herdr:agent-room:p_88'"
+      );
+      expect(stdout).toContain("export AGENTROOM_ROOM_ID='cli-enroll-shell'");
+      expect(stdout).toContain("export AGENTROOM_ROLE='implementer'");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('whoami resolves identity by pane id after enrolling', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-whoami-pane-'));
+    const enrollEnv = {
+      ...process.env,
+      HERDR_SESSION: 'agent-room',
+      HERDR_PANE_ID: 'p_111',
+      AGENTROOM: undefined,
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ['init', '--room', 'cli-whoami-pane', '--runtime', 'fake'],
+        enrollEnv
+      );
+      await execAgentRoom(cwd, ['enroll', '--json'], enrollEnv);
+
+      const whoamiEnv = {
+        ...process.env,
+        HERDR_PANE_ID: 'p_111',
+        AGENTROOM: undefined,
+        AGENTROOM_AGENT_ID: undefined,
+        AGENTROOM_ROOM_ID: undefined,
+        AGENTROOM_ROLE: undefined
+      } as NodeJS.ProcessEnv;
+
+      const whoami = JSON.parse(
+        (await execAgentRoom(cwd, ['whoami', '--json'], whoamiEnv)).stdout
+      ) as {
+        enrolled: boolean;
+        agentId: string;
+        source: string;
+      };
+
+      expect(whoami).toMatchObject({
+        enrolled: true,
+        agentId: 'herdr:agent-room:p_111',
+        source: 'pane'
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when no pane id is available', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'agentroom-enroll-fail-'));
+    const env = {
+      ...process.env,
+      HERDR_PANE_ID: undefined,
+      HERDR_SESSION: undefined,
+      AGENTROOM: undefined
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ['init', '--room', 'cli-enroll-fail', '--runtime', 'fake'],
+        env
+      );
+      await expectAgentRoomFailure(
+        cwd,
+        ['enroll', '--json'],
+        env,
+        'pass --pane-id or run inside a Herdr pane'
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('agent-room daemon lifecycle', () => {
   it('starts, reports, and stops a managed background daemon', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'agentroom-daemon-'));

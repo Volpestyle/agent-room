@@ -1,7 +1,9 @@
+export * from "./socketClient.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   nowIso,
+  type AdoptAgentRequest,
   type AgentOutput,
   type ReadAgentRequest,
   type RuntimeAgent,
@@ -62,6 +64,7 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     fileMounts: false,
     worktrees: true,
     remoteExecution: false,
+    adoptAgent: true,
   };
 
   private readonly cli: string;
@@ -220,6 +223,23 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
         workspaceId: workspace.workspace_id,
         tabId: placement.tab.tab_id,
         layoutMode: "pane-grid",
+      },
+    };
+  }
+
+  async adoptAgent(request: AdoptAgentRequest): Promise<RuntimeAgent> {
+    const pane = await this.getPane(request.bindingId);
+    return {
+      id: request.agentId,
+      bindingId: pane.pane_id,
+      displayName: request.displayName ?? request.agentId,
+      state: "online",
+      ...(pane.workspace_id ? { sessionId: pane.workspace_id } : {}),
+      metadata: {
+        ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
+        ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+        adopted: true,
+        ...(request.metadata ?? {}),
       },
     };
   }

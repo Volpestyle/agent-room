@@ -23,6 +23,7 @@ import {
   type AgentRoomConfig,
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
+import { HerdrPaneObserver, resolveHerdrSocketPath } from "./herdrObserver.js";
 import { ProviderRegistry } from "./providerRegistry.js";
 import {
   ChatGatewayRegistry,
@@ -99,6 +100,14 @@ export function createAppWithLifecycle(
     options.startChatGateways === false
       ? Promise.resolve()
       : chatRegistry.start(chatRouter);
+
+  const herdrObservers = startHerdrObservers({
+    ...(configured !== undefined ? { config: configured } : {}),
+    registry,
+    service,
+    roomId,
+  });
+
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
   const app = new Hono();
@@ -163,6 +172,14 @@ export function createAppWithLifecycle(
       void chatRegistry.stop().finally(() => process.exit(0));
     }, 10);
     return c.json({ ok: true, pid: process.pid });
+  });
+
+  app.get("/v1/dashboard/config", (c) => {
+    return c.json({
+      roomId,
+      cwd,
+      operator: configured?.operator ?? null,
+    });
   });
 
   app.get("/v1/events", async (c) => {
@@ -335,6 +352,11 @@ export function createAppWithLifecycle(
     return c.json({ binding: binding ?? null });
   });
 
+  app.get("/v1/agents/by-binding/:bindingId", async (c) => {
+    const agentId = await service.findAgentByBinding(c.req.param("bindingId"));
+    return c.json({ agentId: agentId ?? null });
+  });
+
   app.post("/v1/runtime/:providerId/agents", async (c) => {
     const provider = registry.runtime(c.req.param("providerId"));
     const body = (await c.req.json()) as Partial<StartAgentRequest> & {
@@ -447,9 +469,60 @@ export function createAppWithLifecycle(
     chatGateways: chatRegistry,
     chatStartup,
     shutdown: async () => {
+      await Promise.all(herdrObservers.map((observer) => observer.stop()));
       await chatRegistry.stop();
     },
   };
+}
+
+function startHerdrObservers(input: {
+  config?: AgentRoomConfig;
+  registry: ProviderRegistry;
+  service: AgentRoomService;
+  roomId: string;
+}): HerdrPaneObserver[] {
+  if (!input.config) return [];
+  const observers: HerdrPaneObserver[] = [];
+  for (const [providerId, runtime] of Object.entries(input.config.runtimes)) {
+    if (runtime.type !== "herdr") continue;
+    const session = process.env.HERDR_SESSION ?? runtime.session;
+    if (!session) continue;
+    const socketPath = resolveHerdrSocketPath({
+      ...(process.env.HERDR_SOCKET_PATH !== undefined
+        ? { envSocketPath: process.env.HERDR_SOCKET_PATH }
+        : {}),
+      session,
+      ...(process.env.XDG_CONFIG_HOME !== undefined
+        ? { xdgConfigHome: process.env.XDG_CONFIG_HOME }
+        : {}),
+      ...(process.env.HOME !== undefined ? { home: process.env.HOME } : {}),
+    });
+    if (!socketPath) continue;
+
+    let provider;
+    try {
+      provider = input.registry.runtime(providerId);
+    } catch {
+      continue;
+    }
+    if (!provider.adoptAgent) continue;
+
+    const observer = new HerdrPaneObserver({
+      socketPath,
+      session,
+      service: input.service,
+      provider,
+      roomId: input.roomId,
+      logger: (message) => console.log(`[herdr-observer] ${message}`),
+    });
+    void observer.start().catch((error: Error) => {
+      console.error(
+        `[herdr-observer] failed to start for ${providerId}: ${error.message}`,
+      );
+    });
+    observers.push(observer);
+  }
+  return observers;
 }
 
 function bindingFor(

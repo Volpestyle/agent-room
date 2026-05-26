@@ -181,6 +181,30 @@ describe('AgentRoomService', () => {
     });
   });
 
+  it('finds the latest agent bound to a given binding id', async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: 'room-test' });
+
+    await service.bindRuntime({
+      agentId: 'herdr:agent-room:p_42',
+      runtime: { providerId: 'herdr', bindingId: 'p_42', kind: 'pane' }
+    });
+    await service.bindRuntime({
+      agentId: 'other-agent',
+      runtime: { providerId: 'herdr', bindingId: 'p_99', kind: 'pane' }
+    });
+
+    await expect(service.findAgentByBinding('p_42')).resolves.toBe(
+      'herdr:agent-room:p_42'
+    );
+    await expect(service.findAgentByBinding('p_99')).resolves.toBe(
+      'other-agent'
+    );
+    await expect(
+      service.findAgentByBinding('nonexistent')
+    ).resolves.toBeUndefined();
+  });
+
   it('records normalized chat gateway events', async () => {
     const store = new TestStore();
     const service = new AgentRoomService(store, { roomId: 'room-test' });

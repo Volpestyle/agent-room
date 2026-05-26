@@ -24,7 +24,8 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
     screenshots: false,
     fileMounts: false,
     worktrees: false,
-    remoteExecution: false
+    remoteExecution: false,
+    adoptAgent: false
   };
 
   private readonly cli: string;

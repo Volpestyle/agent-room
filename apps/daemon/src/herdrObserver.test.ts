@@ -1,0 +1,163 @@
+import { EventEmitter } from "node:events";
+import { describe, expect, it } from "vitest";
+import {
+  AgentRoomService,
+  type EventBatch,
+  type EventCursor,
+  type EventCursorPosition,
+  type EventStore,
+  type RoomEvent,
+} from "@agentroom/core";
+import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
+import type { DuplexLike } from "@agentroom/runtime-herdr";
+import { HerdrPaneObserver, deriveAgentId } from "./herdrObserver.js";
+
+describe("HerdrPaneObserver", () => {
+  it("adopts a pane on pane_created and is idempotent", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    socket.deliverEvent("pane_created", {
+      pane: { pane_id: "p_42", workspace_id: "w1", tab_id: "w1:1" },
+    });
+    await flush();
+    await flush();
+
+    const expectedAgentId = deriveAgentId("agent-room", "p_42");
+    const joined = store.events.filter(
+      (event) =>
+        event.type === "agent.joined" &&
+        event.payload.agent.id === expectedAgentId,
+    );
+    const bound = store.events.filter(
+      (event) =>
+        event.type === "runtime.bound" &&
+        event.payload.agentId === expectedAgentId,
+    );
+    expect(joined).toHaveLength(1);
+    expect(bound).toHaveLength(1);
+    const boundEvent = bound[0];
+    if (!boundEvent || boundEvent.type !== "runtime.bound") {
+      throw new Error("expected a runtime.bound event");
+    }
+    expect(boundEvent.payload.runtime).toEqual(
+      expect.objectContaining({
+        providerId: "test-herdr",
+        bindingId: "p_42",
+      }),
+    );
+
+    socket.deliverEvent("pane_created", {
+      pane: { pane_id: "p_42", workspace_id: "w1", tab_id: "w1:1" },
+    });
+    await flush();
+    await flush();
+
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.joined" &&
+          event.payload.agent.id === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.bound" &&
+          event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+});
+
+class TestEventStore implements EventStore {
+  readonly events: RoomEvent[] = [];
+
+  async append(event: RoomEvent): Promise<void> {
+    this.events.push(event);
+  }
+
+  async appendMany(events: RoomEvent[]): Promise<void> {
+    this.events.push(...events);
+  }
+
+  async cursor(position?: EventCursorPosition): Promise<EventCursor> {
+    return {
+      position: position === "start" ? 0 : this.events.length,
+    };
+  }
+
+  async listFromCursor(cursor: EventCursor): Promise<EventBatch> {
+    const events = this.events.slice(cursor.position);
+    return { events, cursor: { position: this.events.length } };
+  }
+
+  async list(): Promise<RoomEvent[]> {
+    return [...this.events];
+  }
+}
+
+interface MockSocket extends EventEmitter {
+  write(chunk: string): boolean;
+  end(): void;
+  ackLastSubscribeRequest(): void;
+  deliverEvent(name: string, data: Record<string, unknown>): void;
+}
+
+function createMockSocket(): {
+  socket: MockSocket;
+  factory: (socketPath: string) => Promise<DuplexLike>;
+} {
+  const written: string[] = [];
+  const emitter = new EventEmitter();
+  const socket: MockSocket = Object.assign(emitter, {
+    write(chunk: string): boolean {
+      written.push(chunk);
+      return true;
+    },
+    end(): void {
+      emitter.emit("close");
+    },
+    ackLastSubscribeRequest(): void {
+      const last = written[written.length - 1];
+      if (!last) throw new Error("no socket write to ack");
+      const parsed = JSON.parse(last) as { id: string };
+      emitter.emit(
+        "data",
+        `${JSON.stringify({
+          id: parsed.id,
+          result: { type: "subscription_started" },
+        })}\n`,
+      );
+    },
+    deliverEvent(name: string, data: Record<string, unknown>): void {
+      emitter.emit("data", `${JSON.stringify({ event: name, data })}\n`);
+    },
+  });
+  const factory: (socketPath: string) => Promise<DuplexLike> = async () =>
+    socket as unknown as DuplexLike;
+  return { socket, factory };
+}
+
+async function flush(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}

@@ -420,6 +420,20 @@ export class AgentRoomService {
     return binding;
   }
 
+  async findAgentByBinding(bindingId: string): Promise<Id | undefined> {
+    const events = await this.events.list({ roomId: this.roomId });
+    let agentId: Id | undefined;
+    for (const event of events) {
+      if (
+        event.type === "runtime.bound" &&
+        event.payload.runtime.bindingId === bindingId
+      ) {
+        agentId = event.payload.agentId;
+      }
+    }
+    return agentId;
+  }
+
   async recordRuntimeOutput(input: {
     agentId: Id;
     text: string;

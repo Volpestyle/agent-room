@@ -50,6 +50,14 @@ agent-room send impl "Use AgentRoom, claim your assigned task, and post a short 
 
 Use `agent-room send/read/stop` for bound agents so runtime input and output are audited. These commands require an AgentRoom binding by default; use `--unaudited` only for manual recovery when the session is not AgentRoom-bound.
 
+## Adopt an existing pane
+
+For panes that already exist outside an AgentRoom `launch` flow — typically a shell the human opened directly — the running daemon adopts them automatically by listening to its runtime adapter's pane lifecycle events. The agent id is derived from the runtime's session and pane identifiers (e.g. `herdr:<session>:<pane>`) and CLI writes from inside the pane resolve identity via the daemon, so no shell-level configuration is required.
+
+When the daemon is not running, `agent-room enroll --json` from inside a pane performs the same adoption as a one-off and writes the binding to the local event log.
+
+`enroll` requires a runtime that advertises `adoptAgent` in its capabilities; see `docs/RUNTIMES.md` for adapter-specific behavior.
+
 ## Herdr pane-grid launch hygiene
 
 If the selected runtime is Herdr with `pane-grid`, stale panes from earlier work can crowd a reused workspace. When starting fresh work, prefer a new Herdr workspace label so the new agents get full-size panes:

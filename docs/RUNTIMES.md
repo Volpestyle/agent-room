@@ -60,6 +60,12 @@ agent-room launch impl-b --workspace squad-foo --cwd .
 
 This avoids crowding new agents into stale panes from an older Herdr workspace. Clean up old Herdr workspaces or panes only when you have verified they are no longer running useful work; Herdr supports `workspace close` and `pane close` for manual recovery.
 
+### Adopting human-opened panes
+
+The Herdr adapter implements `adoptAgent`. When the AgentRoom daemon is running with a Herdr-backed room, it opens a long-lived subscription to the configured Herdr session's socket and listens for `pane.created` and `pane.closed` events. New panes are auto-enrolled with a stable agent id `herdr:<session>:<pane>`; closed panes transition their bound agent to `offline`. Adoption does not execute a harness command; whatever shell or harness is already running in the pane stays running.
+
+For one-off manual enrollment when the daemon is not running, use `agent-room enroll --json` from inside the pane.
+
 ## tmux Adapter
 
 tmux support lives behind `@agentroom/runtime-tmux`.

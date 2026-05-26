@@ -59,7 +59,8 @@ class TestRuntimeProvider implements RuntimeProvider {
     screenshots: false,
     fileMounts: false,
     worktrees: false,
-    remoteExecution: false
+    remoteExecution: false,
+    adoptAgent: false
   };
   readonly inputs: SendInputRequest[] = [];
 

@@ -139,6 +139,8 @@ Prefer `agent-room send` over raw provider commands for bound agents so terminal
 
 See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
 
+When the daemon is running with a Herdr-backed room, it subscribes to Herdr pane lifecycle events and auto-enrolls any pane in the configured session that does not already have a binding. CLI writes resolve identity by `HERDR_PANE_ID` against the daemon, so shells inside Herdr panes participate in the room without `AGENTROOM_*` env vars. For one-off manual enrollment of a pane (no daemon running), use `agent-room enroll --json`.
+
 Open the dashboard:
 
 ```bash
