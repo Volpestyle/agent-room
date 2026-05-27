@@ -10,6 +10,7 @@ import roadmap from "../../../docs/ROADMAP.md?raw";
 import runtimes from "../../../docs/RUNTIMES.md?raw";
 import security from "../../../docs/SECURITY.md?raw";
 import setup from "../../../docs/SETUP.md?raw";
+import skillsAndProtocols from "../../../docs/SKILLS_AND_PROTOCOLS.md?raw";
 import topology from "../../../docs/TOPOLOGY.md?raw";
 import tui from "../../../docs/TUI.md?raw";
 import readme from "../../../README.md?raw";
@@ -28,6 +29,7 @@ const markdownBySource = {
   "docs/RUNTIMES.md": runtimes,
   "docs/SECURITY.md": security,
   "docs/SETUP.md": setup,
+  "docs/SKILLS_AND_PROTOCOLS.md": skillsAndProtocols,
   "docs/TOPOLOGY.md": topology,
   "docs/TUI.md": tui,
 };

@@ -1,18 +1,13 @@
 # Runtime Providers
 
-AgentRoom core is runtime-agnostic. Normal operator and agent workflows should use AgentRoom commands:
+AgentRoom core is runtime-agnostic. Normal operator and agent workflows go
+through AgentRoom runtime actions: choose a provider, check health, launch,
+read, send, and stop. Exact command syntax lives in
+[CLI Reference](CLI_REFERENCE.md); live agent procedure lives in the AgentRoom
+skills.
 
-```bash
-agent-room runtime providers
-agent-room runtime use <runtime>
-agent-room runtime doctor
-agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
-agent-room send impl "message"
-agent-room read impl --lines 40
-agent-room stop impl
-```
-
-Provider-specific commands belong in adapter work, adapter docs, or manual recovery. Do not make worker agents depend on a specific terminal multiplexer.
+Provider-specific commands belong in adapter work, adapter docs, or manual
+recovery. Do not make worker agents depend on a specific terminal multiplexer.
 
 Runtime `read`, `send`, and `stop` require an AgentRoom binding by default so input/output stays audited. `--unaudited` is reserved for manual recovery against non-bound runtime sessions.
 

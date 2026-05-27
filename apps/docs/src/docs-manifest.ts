@@ -20,7 +20,7 @@ export const site: DocsSiteInfo = {
     baseUrl: "https://volpestyle.github.io/docs/agent-room",
     title: "AgentRoom",
     blurb:
-      "AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI, then use CLI and MCP references when you need exact automation.",
+      "AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI; use public skills, protocols, and CLI references when you need to understand or automate what happens behind the scenes.",
   },
   siteLinks: createAgentWorkspaceSiteLinks(),
 };
@@ -29,6 +29,7 @@ export const groups: DocGroup[] = [
   "Start",
   "Setup",
   "Operations",
+  "Agents",
   "Reference",
   "Architecture",
   "Planning",
@@ -63,7 +64,7 @@ export const docsMeta: DocMeta[] = [
     slug: "setup",
     title: "Setup Guide",
     description:
-      "Install local tooling, choose room shape, runtime provider, agent harness, integrations, and skills.",
+      "Install local tooling and choose room shape, runtime provider, harness, integrations, and skill exposure without duplicating the command reference.",
     source: "docs/SETUP.md",
     group: "Setup",
   },
@@ -95,17 +96,25 @@ export const docsMeta: DocMeta[] = [
     slug: "runtimes",
     title: "Runtime Providers",
     description:
-      "Provider-neutral launch, read, send, stop, tmux, Herdr, fake runtimes, and future adapters.",
+      "Provider-neutral runtime model, bindings, Herdr/tmux adapters, adoption, and where exact command flags live.",
     source: "docs/RUNTIMES.md",
     group: "Operations",
   },
   {
-    slug: "protocol",
-    title: "Protocol Notes",
+    slug: "skills-and-protocols",
+    title: "Skills And Protocols",
     description:
-      "Agent opt-in environment, structured commands, local task shadows, and Linear bridge commands.",
+      "How public docs, agent skills, MCP, CLI references, and product protocols fit together without duplicating procedures.",
+    source: "docs/SKILLS_AND_PROTOCOLS.md",
+    group: "Agents",
+  },
+  {
+    slug: "protocol",
+    title: "AgentRoom Protocol",
+    description:
+      "Enrollment, room-native coordination, task shadows, tracker refs, runtime audit, and gateway ownership.",
     source: "docs/PROTOCOL.md",
-    group: "Reference",
+    group: "Agents",
   },
   {
     slug: "cli-reference",

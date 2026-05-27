@@ -39,7 +39,7 @@ The core domain does not own terminal multiplexing, cloud scheduling, durable wo
 
 AgentRoom is not a durable work tracker replacement.
 
-The selected external tracker is canonical for issues, assignment, priority, workflow status, and durable comments. Agents should use that tracker's MCP server, CLI, skill, or AgentRoom provider bridge for that layer.
+The selected external tracker is canonical for issues, assignment, priority, workflow status, and durable comments. Agents should use that tracker's MCP server, CLI, or skill for that layer.
 
 AgentRoom owns the local room around active execution: channel messages, direct messages, handoffs, human questions, runtime launch/input/output audit, and local task shadows that can point to external tracker issues through refs.
 
@@ -49,11 +49,12 @@ AgentRoom talks to the world through ports:
 
 - `RuntimeProvider`
 - `EventStore`
-- `WorkTrackerProvider`
 - `CodeHostProvider`
 - `DesignProvider`
 - `NotificationProvider`
 - `ChatGatewayProvider`
+
+Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; tracker operations themselves happen through the configured MCP server, CLI, or skill.
 
 `NotificationProvider` is fire-and-forget alerting (one-way, no inbound). `ChatGatewayProvider` is a bidirectional chat surface that can attach a Discord/Telegram/SMS/etc. conversation to a room channel, a directed room message, or a runtime-backed agent's input. See `docs/ADR/0003-chat-gateway-port.md`.
 
@@ -64,7 +65,6 @@ Adapters implement ports:
 - `runtime-herdr`
 - `runtime-tmux`
 - `runtime-fake`
-- `worktracker-linear`
 - `codehost-github`
 - `design-figma`
 - `notify-telegram`
@@ -91,11 +91,11 @@ Room participation and chat gateway ownership are separate axes:
 - An agent can run outside AgentRoom or participate in a room.
 - Each external conversation is owned either by an agent process or by `agentroomd`.
 
-Agent-owned Discord preserves the single-Clanky-with-its-own-Discord identity and can coexist with AgentRoom participation. Room-owned Discord uses the room connector identity, flows through `ChatGatewayRouter`, and is the right fit for shared public channels or one-bot-to-many-agents fanout.
+Agent-owned gateways preserve the single-Clanky-with-its-own-communication-identity path and can coexist with AgentRoom participation. Room-owned gateways use the room connector identity, flow through `ChatGatewayRouter`, and are the right fit for shared public channels or one-connector-to-many-agents fanout. Discord is the first concrete adapter.
 
 Lead vs worker is configuration, not agent code. Pointing a room-owned route at `agent-stdin:<id>` makes that agent the lead for that conversation; the rest of the room is reached through AgentRoom native messaging from the lead.
 
-One Discord channel/DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
+One external conversation should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
 
 ### Outbound dispatcher
 

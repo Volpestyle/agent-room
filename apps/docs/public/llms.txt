@@ -1,6 +1,6 @@
 # AgentRoom
 
-> AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI, then use CLI and MCP references when you need exact automation.
+> AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI; use public skills, protocols, and CLI references when you need to understand or automate what happens behind the scenes.
 
 ## Start
 
@@ -10,18 +10,22 @@
 
 ## Setup
 
-- [Setup Guide](https://volpestyle.github.io/docs/agent-room/?doc=setup): Install local tooling, choose room shape, runtime provider, agent harness, integrations, and skills.
+- [Setup Guide](https://volpestyle.github.io/docs/agent-room/?doc=setup): Install local tooling and choose room shape, runtime provider, harness, integrations, and skill exposure without duplicating the command reference.
 - [Configuration Model](https://volpestyle.github.io/docs/agent-room/?doc=configuration): Typed topology, source-of-truth rules, env overrides, secrets, and TUI editing boundaries.
 - [Room Topology](https://volpestyle.github.io/docs/agent-room/?doc=topology): Single-project rooms, HQ rooms, hybrids, gateway ownership, and state placement tradeoffs.
 
 ## Operations
 
 - [Coordination Model](https://volpestyle.github.io/docs/agent-room/?doc=coordination): Native room messages, handoffs, status, task shadows, escalation, and external tracker split.
-- [Runtime Providers](https://volpestyle.github.io/docs/agent-room/?doc=runtimes): Provider-neutral launch, read, send, stop, tmux, Herdr, fake runtimes, and future adapters.
+- [Runtime Providers](https://volpestyle.github.io/docs/agent-room/?doc=runtimes): Provider-neutral runtime model, bindings, Herdr/tmux adapters, adoption, and where exact command flags live.
+
+## Agents
+
+- [Skills And Protocols](https://volpestyle.github.io/docs/agent-room/?doc=skills-and-protocols): How public docs, agent skills, MCP, CLI references, and product protocols fit together without duplicating procedures.
+- [AgentRoom Protocol](https://volpestyle.github.io/docs/agent-room/?doc=protocol): Enrollment, room-native coordination, task shadows, tracker refs, runtime audit, and gateway ownership.
 
 ## Reference
 
-- [Protocol Notes](https://volpestyle.github.io/docs/agent-room/?doc=protocol): Agent opt-in environment, structured commands, local task shadows, and Linear bridge commands.
 - [CLI Reference](https://volpestyle.github.io/docs/agent-room/?doc=cli-reference): Complete AgentRoom command map for operators, scripts, and agents that need exact commands.
 - [Security Model](https://volpestyle.github.io/docs/agent-room/?doc=security): Runtime audit boundaries, scoped tokens, dangerous actions, transcript handling, and secrets.
 

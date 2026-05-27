@@ -64,16 +64,11 @@ override, and secret-handling rules.
 
 ## 3. Choose The Runtime Provider
 
-The default runtime is Herdr. Check or switch it explicitly when needed:
+The default runtime is Herdr. Check or switch it explicitly when needed through
+the TUI or CLI; exact command syntax lives in [CLI Reference](CLI_REFERENCE.md).
 
-```bash
-agent-room runtime providers
-agent-room runtime doctor
-herdr --session agent-room
-```
-
-When the runtime command is not the default binary name, write it into config
-at init time:
+When the runtime command is not the default binary name, write it into config at
+init time:
 
 ```bash
 agent-room init --runtime herdr --runtime-cli herdr-dev
@@ -82,7 +77,7 @@ agent-room init --runtime herdr --runtime-cli herdr-dev
 For a Clanky-first room, write the shared defaults in the same config file:
 
 ```bash
-agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --clanky --work-tracker linear --tracker-team team_123
 ```
 
 That creates a portable `workTracker` block and a `clanky` block. When Clanky
@@ -96,16 +91,14 @@ Runtime choices:
 - `herdr`: Herdr adapter via `@agentroom/runtime-herdr`.
 - `fake`: contract tests and smoke checks only; not a real agent runtime.
 
-Runtime-specific setup belongs in AgentRoom config and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
+Runtime-specific setup belongs in AgentRoom config and
+[Runtime Providers](RUNTIMES.md). Normal operators and agents use AgentRoom
+runtime actions rather than raw multiplexer commands.
 
 ## 4. Choose The Agent Harness
 
-Launching an agent requires an explicit harness kind and command:
-
-```bash
-agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
-agent-room read lead --lines 40
-```
+Launching an agent requires an explicit harness kind and command. Use the TUI
+for normal launches and the CLI reference for exact automation syntax.
 
 Supported harness kinds are `claude-code`, `codex`, `pi`, `gemini-cli`, `shell`, and `custom`. `shell` allocates a bound shell; it is not an active coding agent until you start one inside it with `agent-room send`.
 
@@ -125,17 +118,11 @@ AgentRoom local tasks are execution shadows. Choose one durable work tracker for
 Options:
 
 - Native only: use AgentRoom local tasks without an external tracker.
-- Linear: use the current `@agentroom/worktracker-linear` bridge and `linear-issue` refs.
-- GitHub Issues, Jira, or custom: keep the tracker as the durable source and add or implement the matching provider/refs before expecting bridge commands to update it.
+- Linear, GitHub Issues, Jira, or custom: keep the tracker as the durable source and use that provider's MCP server, CLI, or skill for provider-specific issue actions.
 
-For Linear-backed rooms:
-
-```bash
-agent-room init --runtime herdr --work-tracker linear --linear-team team_123
-agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
-agent-room task link-linear task_implement_auth_callback_xxx ENG-123
-agent-room tracker health
-```
+For Linear-backed rooms, put the non-secret tracker defaults in AgentRoom
+config and let the Linear MCP server, CLI, or skill own Linear-specific issue
+operations.
 
 If the selected tracker is unavailable, agents must report `tracker_update_skipped` with the reason. They should not pretend a tracker update happened.
 
@@ -151,21 +138,21 @@ Workers should discuss design work through AgentRoom messages and task refs, not
 
 ## 7. Choose The Messaging Surface
 
-Native-only rooms need no external chat setup:
-
-```bash
-agent-room post "Planning is done" --channel announcements
-agent-room dm reviewer "Ready for review"
-agent-room messages --channel implementation --limit 20
-agent-room wait --dm-to-me --timeout 600 --json
-```
+Native-only rooms need no external chat setup. Agents and the TUI can use room
+channels, DMs, waits, tasks, and human questions without Discord, Telegram,
+Slack, SMS, or any other gateway.
 
 If you add an external messaging surface, choose ownership per conversation:
 
 - Room-owned gateway: `agentroomd` owns the token and route table for a channel/DM.
 - Agent-owned gateway: one agent owns its own connector identity and may also participate in AgentRoom.
 
-For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in AgentRoom config; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
+For room-owned gateways, configure `chat.gateways` and `chat.routes` in
+AgentRoom config; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`.
+Discord is the first concrete adapter, but the ownership model is generic. Use
+provider-specific MCP/tools for provider-only actions such as reading unrelated
+channels, inspecting attachments, one-off messages, or reactions. Do not make
+the external service the room source of truth.
 
 See `docs/ADR/0003-chat-gateway-port.md` for gateway topology and ownership details.
 
@@ -177,6 +164,10 @@ AgentRoom has two local skills:
 - `skills/agentroom/SKILL.md`: enrolled worker/reviewer behavior.
 
 Expose these skills to the agent harnesses you launch using that harness's normal skill mechanism. If a harness does not support skills, include the relevant playbook text in the launch prompt and verify `agent-room whoami --json` before work begins.
+
+See [Skills And Protocols](SKILLS_AND_PROTOCOLS.md) for the public docs policy:
+publish the protocol and ownership model, keep routine command recipes in
+skills or the CLI reference.
 
 ## 9. Choose Operator Clients
 
@@ -192,16 +183,15 @@ When `AGENTROOM_API_TOKEN` is set, or when the daemon is started with `--tailnet
 
 ## 10. Validate The Room
 
-After choosing the pieces:
+After choosing the pieces, validate the room through the TUI or a short CLI
+smoke check:
 
 ```bash
 agent-room runtime doctor
 agent-room daemon start
 agent-room daemon status
-agent-room mobile-connect --json
 agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room read smoke --lines 40
-agent-room post "room ready" --channel announcements
 agent-room events --limit 20
 ```
 

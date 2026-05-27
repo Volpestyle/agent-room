@@ -42,7 +42,9 @@ The same `@agentroom/chat-discord` package supports two lifecycle owners. The to
 
 The lead/worker distinction is **not** an agent-code concern. It is an emergent property of how routes are configured and how the lead chooses to fan out work. The agent harness is identical in both roles.
 
-One Discord channel or DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
+One external conversation should have exactly one owner. For the Discord adapter,
+that means a channel or DM should not be attached to both an agent-owned gateway
+and a room-owned gateway.
 
 ### Multi-channel rooms
 

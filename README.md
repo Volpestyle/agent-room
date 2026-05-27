@@ -21,8 +21,10 @@ Use AgentRoom when one of these is true:
 - you want to check the room from a phone over a private network
 
 Use Clanky directly when you want a personal Pi agent with profile state,
-memory, Discord, voice, media, and skills. Run Clanky inside AgentRoom when that
-personal agent needs to act as a lead, worker, reviewer, or room participant.
+memory, communication gateways, voice/media adapters, and skills. Discord is
+the current concrete gateway, not the boundary of the model. Run Clanky inside
+AgentRoom when that personal agent needs to act as a lead, worker, reviewer, or
+room participant.
 
 ## 1. What You Can Do
 
@@ -65,7 +67,7 @@ flowchart TB
   room["AgentRoom<br/>messages, tasks, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini, custom"]
   runtimes["Runtime providers<br/>Herdr, tmux, future hosted"]
-  providers["External providers<br/>Linear, GitHub, Figma, Discord"]
+  providers["External providers<br/>Linear, GitHub, Figma, chat gateways"]
 
   human --> room
   room --> agents
@@ -124,7 +126,7 @@ skills/
   agentroom-operator/
                    lead/operator behavior for launching and steering agents
 docs/
-  product tour, setup, topology, runtime, security, protocol, ADRs
+  product tour, setup, topology, runtime, skills/protocols, security, ADRs
 ```
 
 ## Build And Test
@@ -204,10 +206,12 @@ replaceable:
 
 - `RuntimeProvider`: Herdr, tmux, fake today; Docker, SSH, ECS, Kubernetes, or
   custom adapters later.
-- `WorkTrackerProvider`: Linear bridge today; GitHub/Jira/custom trackers can
-  stay external until bridged.
-- `ChatGatewayProvider`: Discord routing primitives today; other chat surfaces
-  should follow the same owner/routing model.
+- Work tracker config: provider-neutral room protocol. Agents use the selected
+  tracker's MCP server, CLI, or skill and link external refs back to local task
+  shadows.
+- `ChatGatewayProvider`: communication gateway routing primitives. Discord is
+  the first adapter; other chat surfaces should follow the same owner/routing
+  model.
 - `CodeHostProvider`, `DesignProvider`, and `NotificationProvider`: optional
   integrations that should not leak provider-specific assumptions into the room
   model.
@@ -226,10 +230,10 @@ launch Codex, Claude Code, Gemini CLI, shell, or a custom command:
 agent-room launch clanky --harness pi --command clanky --cwd /path/to/workspace
 ```
 
-Room participation and chat ownership are separate. Clanky may keep its own
-agent-owned Discord identity while participating in a room, or AgentRoom may own
-a room connector and route chat to a lead agent. One external conversation
-should have exactly one owner.
+Room participation and gateway ownership are separate. Clanky may keep its own
+agent-owned communication identity while participating in a room, or AgentRoom
+may own a room connector and route chat to a lead agent. One external
+conversation should have exactly one owner.
 
 For the Clanky-side contract, see
 [../clanky-pi/docs/AGENTROOM.md](../clanky-pi/docs/AGENTROOM.md).
@@ -247,6 +251,8 @@ High-signal pages:
 - [Ecosystem Tour](docs/ECOSYSTEM.md)
 - [Terminal TUI](docs/TUI.md)
 - [Setup Guide](docs/SETUP.md)
+- [Skills And Protocols](docs/SKILLS_AND_PROTOCOLS.md)
+- [AgentRoom Protocol](docs/PROTOCOL.md)
 - [CLI Reference](docs/CLI_REFERENCE.md)
 - [Configuration Model](docs/CONFIGURATION.md)
 - [Room Topology](docs/TOPOLOGY.md)
@@ -274,9 +280,10 @@ High-signal pages:
 AgentRoom is a runnable local coordination plane. It includes the core room
 model, CLI, daemon HTTP API, TUI, MCP server, Expo mobile client, JSONL event
 storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/
-stop, Herdr pane adoption, wait/events-follow, local task shadows, Linear bridge
-commands, Discord gateway routing primitives, and mobile tailnet pairing.
+stop, Herdr pane adoption, wait/events-follow, local task shadows, tracker
+refs, chat gateway routing primitives with a Discord adapter today, and mobile
+tailnet pairing.
 
 Next useful work: SQLite event storage, stronger real-runtime contract tests,
-operator CLI support for chat route mutation, more ergonomic tracker bridges,
+operator CLI support for chat route mutation, more ergonomic tracker protocol,
 and hosted or multi-host runtime adapters.

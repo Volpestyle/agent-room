@@ -40,7 +40,6 @@ workTracker:
     linear:
       type: linear
       tokenEnv: LINEAR_API_KEY
-      commandEnv: AGENTROOM_LINEAR_COMMAND
       teamId: team_123
 
 clanky:
@@ -110,8 +109,8 @@ chat:
 ```
 
 One external conversation should still have exactly one owner. If Clanky owns a
-Discord DM or channel through its profile credential, do not also route that
-same conversation through an AgentRoom room-owned gateway.
+conversation through its profile credential, do not also route that same
+conversation through an AgentRoom room-owned gateway.
 
 ## Rule For New Settings
 

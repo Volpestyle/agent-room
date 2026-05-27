@@ -28,7 +28,7 @@ Common init examples:
 ```bash
 agent-room init --runtime herdr
 agent-room init --runtime herdr --runtime-cli herdr-dev
-agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --clanky --work-tracker linear --tracker-team team_123
 ```
 
 ## Daemon, TUI, And Mobile
@@ -91,12 +91,12 @@ and `custom`.
 
 Herdr placement options:
 
-| Option                     | Purpose                                     |
-| -------------------------- | ------------------------------------------- | ------------------------------- | ------------------------------------ |
-| `--placement workspace     | tab                                         | pane`                           | Override configured Herdr placement. |
-| `--workspace <label>`      | Place the agent in a named Herdr workspace. |
-| `--panes-per-tab <number>` | Cap pane-grid density.                      |
-| `--split largest           | focused`                                    | Choose the pane split strategy. |
+| Option | Purpose |
+| --- | --- |
+| `--placement workspace|tab|pane` | Override configured Herdr placement. |
+| `--workspace <label>` | Place the agent in a named Herdr workspace. |
+| `--panes-per-tab <number>` | Cap pane-grid density. |
+| `--split largest|focused` | Choose the pane split strategy. |
 
 By default, `read`, `send`, and `stop` require an AgentRoom runtime binding so
 terminal IO stays audited. `--unaudited` is for manual recovery only.
@@ -134,8 +134,8 @@ when a real issue exists.
 | `agent-room task show <taskId>`                  | Show one task shadow.               |
 | `agent-room task claim <taskId>`                 | Claim a task.                       |
 | `agent-room task status <taskId> <status>`       | Set task status.                    |
-| `agent-room task link-linear <taskId> <issueId>` | Link a task to Linear.              |
-| `agent-room task comment <taskId> <body>`        | Comment on the linked Linear issue. |
+| `agent-room task link-tracker <taskId> <issueId>` | Link a task to an external tracker issue. |
+| `agent-room task comment <taskId> <body>`        | Post a local AgentRoom task comment. |
 | `agent-room block <taskId> --reason <reason>`    | Mark a task blocked.                |
 | `agent-room done <taskId>`                       | Mark a task done.                   |
 | `agent-room ask-human <question>`                | Create a human escalation question. |
@@ -149,9 +149,7 @@ state changes and `done` / `block` for the common paths.
 | ---------------------------------------------- | ----------------------------------------- |
 | `agent-room workspace add <cwd>`               | Register a cwd as an AgentRoom workspace. |
 | `agent-room workspace list`                    | List registered workspaces.               |
-| `agent-room tracker health`                    | Check the configured work tracker bridge. |
-| `agent-room tracker comment <issueId> <body>`  | Comment on a Linear issue.                |
-| `agent-room tracker status <issueId> <status>` | Update Linear issue status.               |
+| `agent-room tracker health`                    | Show the configured work tracker protocol. |
 
 ## Environment
 
