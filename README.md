@@ -89,6 +89,7 @@ corepack enable
 corepack prepare pnpm@11 --activate
 pnpm install
 pnpm build
+export PATH="$PWD/node_modules/.bin:$PATH" # source checkout only
 agent-room
 ```
 
@@ -103,6 +104,10 @@ Post a status update for the room.
 
 Use the CLI when you need automation, scripts, or exact commands. See
 [CLI Reference](docs/CLI_REFERENCE.md) for the complete command map.
+
+The released CLI is intended to behave like any other command: run
+`agent-room` and the TUI opens. The `PATH` line is only for a source checkout
+before the CLI is installed globally.
 
 ## What Is In This Repo
 

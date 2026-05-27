@@ -9,8 +9,10 @@ agent-room
 ```
 
 If no local daemon is reachable, the TUI can start one for the session. The
-plain command is the normal entry point. If you are connecting to a daemon that
-was started separately on a non-default URL, pass the daemon URL to `agent-room`:
+plain command is the normal entry point. From a source checkout before a global
+install, add this repo's `node_modules/.bin` to `PATH` or run
+`pnpm agent-room`. If you are connecting to a daemon that was started
+separately on a non-default URL, pass the daemon URL to `agent-room`:
 
 ```bash
 agent-room --daemon http://127.0.0.1:4317

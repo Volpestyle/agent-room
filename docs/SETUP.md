@@ -32,8 +32,11 @@ corepack enable
 corepack prepare pnpm@11 --activate
 pnpm install
 pnpm build
-pnpm test
+export PATH="$PWD/node_modules/.bin:$PATH" # source checkout only
 ```
+
+Run `pnpm test` when you want the full local verification suite; it is not
+required before opening the dashboard.
 
 ## 2. Start The Shared Room
 
@@ -87,6 +90,9 @@ That creates a portable `workTracker` block and a `clanky` block. When Clanky
 starts without explicit `--home` or `--profile` overrides,
 it can adopt `.clanky-room`, profile `lead`, the configured chat ownership, and
 the selected tracker defaults from AgentRoom config.
+
+The released CLI is intended to be used directly as `agent-room`. The `PATH`
+line above is only for a source checkout before the CLI is installed globally.
 
 Runtime choices:
 

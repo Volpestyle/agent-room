@@ -296,6 +296,7 @@ corepack enable
 corepack prepare pnpm@11 --activate
 pnpm install
 pnpm build
+export PATH="$PWD/node_modules/.bin:$PATH" # source checkout only
 agent-room
 ```
 
@@ -310,6 +311,10 @@ Post a status update for the room.
 
 Use the CLI when you need automation, scripts, or exact commands. See
 [CLI Reference](docs/CLI_REFERENCE.md) for the complete command map.
+
+The released CLI is intended to behave like any other command: run
+`agent-room` and the TUI opens. The `PATH` line is only for a source checkout
+before the CLI is installed globally.
 
 ## What Is In This Repo
 
@@ -515,8 +520,10 @@ agent-room
 ```
 
 If no local daemon is reachable, the TUI can start one for the session. The
-plain command is the normal entry point. If you are connecting to a daemon that
-was started separately on a non-default URL, pass the daemon URL to `agent-room`:
+plain command is the normal entry point. From a source checkout before a global
+install, add this repo's `node_modules/.bin` to `PATH` or run
+`pnpm agent-room`. If you are connecting to a daemon that was started
+separately on a non-default URL, pass the daemon URL to `agent-room`:
 
 ```bash
 agent-room --daemon http://127.0.0.1:4317
@@ -656,8 +663,11 @@ corepack enable
 corepack prepare pnpm@11 --activate
 pnpm install
 pnpm build
-pnpm test
+export PATH="$PWD/node_modules/.bin:$PATH" # source checkout only
 ```
+
+Run `pnpm test` when you want the full local verification suite; it is not
+required before opening the dashboard.
 
 ## 2. Start The Shared Room
 
@@ -711,6 +721,9 @@ That creates a portable `workTracker` block and a `clanky` block. When Clanky
 starts without explicit `--home` or `--profile` overrides,
 it can adopt `.clanky-room`, profile `lead`, the configured chat ownership, and
 the selected tracker defaults from AgentRoom config.
+
+The released CLI is intended to be used directly as `agent-room`. The `PATH`
+line above is only for a source checkout before the CLI is installed globally.
 
 Runtime choices:
 
