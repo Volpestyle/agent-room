@@ -32,6 +32,12 @@ describe("AgentRoom config", () => {
     const config = createDefaultAgentRoomConfig({ roomId: "my-project" });
 
     expect(config.runtime.default).toBe("fake");
+    expect(config.workTracker).toEqual({
+      default: "native",
+      providers: {
+        native: { type: "native" },
+      },
+    });
     expect(config.runtimes.herdr).toEqual(
       expect.objectContaining({
         type: "herdr",
@@ -179,6 +185,55 @@ storage:
       env: {
         CLANKY_PROFILE: "operator",
       },
+    });
+    expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
+  });
+
+  it("parses portable work tracker and Clanky defaults from YAML", () => {
+    const parsed = parseAgentRoomConfig(`room:
+  id: agent-room
+
+runtime:
+  default: fake
+
+workTracker:
+  default: linear
+  providers:
+    linear:
+      type: linear
+      tokenEnv: LINEAR_API_KEY
+      commandEnv: AGENTROOM_LINEAR_COMMAND
+      teamId: team_123
+
+clanky:
+  home: .clanky-room
+  profile: lead
+  chatGatewayOwner: room
+
+runtimes:
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl
+`);
+
+    expect(parsed.workTracker).toEqual({
+      default: "linear",
+      providers: {
+        linear: {
+          type: "linear",
+          tokenEnv: "LINEAR_API_KEY",
+          commandEnv: "AGENTROOM_LINEAR_COMMAND",
+          teamId: "team_123",
+        },
+      },
+    });
+    expect(parsed.clanky).toEqual({
+      home: ".clanky-room",
+      profile: "lead",
+      chatGatewayOwner: "room",
     });
     expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
   });

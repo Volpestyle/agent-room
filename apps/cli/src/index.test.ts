@@ -3,7 +3,7 @@ import {
   execFile,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +28,48 @@ describe("agent-room init", () => {
         env,
         "required option '--runtime <runtime>' not specified",
       );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("can write portable Clanky and work tracker defaults", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-clanky-"));
+    const env = testEnv("cli-init-clanky-test");
+
+    try {
+      await execAgentRoom(
+        cwd,
+        [
+          "init",
+          "--room",
+          "cli-init-clanky-test",
+          "--runtime",
+          "fake",
+          "--work-tracker",
+          "linear",
+          "--linear-team",
+          "team_123",
+          "--clanky",
+          "--clanky-profile",
+          "lead",
+          "--clanky-chat-owner",
+          "room",
+        ],
+        env,
+      );
+
+      const config = await readFile(
+        join(cwd, ".agentroom", "config.yaml"),
+        "utf8",
+      );
+      expect(config).toContain("workTracker:");
+      expect(config).toContain("default: linear");
+      expect(config).toContain("teamId: team_123");
+      expect(config).toContain("clanky:");
+      expect(config).toContain("profile: lead");
+      expect(config).toContain("chatGatewayOwner: room");
+      expect(config).toContain("kind: clanky");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

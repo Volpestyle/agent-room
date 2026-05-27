@@ -9,6 +9,8 @@ surfaces.
 
 - room id and name
 - default runtime provider and runtime adapter settings
+- portable, non-secret work tracker selection
+- optional Clanky home/profile defaults for rooms that launch Clanky
 - dashboard operator defaults
 - room-owned chat gateways and routes
 - event-store location
@@ -27,6 +29,28 @@ Secrets do not belong in `.agentroom/config.yaml`. Store references such as
 environment or a dedicated auth store. The TUI's model credentials live in
 `~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
 room topology.
+
+The portable cross-product subset is intentionally non-secret:
+
+```yaml
+workTracker:
+  default: linear
+  providers:
+    linear:
+      type: linear
+      tokenEnv: LINEAR_API_KEY
+      commandEnv: AGENTROOM_LINEAR_COMMAND
+      teamId: team_123
+
+clanky:
+  home: .clanky-room
+  profile: lead
+  chatGatewayOwner: room
+```
+
+AgentRoom owns this file. Clanky may read `workTracker` and `clanky` as launch
+defaults when it starts inside the project, but Clanky still owns its profile
+credentials, memory, sessions, and agent-owned connector state.
 
 ## Editing Surfaces
 

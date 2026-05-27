@@ -26,6 +26,8 @@ export interface AgentRoomConfig {
   runtime: {
     default: string;
   };
+  workTracker?: WorkTrackerConfig;
+  clanky?: ClankyConfig;
   operator?: DashboardOperatorConfig;
   runtimes: Record<string, RuntimeConfig>;
   chat?: ChatConfig;
@@ -67,6 +69,35 @@ export interface HerdrLayoutConfig {
   panesPerTab?: number;
   split?: HerdrSplitStrategy;
   balance?: boolean;
+}
+
+export type WorkTrackerProviderKind =
+  | "native"
+  | "linear"
+  | "github-issues"
+  | "jira"
+  | "custom";
+
+export interface WorkTrackerConfig {
+  default: string;
+  providers: Record<string, WorkTrackerProviderConfig>;
+}
+
+export interface WorkTrackerProviderConfig {
+  type: WorkTrackerProviderKind;
+  tokenEnv?: string;
+  commandEnv?: string;
+  teamId?: string;
+  projectId?: string;
+  baseUrl?: string;
+}
+
+export type ClankyChatGatewayOwner = "agent" | "room" | "off";
+
+export interface ClankyConfig {
+  home?: string;
+  profile?: string;
+  chatGatewayOwner?: ClankyChatGatewayOwner;
 }
 
 export interface ChatConfig {
@@ -133,6 +164,12 @@ export function createDefaultAgentRoomConfig(
     },
     runtime: {
       default: defaultRuntime,
+    },
+    workTracker: {
+      default: "native",
+      providers: {
+        native: { type: "native" },
+      },
     },
     runtimes: {
       fake: { type: "fake" },
@@ -228,6 +265,22 @@ export function runtimeNameFor(
   return runtimeName ?? config.runtime.default;
 }
 
+export function workTrackerNameFor(
+  config: AgentRoomConfig,
+  trackerName?: string,
+): string | undefined {
+  return trackerName ?? config.workTracker?.default;
+}
+
+export function ensureWorkTrackerProviderConfig(
+  config: AgentRoomConfig,
+  trackerName: string,
+): WorkTrackerProviderConfig {
+  const provider = config.workTracker?.providers[trackerName];
+  if (!provider) throw new Error(`Unknown work tracker '${trackerName}'.`);
+  return provider;
+}
+
 export function withDefaultRuntime(
   config: AgentRoomConfig,
   runtimeName: string,
@@ -281,6 +334,12 @@ export function formatAgentRoomConfig(config: AgentRoomConfig): string {
     "runtime:",
     `  default: ${yamlScalar(config.runtime.default)}`,
     "",
+    ...(config.workTracker !== undefined
+      ? [...formatWorkTracker(config.workTracker), ""]
+      : []),
+    ...(config.clanky !== undefined
+      ? [...formatClanky(config.clanky), ""]
+      : []),
     ...(config.operator !== undefined
       ? [...formatDashboardOperator(config.operator), ""]
       : []),
@@ -300,6 +359,8 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
   const parsed = parseSimpleYaml(text);
   const room = objectAt(parsed, "room");
   const runtime = objectAt(parsed, "runtime");
+  const workTracker = parseWorkTrackerConfig(objectAt(parsed, "workTracker"));
+  const clanky = parseClankyConfig(objectAt(parsed, "clanky"));
   const operator = parseDashboardOperatorConfig(objectAt(parsed, "operator"));
   const runtimes = objectAt(parsed, "runtimes");
   const chat = parseChatConfig(objectAt(parsed, "chat"));
@@ -320,6 +381,8 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
     runtime: {
       default: required(defaultRuntime, "runtime.default"),
     },
+    ...(workTracker !== undefined ? { workTracker } : {}),
+    ...(clanky !== undefined ? { clanky } : {}),
     ...(operator !== undefined ? { operator } : {}),
     runtimes: runtimeConfigs,
     ...(chat !== undefined ? { chat } : {}),
@@ -328,6 +391,57 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
       path: stringAt(storage, "path") || DEFAULT_EVENT_LOG_PATH,
     },
   };
+}
+
+function formatWorkTracker(workTracker: WorkTrackerConfig): string[] {
+  return [
+    "workTracker:",
+    `  default: ${yamlScalar(workTracker.default)}`,
+    "  providers:",
+    ...Object.entries(workTracker.providers).flatMap(([id, provider]) =>
+      formatWorkTrackerProvider(id, provider),
+    ),
+  ];
+}
+
+function formatWorkTrackerProvider(
+  id: string,
+  provider: WorkTrackerProviderConfig,
+): string[] {
+  return [
+    `    ${id}:`,
+    `      type: ${yamlScalar(provider.type)}`,
+    ...(provider.tokenEnv !== undefined
+      ? [`      tokenEnv: ${yamlScalar(provider.tokenEnv)}`]
+      : []),
+    ...(provider.commandEnv !== undefined
+      ? [`      commandEnv: ${yamlScalar(provider.commandEnv)}`]
+      : []),
+    ...(provider.teamId !== undefined
+      ? [`      teamId: ${yamlScalar(provider.teamId)}`]
+      : []),
+    ...(provider.projectId !== undefined
+      ? [`      projectId: ${yamlScalar(provider.projectId)}`]
+      : []),
+    ...(provider.baseUrl !== undefined
+      ? [`      baseUrl: ${yamlScalar(provider.baseUrl)}`]
+      : []),
+  ];
+}
+
+function formatClanky(clanky: ClankyConfig): string[] {
+  return [
+    "clanky:",
+    ...(clanky.home !== undefined
+      ? [`  home: ${yamlScalar(clanky.home)}`]
+      : []),
+    ...(clanky.profile !== undefined
+      ? [`  profile: ${yamlScalar(clanky.profile)}`]
+      : []),
+    ...(clanky.chatGatewayOwner !== undefined
+      ? [`  chatGatewayOwner: ${yamlScalar(clanky.chatGatewayOwner)}`]
+      : []),
+  ];
 }
 
 function formatDashboardOperator(operator: DashboardOperatorConfig): string[] {
@@ -498,6 +612,84 @@ function formatRuntime(name: string, runtime: RuntimeConfig): string[] {
       lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
   }
   return lines;
+}
+
+function parseWorkTrackerConfig(
+  input: Record<string, unknown>,
+): WorkTrackerConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+  const defaultProvider = required(
+    stringAt(input, "default"),
+    "workTracker.default",
+  );
+  const providers = parseWorkTrackerProviders(objectAt(input, "providers"));
+  if (providers[defaultProvider] === undefined) {
+    throw new Error(
+      `Default work tracker '${defaultProvider}' is not configured in workTracker.providers`,
+    );
+  }
+
+  return {
+    default: defaultProvider,
+    providers,
+  };
+}
+
+function parseWorkTrackerProviders(
+  input: Record<string, unknown>,
+): Record<string, WorkTrackerProviderConfig> {
+  const providers: Record<string, WorkTrackerProviderConfig> = {};
+  for (const [id, value] of Object.entries(input)) {
+    const provider = asRecord(value);
+    const type = stringAt(provider, "type");
+    if (!isWorkTrackerProviderKind(type)) {
+      throw new Error(
+        `Unsupported work tracker type '${String(type)}' for provider '${id}'`,
+      );
+    }
+
+    const tokenEnv = stringAt(provider, "tokenEnv");
+    const commandEnv = stringAt(provider, "commandEnv");
+    const teamId = stringAt(provider, "teamId");
+    const projectId = stringAt(provider, "projectId");
+    const baseUrl = stringAt(provider, "baseUrl");
+
+    providers[id] = {
+      type,
+      ...(tokenEnv !== undefined ? { tokenEnv } : {}),
+      ...(commandEnv !== undefined ? { commandEnv } : {}),
+      ...(teamId !== undefined ? { teamId } : {}),
+      ...(projectId !== undefined ? { projectId } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+    };
+  }
+  return providers;
+}
+
+function parseClankyConfig(
+  input: Record<string, unknown>,
+): ClankyConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+
+  const home = stringAt(input, "home");
+  const profile = stringAt(input, "profile");
+  const chatGatewayOwner = stringAt(input, "chatGatewayOwner");
+  if (
+    chatGatewayOwner !== undefined &&
+    chatGatewayOwner !== "agent" &&
+    chatGatewayOwner !== "room" &&
+    chatGatewayOwner !== "off"
+  ) {
+    throw new Error(
+      `Unsupported Clanky chat gateway owner '${chatGatewayOwner}'`,
+    );
+  }
+
+  return {
+    ...(home !== undefined ? { home } : {}),
+    ...(profile !== undefined ? { profile } : {}),
+    ...(chatGatewayOwner !== undefined ? { chatGatewayOwner } : {}),
+  };
 }
 
 function parseDashboardOperatorConfig(
@@ -836,6 +1028,18 @@ function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value))
     return value as Record<string, unknown>;
   return {};
+}
+
+function isWorkTrackerProviderKind(
+  value: string | undefined,
+): value is WorkTrackerProviderKind {
+  return (
+    value === "native" ||
+    value === "linear" ||
+    value === "github-issues" ||
+    value === "jira" ||
+    value === "custom"
+  );
 }
 
 function stringAt(

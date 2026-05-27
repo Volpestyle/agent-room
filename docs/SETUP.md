@@ -53,6 +53,17 @@ agent-room runtime providers
 agent-room runtime doctor
 ```
 
+For a Clanky-first room, write the shared defaults in the same config file:
+
+```bash
+agent-room init --room my-project --runtime herdr --clanky --work-tracker linear --linear-team team_123
+```
+
+That creates a portable `workTracker` block and a `clanky` block. When Clanky
+starts inside this project without explicit `--home` or `--profile` overrides,
+it can adopt `.clanky-room`, profile `lead`, the configured chat ownership, and
+the selected tracker defaults from `.agentroom/config.yaml`.
+
 Runtime choices:
 
 - `tmux`: local terminal multiplexer via `@agentroom/runtime-tmux`.
@@ -94,6 +105,7 @@ Options:
 For Linear-backed rooms:
 
 ```bash
+agent-room init --room my-project --runtime herdr --work-tracker linear --linear-team team_123
 agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
 agent-room task link-linear task_implement_auth_callback_xxx ENG-123
 agent-room tracker health

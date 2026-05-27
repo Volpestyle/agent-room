@@ -5,6 +5,19 @@ room:
 runtime:
   default: local-runtime
 
+workTracker:
+  default: linear
+  providers:
+    linear:
+      type: linear
+      tokenEnv: LINEAR_API_KEY
+      commandEnv: AGENTROOM_LINEAR_COMMAND
+
+clanky:
+  home: .clanky-room
+  profile: lead
+  chatGatewayOwner: room
+
 runtimes:
   local-runtime:
     type: tmux

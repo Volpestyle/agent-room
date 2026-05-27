@@ -48,8 +48,12 @@ import {
   withDefaultRuntime,
   writeAgentRoomConfig,
   type AgentRoomConfig,
+  type ClankyChatGatewayOwner,
   type HerdrLayoutConfig,
   type RuntimeConfig,
+  type WorkTrackerConfig,
+  type WorkTrackerProviderConfig,
+  type WorkTrackerProviderKind,
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
@@ -216,12 +220,40 @@ program
     "--runtime-session <name>",
     "Herdr session name or tmux session prefix; defaults to agentroom for Herdr and room id for tmux",
   )
+  .option(
+    "--work-tracker <tracker>",
+    "portable work tracker selection: native|linear|github-issues|jira|custom",
+    "native",
+  )
+  .option("--linear-team <teamId>", "default Linear team id for created issues")
+  .option("--clanky", "write Clanky-compatible defaults into config.yaml")
+  .option(
+    "--clanky-home <path>",
+    "Clanky home path for this room when --clanky is set",
+    ".clanky-room",
+  )
+  .option(
+    "--clanky-profile <profile>",
+    "Clanky profile for this room when --clanky is set",
+    "lead",
+  )
+  .option(
+    "--clanky-chat-owner <owner>",
+    "agent|room|off; default agent-owned Clanky chat",
+    "agent",
+  )
   .action(
     async (options: {
       room: string;
       name?: string;
       runtime: string;
       runtimeSession?: string;
+      workTracker: string;
+      linearTeam?: string;
+      clanky?: boolean;
+      clankyHome: string;
+      clankyProfile: string;
+      clankyChatOwner: string;
     }) => {
       const dir = roomDir();
       await mkdir(join(dir, "agents"), { recursive: true });
@@ -233,6 +265,40 @@ program
           ? { runtimeSession: options.runtimeSession }
           : {}),
       });
+      appConfig.workTracker = createWorkTrackerConfig({
+        tracker: options.workTracker,
+        ...(options.linearTeam !== undefined
+          ? { linearTeam: options.linearTeam }
+          : {}),
+      });
+      if (options.clanky === true) {
+        const chatGatewayOwner = parseClankyChatGatewayOwner(
+          options.clankyChatOwner,
+        );
+        appConfig.clanky = {
+          home: options.clankyHome,
+          profile: options.clankyProfile,
+          chatGatewayOwner,
+        };
+        appConfig.operator = {
+          agentId: "clanky",
+          displayName: "Clanky",
+          kind: "clanky",
+          command: `clanky --home ${options.clankyHome} --profile ${options.clankyProfile}`,
+          cwd: ".",
+          sessionDir: join(
+            options.clankyHome,
+            "profiles",
+            options.clankyProfile,
+            "sessions",
+          ),
+          env: {
+            CLANKY_HOME: options.clankyHome,
+            CLANKY_PROFILE: options.clankyProfile,
+            CLANKY_CHAT_GATEWAY_OWNER: chatGatewayOwner,
+          },
+        };
+      }
 
       await writeJson(join(dir, "room.json"), {
         roomId: options.room,
@@ -255,6 +321,12 @@ program
 
       console.log(`Initialized AgentRoom room '${options.room}' in ${dir}`);
       console.log(`Configured runtime: ${appConfig.runtime.default}`);
+      console.log(`Configured work tracker: ${appConfig.workTracker.default}`);
+      if (appConfig.clanky !== undefined) {
+        console.log(
+          `Configured Clanky profile: ${appConfig.clanky.profile} (${appConfig.clanky.home})`,
+        );
+      }
     },
   );
 
@@ -774,13 +846,11 @@ const tracker = program
 
 tracker
   .command("health")
-  .description(
-    "Check the configured Linear bridge command for MCP/CLI/skill delegation",
-  )
+  .description("Check the configured external work tracker bridge")
   .option("--json", "print JSON")
   .action(async (options: { json?: boolean }) => {
-    const provider = new LinearWorkTrackerProvider();
-    output(await provider.health(), options.json);
+    const config = await maybeLoadAgentRoomConfig();
+    output(await workTrackerHealth(config), options.json);
   });
 
 tracker
@@ -2882,6 +2952,63 @@ function linearIssueIdForTask(task: { refs?: Ref[] }): string | undefined {
   return task.refs?.find((ref) => ref.kind === "linear-issue")?.id;
 }
 
+async function workTrackerHealth(
+  config: AgentRoomConfig | undefined,
+): Promise<{ ok: boolean; tracker: string; kind: string; message?: string }> {
+  const tracker = config?.workTracker;
+  if (tracker === undefined) {
+    const provider = new LinearWorkTrackerProvider();
+    const health = await provider.health();
+    return {
+      ...health,
+      tracker: "linear",
+      kind: "linear",
+      message:
+        health.message ??
+        "No workTracker block configured; using legacy Linear bridge defaults.",
+    };
+  }
+
+  const providerId = tracker.default;
+  const providerConfig = tracker.providers[providerId];
+  if (providerConfig === undefined) {
+    return {
+      ok: false,
+      tracker: providerId,
+      kind: "unknown",
+      message: `tracker_update_skipped: work tracker '${providerId}' is not configured`,
+    };
+  }
+
+  if (providerConfig.type === "native") {
+    return {
+      ok: true,
+      tracker: providerId,
+      kind: providerConfig.type,
+      message:
+        "Using AgentRoom native local task shadows; no external tracker bridge configured.",
+    };
+  }
+
+  if (providerConfig.type === "linear") {
+    const commandEnv = providerConfig.commandEnv ?? "AGENTROOM_LINEAR_COMMAND";
+    const command = process.env[commandEnv];
+    const provider = new LinearWorkTrackerProvider({
+      id: providerId,
+      ...(command !== undefined ? { command } : {}),
+    });
+    const health = await provider.health();
+    return { ...health, tracker: providerId, kind: providerConfig.type };
+  }
+
+  return {
+    ok: false,
+    tracker: providerId,
+    kind: providerConfig.type,
+    message: `tracker_update_skipped: no ${providerConfig.type} bridge is implemented yet`,
+  };
+}
+
 function herdrLayoutOverride(input: {
   placement?: string;
   workspace?: string;
@@ -3056,6 +3183,76 @@ function basename(path: string): string {
 function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
   if (value === "fake" || value === "herdr" || value === "tmux") return value;
   throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
+}
+
+function createWorkTrackerConfig(options: {
+  tracker: string;
+  linearTeam?: string;
+}): WorkTrackerConfig {
+  const providerKind = parseWorkTrackerProviderKind(options.tracker);
+  const defaultProvider =
+    providerKind === "github-issues" ? "github" : providerKind;
+  const provider: WorkTrackerProviderConfig = {
+    type: providerKind,
+    ...defaultWorkTrackerProviderFields(providerKind),
+    ...(providerKind === "linear" && options.linearTeam !== undefined
+      ? { teamId: options.linearTeam }
+      : {}),
+  };
+  return {
+    default: defaultProvider,
+    providers: {
+      [defaultProvider]: provider,
+    },
+  };
+}
+
+function defaultWorkTrackerProviderFields(
+  providerKind: WorkTrackerProviderKind,
+): Omit<WorkTrackerProviderConfig, "type"> {
+  switch (providerKind) {
+    case "linear":
+      return {
+        tokenEnv: "LINEAR_API_KEY",
+        commandEnv: "AGENTROOM_LINEAR_COMMAND",
+      };
+    case "github-issues":
+      return { tokenEnv: "GITHUB_TOKEN" };
+    case "jira":
+      return { tokenEnv: "JIRA_API_TOKEN" };
+    case "native":
+    case "custom":
+      return {};
+  }
+}
+
+function parseWorkTrackerProviderKind(value: string): WorkTrackerProviderKind {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "native" ||
+    normalized === "linear" ||
+    normalized === "github-issues" ||
+    normalized === "jira" ||
+    normalized === "custom"
+  ) {
+    return normalized;
+  }
+  if (normalized === "github" || normalized === "github_issues") {
+    return "github-issues";
+  }
+  throw new Error(
+    `Invalid work tracker '${value}'. Expected native, linear, github-issues, jira, or custom.`,
+  );
+}
+
+function parseClankyChatGatewayOwner(value: string): ClankyChatGatewayOwner {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "agent" || normalized === "room" || normalized === "off") {
+    return normalized;
+  }
+  throw new Error(
+    `Invalid Clanky chat owner '${value}'. Expected agent, room, or off.`,
+  );
 }
 
 async function exists(path: string): Promise<boolean> {
