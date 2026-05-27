@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -215,7 +215,7 @@ program
   .description("Initialize AgentRoom metadata in the current project")
   .option(
     "--room <id>",
-    "room id; defaults to the runtime session or agent-room",
+    "room id; defaults to the runtime session or a slug of the current directory",
   )
   .option("--name <name>", "human-readable room name")
   .requiredOption(
@@ -3221,6 +3221,8 @@ function normalizedConfigValue(value: string | undefined): string | undefined {
 function defaultRoomIdForRuntimeEnv(runtime: ConfiguredRuntimeKind): string {
   const explicit = normalizedConfigValue(process.env.AGENTROOM_ROOM_ID);
   if (explicit !== undefined) return explicit;
+  const cwdSlug = defaultRoomIdFromCwd();
+  if (cwdSlug !== undefined) return cwdSlug;
   if (runtime === "herdr") {
     return normalizedConfigValue(process.env.HERDR_SESSION) ?? DEFAULT_ROOM_ID;
   }
@@ -3228,6 +3230,15 @@ function defaultRoomIdForRuntimeEnv(runtime: ConfiguredRuntimeKind): string {
     return normalizedConfigValue(process.env.TMUX_SESSION) ?? DEFAULT_ROOM_ID;
   }
   return defaultRoomIdFromEnv(process.env);
+}
+
+function defaultRoomIdFromCwd(): string | undefined {
+  const base = basename(process.cwd());
+  const slug = base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : undefined;
 }
 
 function resolveInitRuntimeSession(options: {
