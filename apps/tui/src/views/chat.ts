@@ -24,6 +24,12 @@ import {
 } from "../agent/index.js";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
+import {
+  roomAgentRuntimeLabel,
+  roomAgentRuntimeTarget,
+  runtimeAgentLabel,
+  summarizeAgentAliases,
+} from "../runtime-agent-labels.js";
 import type { DashboardState, DashboardStore } from "../state.js";
 import type { RuntimeAgent } from "../types.js";
 import type { View } from "./types.js";
@@ -626,7 +632,7 @@ function promptWithDashboardContext(
   return `${dashboardContext(state)}\n\nUser request:\n${text}`;
 }
 
-function dashboardContext(state: DashboardState): string {
+export function dashboardContext(state: DashboardState): string {
   const roomId = state.health?.roomId ?? state.config?.roomId ?? "unknown";
   const cwd = state.config?.cwd ?? "unknown";
   const defaultRuntime =
@@ -657,8 +663,16 @@ function dashboardContext(state: DashboardState): string {
     ? visibleRuntimeAgents
         .slice(0, 12)
         .map(
-          ({ providerId, agent }) =>
-            `${providerId}:${agent.id}[${agent.state}, binding=${agent.bindingId}]`,
+          ({ providerId, agent }) => {
+            const label = runtimeAgentLabel(agent);
+            const parts = [
+              `state=${agent.state}`,
+              `binding=${agent.bindingId}`,
+              ...(label ? [`agent=${label}`] : []),
+              ...(agent.sessionId ? [`workspace=${agent.sessionId}`] : []),
+            ];
+            return `${providerId}:${agent.id}[${parts.join(", ")}]`;
+          },
         )
         .join(", ")
     : "none";
@@ -669,10 +683,31 @@ function dashboardContext(state: DashboardState): string {
           const runtime = agent.runtime
             ? `${agent.runtime.providerId}:${agent.runtime.bindingId}`
             : "local";
-          return `${agent.id}[${agent.state}, role=${agent.role}, runtime=${runtime}]`;
+          const runtimeLabel = roomAgentRuntimeLabel(
+            agent,
+            state.runtimeAgents,
+          );
+          const runtimeTarget = roomAgentRuntimeTarget(
+            agent,
+            state.runtimeAgents,
+          );
+          const parts = [
+            `display=${agent.displayName}`,
+            `state=${agent.state}`,
+            `role=${agent.role}`,
+            `runtime=${runtime}`,
+            ...(runtimeLabel ? [`agent=${runtimeLabel}`] : []),
+            ...(agent.harness ? [`harness=${agent.harness.kind}`] : []),
+            ...(runtimeTarget ? [`runtimeTarget=${runtimeTarget}`] : []),
+          ];
+          return `${agent.id}[${parts.join(", ")}]`;
         })
         .join(", ")
     : "none";
+  const agentAliases = summarizeAgentAliases(
+    visibleRoomAgents,
+    state.runtimeAgents,
+  );
   const taskSummary = summarizeTasks(state);
   const recentMessages = state.messages
     .slice(-5)
@@ -690,6 +725,7 @@ function dashboardContext(state: DashboardState): string {
     `- runtimes: ${runtimes}`,
     `- roomAgents: ${roomAgents}`,
     `- runtimeAgents: ${agents}`,
+    ...(agentAliases ? [`- agentAliases: ${agentAliases}`] : []),
     `- tasks: ${taskSummary}`,
     ...(recentMessages ? [`- recentMessages: ${recentMessages}`] : []),
     ...(state.lastError ? [`- lastError: ${state.lastError}`] : []),
@@ -698,11 +734,7 @@ function dashboardContext(state: DashboardState): string {
 }
 
 function isDetectedRuntimeAgent(agent: RuntimeAgent): boolean {
-  const label = agent.metadata?.["agent"];
-  return (
-    (typeof label === "string" && label.length > 0) ||
-    agent.id !== agent.bindingId
-  );
+  return runtimeAgentLabel(agent) !== undefined || agent.id !== agent.bindingId;
 }
 
 function isActiveRoomAgent(agent: { state: string }): boolean {
@@ -788,6 +820,7 @@ function runtimeSummaryMarkdown(input: {
   agents: Array<{
     id: string;
     bindingId: string;
+    displayName?: string;
     state: string;
     sessionId?: string;
     metadata?: Record<string, unknown>;
@@ -829,6 +862,15 @@ function runtimeSummaryMarkdown(input: {
     if (attach) lines.push(`- join: \`${attach}\``);
   }
   lines.push(`- agents: ${agents.length}`);
+  for (const agent of agents.slice(0, 8)) {
+    const label = runtimeAgentLabel(agent as RuntimeAgent);
+    const details = [
+      ...(label ? [`agent ${label}`] : []),
+      `state ${agent.state}`,
+      `binding ${agent.bindingId}`,
+    ];
+    lines.push(`  - \`${agent.id}\`: ${details.join(", ")}`);
+  }
   return lines.join("\n");
 }
 
