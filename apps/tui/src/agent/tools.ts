@@ -342,7 +342,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "list_runtime_agents",
     label: "List runtime agents",
     description:
-      "List agents currently known to a runtime provider (id, binding, state).",
+      "List agents currently known to a runtime provider (id, binding, state). Herdr agents include labels like metadata.agent/displayName=claude or codex; use those labels to resolve phrases like 'a Claude instance'.",
     parameters: Type.Object({
       providerId: Type.String(),
     }),
@@ -501,7 +501,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "read_runtime_agent",
     label: "Read agent output",
     description:
-      "Read the last N lines of terminal output for a bound runtime agent.",
+      "Read the last N lines of terminal output for a bound runtime agent. agentId may be a room agent id with a runtime binding or a runtime pane/agent id.",
     parameters: Type.Object({
       providerId: Type.String(),
       agentId: Type.String(),
@@ -521,7 +521,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "send_runtime_agent_input",
     label: "Send input to an agent",
     description:
-      "Send a line of input to a bound runtime agent. Set submit=true (default) to press Enter.",
+      "Send a line of input to a bound runtime agent. agentId may be a room agent id with a runtime binding or a runtime pane/agent id. Set submit=true (default) to press Enter.",
     parameters: Type.Object({
       providerId: Type.String(),
       agentId: Type.String(),
