@@ -31,45 +31,50 @@ pnpm build
 pnpm test
 ```
 
-## 2. Choose The Room Shape
+## 2. Start The Singleton Room
 
-Pick a room root before initialization. The room root holds `.agentroom/config.yaml`, the event log, daemon metadata, and local task shadows.
+AgentRoom defaults to one local room named `agent-room`. Its durable state lives
+in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
+`herdr --session agent-room`.
 
-- One room per project: best isolation for logs, tasks, policies, and gateways.
-- One HQ room across many repositories: best when one lead coordinates related work in several repos.
-- Hybrid: HQ for planning plus project rooms for larger execution swarms.
+- The room is global for this workstation.
+- A cwd is workspace context, not room identity.
+- Herdr workspaces/tabs/panes are the visible layout under the same session.
 
 See `docs/TOPOLOGY.md` for the tradeoffs.
 
-`.agentroom/config.yaml` is the durable source of truth for room topology. The TUI and CLI should edit the same typed config model rather than keeping separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env override, and secret-handling rules.
+`config.yaml` in AgentRoom home is the durable source of truth for room topology.
+The TUI and CLI should edit the same typed config model rather than keeping
+separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env
+override, and secret-handling rules.
 
 ## 3. Choose The Runtime Provider
 
-Initialize with an explicit runtime. Do not rely on a generated default:
+The default runtime is Herdr. Check or switch it explicitly when needed:
 
 ```bash
-agent-room init --runtime RUNTIME
 agent-room runtime providers
 agent-room runtime doctor
+herdr --session agent-room
 ```
 
 When the runtime command is not the default binary name, write it into config
 at init time:
 
 ```bash
-agent-room init --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
+agent-room init --runtime herdr --runtime-cli herdr-dev
 ```
 
 For a Clanky-first room, write the shared defaults in the same config file:
 
 ```bash
-agent-room init --room my-project --runtime herdr --clanky --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
 ```
 
 That creates a portable `workTracker` block and a `clanky` block. When Clanky
-starts inside this project without explicit `--home` or `--profile` overrides,
+starts without explicit `--home` or `--profile` overrides,
 it can adopt `.clanky-room`, profile `lead`, the configured chat ownership, and
-the selected tracker defaults from `.agentroom/config.yaml`.
+the selected tracker defaults from AgentRoom config.
 
 Runtime choices:
 
@@ -77,14 +82,14 @@ Runtime choices:
 - `herdr`: Herdr adapter via `@agentroom/runtime-herdr`.
 - `fake`: contract tests and smoke checks only; not a real agent runtime.
 
-Runtime-specific setup belongs in `.agentroom/config.yaml` and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
+Runtime-specific setup belongs in AgentRoom config and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
 
 ## 4. Choose The Agent Harness
 
 Launching an agent requires an explicit harness kind and command:
 
 ```bash
-agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room read lead --lines 40
 ```
 
@@ -112,7 +117,7 @@ Options:
 For Linear-backed rooms:
 
 ```bash
-agent-room init --room my-project --runtime herdr --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --work-tracker linear --linear-team team_123
 agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
 agent-room task link-linear task_implement_auth_callback_xxx ENG-123
 agent-room tracker health
@@ -146,7 +151,7 @@ If you add an external messaging surface, choose ownership per conversation:
 - Room-owned gateway: `agentroomd` owns the token and route table for a channel/DM.
 - Agent-owned gateway: one agent owns its own connector identity and may also participate in AgentRoom.
 
-For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in `.agentroom/config.yaml`; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
+For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in AgentRoom config; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
 
 See `docs/ADR/0003-chat-gateway-port.md` for gateway topology and ownership details.
 
@@ -179,7 +184,7 @@ agent-room runtime doctor
 agent-room daemon start
 agent-room daemon status
 agent-room mobile-connect --json
-agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room read smoke --lines 40
 agent-room post "room ready" --channel announcements
 agent-room events --limit 20

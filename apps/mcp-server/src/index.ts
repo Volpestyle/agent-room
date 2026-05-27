@@ -13,7 +13,8 @@ import {
   type TaskStatus,
 } from "@agentroom/core";
 import {
-  agentRoomConfigPath,
+  createDefaultAgentRoomConfig,
+  defaultRoomIdFromEnv,
   loadAgentRoomConfig,
   resolveStoragePath,
 } from "@agentroom/config";
@@ -235,7 +236,8 @@ function registerTools(server: McpServer): void {
   server.registerTool(
     "agentroom_dm",
     {
-      description: "Send a direct AgentRoom message to one or more room agents.",
+      description:
+        "Send a direct AgentRoom message to one or more room agents.",
       inputSchema: {
         agentId: z.string().optional(),
         agentIds: z.array(z.string()).optional(),
@@ -480,7 +482,8 @@ function buildWaitMatchers(
       (event) =>
         event.type === "message.posted" &&
         (event.payload.message.recipients ?? []).some(
-          (recipient) => recipient.kind === "agent" && recipient.id === actor.id,
+          (recipient) =>
+            recipient.kind === "agent" && recipient.id === actor.id,
         ),
     );
   }
@@ -490,11 +493,13 @@ function buildWaitMatchers(
 
 async function roomContext(): Promise<RoomContext> {
   const cwd = process.env.AGENTROOM_CWD ?? process.cwd();
-  const config = await loadAgentRoomConfig(cwd).catch((error: unknown) => {
-    throw new Error(
-      `No AgentRoom config found. Run 'agent-room init' first. Missing ${agentRoomConfigPath(cwd)}. ${error instanceof Error ? error.message : String(error)}`,
-    );
-  });
+  const config = await loadAgentRoomConfig(cwd).catch(() =>
+    createDefaultAgentRoomConfig({
+      roomId: defaultRoomIdFromEnv(process.env),
+      roomName: "AgentRoom",
+      defaultRuntime: "herdr",
+    }),
+  );
   const events = new JsonlEventStore(resolveStoragePath(config, cwd));
   return {
     cwd,
@@ -507,14 +512,22 @@ async function roomContext(): Promise<RoomContext> {
 async function whoami(): Promise<unknown> {
   const ctx = await roomContext();
   const envAgentId = process.env.AGENTROOM_AGENT_ID;
-  const paneAgentId = envAgentId === undefined ? await resolveAgentByPane(ctx.service) : undefined;
+  const paneAgentId =
+    envAgentId === undefined
+      ? await resolveAgentByPane(ctx.service)
+      : undefined;
   const agentId = envAgentId ?? paneAgentId;
   return {
     enrolled: agentId !== undefined,
     agentId,
     roomId: process.env.AGENTROOM_ROOM_ID ?? ctx.roomId,
     role: process.env.AGENTROOM_ROLE,
-    source: envAgentId !== undefined ? "env" : paneAgentId !== undefined ? "pane" : "none",
+    source:
+      envAgentId !== undefined
+        ? "env"
+        : paneAgentId !== undefined
+          ? "pane"
+          : "none",
     cwd: ctx.cwd,
   };
 }
@@ -620,12 +633,16 @@ function parseTaskStatusMatcher(value: string): {
 function parseSince(value: string): string {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) {
-    throw new Error(`Invalid since '${value}'. Expected ISO timestamp or 'now'.`);
+    throw new Error(
+      `Invalid since '${value}'. Expected ISO timestamp or 'now'.`,
+    );
   }
   return new Date(timestamp).toISOString();
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  console.error(
+    error instanceof Error ? (error.stack ?? error.message) : String(error),
+  );
   process.exit(1);
 });

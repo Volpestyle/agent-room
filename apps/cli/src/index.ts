@@ -14,7 +14,6 @@ import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createServer, type AddressInfo } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Command } from "commander";
@@ -38,6 +37,7 @@ import {
 } from "@agentroom/core";
 import {
   DEFAULT_ROOM_ID,
+  agentRoomDir,
   agentRoomConfigPath,
   builtInRuntimeConfig,
   createDefaultAgentRoomConfig,
@@ -207,24 +207,22 @@ program
   .version("0.1.0")
   .addHelpText(
     "after",
-    "\nShortcuts:\n  agent-room              Open the TUI for the current cwd\n  agent-room --headless   Start the current cwd daemon without the TUI",
+    "\nShortcuts:\n  agent-room              Open the singleton AgentRoom TUI\n  agent-room --headless   Start the singleton AgentRoom daemon without the TUI",
   );
 
 program
   .command("init")
-  .description("Initialize AgentRoom metadata in the current project")
-  .option(
-    "--room <id>",
-    "room id; defaults to the runtime session or a slug of the current directory",
-  )
+  .description("Write singleton AgentRoom config into AGENTROOM_HOME")
+  .option("--room <id>", "room id; defaults to agent-room")
   .option("--name <name>", "human-readable room name")
-  .requiredOption(
+  .option(
     "--runtime <runtime>",
     "runtime provider to write as the room default: herdr|tmux|fake",
+    "herdr",
   )
   .option(
     "--runtime-session <name>",
-    "Herdr session name or tmux session prefix; defaults to agent-room for Herdr and room id for tmux",
+    "Herdr session name or tmux session prefix; defaults to agent-room",
   )
   .option(
     "--runtime-cli <command>",
@@ -267,12 +265,10 @@ program
       clankyChatOwner: string;
     }) => {
       const dir = roomDir();
-      await mkdir(join(dir, "agents"), { recursive: true });
+      await mkdir(dir, { recursive: true });
       const defaultRuntime = parseConfiguredRuntime(options.runtime);
       const roomId = resolveInitRoomId({
         room: options.room,
-        runtime: defaultRuntime,
-        runtimeSession: options.runtimeSession,
       });
       const runtimeSession = resolveInitRuntimeSession({
         runtime: defaultRuntime,
@@ -320,26 +316,9 @@ program
         };
       }
 
-      await writeJson(join(dir, "room.json"), {
-        roomId,
-        roomName: options.name ?? roomId,
-        createdAt: new Date().toISOString(),
-      } satisfies RoomConfig);
       await writeAgentRoomConfig(process.cwd(), appConfig);
 
-      await writeFile(
-        join(dir, "policies.yaml"),
-        `approvals:\n  required:\n    - action: github.merge_pr\n      approver: human\n    - action: deploy.production\n      approver: human\n`,
-        "utf8",
-      );
-
-      await writeFile(
-        join(dir, "agents", "lead.yaml"),
-        `# Template only. Choose the harness and command for your stack before launching.\nid: lead\nrole: lead\nharness:\n  kind: custom\n  command: "AGENT_COMMAND"\npermissions:\n  - room:read_all\n  - task:assign\n  - human:escalate\n`,
-        "utf8",
-      );
-
-      console.log(`Initialized AgentRoom room '${roomId}' in ${dir}`);
+      console.log(`Configured AgentRoom room '${roomId}' in ${dir}`);
       console.log(`Configured runtime: ${appConfig.runtime.default}`);
       console.log(`Configured work tracker: ${appConfig.workTracker.default}`);
       if (appConfig.clanky !== undefined) {
@@ -459,14 +438,14 @@ program
 
 program
   .command("dev-new-user")
-  .description("Create a temporary empty room root for first-run TUI testing")
-  .option("--run", "launch the TUI in the temporary room root")
+  .description("Create a temporary AgentRoom home for first-run TUI testing")
+  .option("--run", "launch the TUI with the temporary AgentRoom home")
   .option("--json", "print JSON")
   .action(async (options: { run?: boolean; json?: boolean }) => {
-    const cwd = await mkdtemp(join(tmpdir(), "agentroom-new-user-"));
+    const home = await mkdtemp(join(tmpdir(), "agentroom-new-user-"));
     const bin = resolve(REPO_ROOT, "bin", "agent-room");
     const payload = {
-      cwd,
+      home,
       command: bin,
       setupCommand: "/setup",
     };
@@ -474,16 +453,15 @@ program
       output(payload, true);
     } else {
       console.log("AgentRoom fresh-user setup sandbox");
-      console.log(`Root: ${cwd}`);
+      console.log(`Home: ${home}`);
       console.log("");
       console.log("Run:");
-      console.log(`  cd ${cwd}`);
-      console.log(`  ${bin}`);
+      console.log(`  AGENTROOM_HOME=${home} ${bin}`);
       console.log("");
       console.log("Inside the TUI, run /setup.");
     }
     if (options.run === true) {
-      await runChild(bin, [], cwd);
+      await runChild(bin, [], process.cwd(), { AGENTROOM_HOME: home });
     }
   });
 
@@ -860,6 +838,35 @@ program
     },
   );
 
+const workspace = program
+  .command("workspace")
+  .description("Workspace registry commands");
+
+workspace
+  .command("add")
+  .description("Register a cwd as an AgentRoom workspace")
+  .argument("<cwd>", "working directory")
+  .option("--label <label>", "human-readable workspace label")
+  .option("--json", "print JSON")
+  .action(async (cwd: string, options: { label?: string; json?: boolean }) => {
+    const resolvedCwd = resolve(cwd);
+    const service = await serviceForCwd();
+    const item = await service.registerWorkspace({
+      cwd: resolvedCwd,
+      label: options.label ?? workspaceLabelFromCwd(resolvedCwd),
+    });
+    output(item, options.json);
+  });
+
+workspace
+  .command("list")
+  .description("List registered AgentRoom workspaces")
+  .option("--json", "print JSON")
+  .action(async (options: { json?: boolean }) => {
+    const service = await serviceForCwd();
+    output(await service.listWorkspaces(), options.json);
+  });
+
 const tracker = program
   .command("tracker")
   .description("External work tracker commands");
@@ -1033,7 +1040,7 @@ runtime
 
 runtime
   .command("use")
-  .description("Set the default runtime provider in .agentroom/config.yaml")
+  .description("Set the default runtime provider in AgentRoom config")
   .argument("<runtime>", "configured runtime name, or built-in herdr|tmux|fake")
   .option("--json", "print JSON")
   .action(async (runtimeName: string, options: { json?: boolean }) => {
@@ -1094,7 +1101,7 @@ program
   .argument("<agentId>", "agent id")
   .option(
     "--runtime <runtime>",
-    "runtime provider; defaults to .agentroom/config.yaml",
+    "runtime provider; defaults to AgentRoom config",
   )
   .option("--placement <placement>", "Herdr placement: workspace|tab|pane")
   .option("--workspace <label>", "Herdr workspace label for tab/pane placement")
@@ -1110,7 +1117,7 @@ program
     "harness kind: claude-code|codex|pi|gemini-cli|shell|custom",
   )
   .requiredOption("--command <command>", "command to run")
-  .option("--cwd <cwd>", "working directory", process.cwd())
+  .option("--cwd <cwd>", "working directory; defaults to the current shell cwd")
   .option("--json", "print JSON")
   .action(
     async (
@@ -1124,21 +1131,20 @@ program
         role: string;
         harness: string;
         command: string;
-        cwd: string;
+        cwd?: string;
         json?: boolean;
       },
     ) => {
       const { store, config } = await storeForCwd();
       const service = new AgentRoomService(store, { roomId: config.roomId });
       const role = parseAgentRole(options.role);
+      const cwd = resolve(options.cwd ?? process.cwd());
+      const workspace = options.workspace ?? workspaceLabelFromCwd(cwd);
       const { provider } = await runtimeProviderForCwd(
         options.runtime,
         herdrLayoutOverride({
           ...(options.placement !== undefined
             ? { placement: options.placement }
-            : {}),
-          ...(options.workspace !== undefined
-            ? { workspace: options.workspace }
             : {}),
           ...(options.panesPerTab !== undefined
             ? { panesPerTab: options.panesPerTab }
@@ -1149,19 +1155,21 @@ program
       const harness = resolveHarnessSpec({
         kind: parseHarnessKind(options.harness),
         command: options.command,
-        cwd: resolve(options.cwd),
+        cwd,
       });
       await service.registerAgent({
         id: agentId,
         role,
         harness,
       });
+      await service.registerWorkspace({ cwd, label: workspace });
       const agent = await provider.startAgent({
         agentId,
         roomId: config.roomId,
         role,
         harness,
-        cwd: resolve(options.cwd),
+        cwd,
+        workspace,
       });
       await service.bindRuntime({
         agentId,
@@ -1183,7 +1191,7 @@ program
   .option("--pane-id <id>", "binding id to adopt; defaults to $HERDR_PANE_ID")
   .option(
     "--runtime <runtime>",
-    "runtime provider; defaults to .agentroom/config.yaml",
+    "runtime provider; defaults to AgentRoom config",
   )
   .option("--role <role>", "agent role", "implementer")
   .option("--harness <kind>", "harness kind", "custom")
@@ -1288,7 +1296,7 @@ program
   .argument("<agentId>", "agent id")
   .option(
     "--runtime <runtime>",
-    "runtime provider; defaults to .agentroom/config.yaml",
+    "runtime provider; defaults to AgentRoom config",
   )
   .option("--lines <number>", "line count", parseInteger, 80)
   .option(
@@ -1336,7 +1344,7 @@ program
   .argument("<text>", "text to send")
   .option(
     "--runtime <runtime>",
-    "runtime provider; defaults to .agentroom/config.yaml",
+    "runtime provider; defaults to AgentRoom config",
   )
   .option("--no-submit", "do not press Enter after input")
   .option(
@@ -1388,7 +1396,7 @@ program
   .argument("<agentId>", "agent id")
   .option(
     "--runtime <runtime>",
-    "runtime provider; defaults to bound runtime or .agentroom/config.yaml",
+    "runtime provider; defaults to bound runtime or AgentRoom config",
   )
   .option(
     "--unaudited",
@@ -1440,12 +1448,7 @@ async function runtimeProviderForCwd(
   provider: RuntimeProvider;
   config?: AgentRoomConfig;
 }> {
-  const config = await maybeLoadAgentRoomConfig();
-  if (!config && runtimeName === undefined) {
-    throw new Error(
-      "No AgentRoom config found. Run 'agent-room init --runtime RUNTIME' or pass --runtime.",
-    );
-  }
+  const config = await ensureLocalAgentRoomConfig();
   const name = config ? runtimeNameFor(config, runtimeName) : runtimeName;
   if (name === undefined) {
     throw new Error("Runtime provider is required.");
@@ -1458,6 +1461,19 @@ async function runtimeProviderForCwd(
     provider: makeRuntimeProvider(name, runtime, herdrLayout),
     ...(config !== undefined ? { config } : {}),
   };
+}
+
+async function ensureLocalAgentRoomConfig(): Promise<AgentRoomConfig> {
+  const existing = await maybeLoadAgentRoomConfig();
+  if (existing) return existing;
+
+  const config = createDefaultAgentRoomConfig({
+    roomId: defaultRoomIdFromEnv(process.env),
+    roomName: "AgentRoom",
+    defaultRuntime: "herdr",
+  });
+  await writeAgentRoomConfig(process.cwd(), config);
+  return config;
 }
 
 function makeRuntimeProvider(
@@ -1629,6 +1645,7 @@ async function runDaemonForeground(
 async function startDaemon(
   options: DaemonCommandOptions,
 ): Promise<DaemonStatusPayload> {
+  await ensureLocalAgentRoomConfig();
   const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
   const logFile = resolve(options.logFile ?? join(roomDir(), "daemon.log"));
   const command = daemonBinPath();
@@ -1657,9 +1674,6 @@ async function startDaemon(
           `AgentRoom daemon pid ${existing.pid} is alive but health check failed: ${reason}`,
         );
       }
-      if (!daemonHealthMatchesCwd(health, process.cwd(), existing)) {
-        throw new Error(daemonCwdMismatchMessage(health, process.cwd()));
-      }
       return daemonStatusPayload(
         "running",
         existing,
@@ -1673,9 +1687,6 @@ async function startDaemon(
 
   const occupied = await daemonHealth(options.host, options.port, 500);
   if (occupied.ok) {
-    if (!daemonHealthMatchesCwd(occupied, process.cwd())) {
-      throw new Error(daemonCwdMismatchMessage(occupied, process.cwd()));
-    }
     const pid = daemonHealthPid(occupied) ?? 0;
     const existingRecord: DaemonPidRecord = {
       pid,
@@ -1740,9 +1751,6 @@ async function startDaemon(
 
   try {
     const health = await waitForDaemonHealth(record, options.timeout * 1000);
-    if (!daemonHealthMatchesCwd(health, process.cwd(), record)) {
-      throw new Error(daemonCwdMismatchMessage(health, process.cwd()));
-    }
     const daemonPid = daemonHealthPid(health) ?? record.pid;
     const verifiedRecord = { ...record, pid: daemonPid };
     if (verifiedRecord.pid !== record.pid)
@@ -2134,34 +2142,6 @@ function daemonHealthPid(health?: DaemonHealthCheck): number | undefined {
   return typeof pid === "number" ? pid : undefined;
 }
 
-function daemonHealthCwd(health?: DaemonHealthCheck): string | undefined {
-  if (!health?.body || typeof health.body !== "object") return undefined;
-  const cwd = (health.body as { cwd?: unknown }).cwd;
-  return typeof cwd === "string" ? cwd : undefined;
-}
-
-function daemonHealthMatchesCwd(
-  health: DaemonHealthCheck,
-  cwd: string,
-  record?: DaemonPidRecord,
-): boolean {
-  const healthCwd = daemonHealthCwd(health);
-  if (healthCwd !== undefined) return samePath(healthCwd, cwd);
-  return record !== undefined && samePath(record.cwd, cwd);
-}
-
-function daemonCwdMismatchMessage(
-  health: DaemonHealthCheck,
-  expectedCwd: string,
-): string {
-  const actualCwd = daemonHealthCwd(health) ?? "an unknown cwd";
-  return `AgentRoom daemon at ${health.url} belongs to ${actualCwd}, not ${expectedCwd}`;
-}
-
-function samePath(left: string, right: string): boolean {
-  return resolve(left) === resolve(right);
-}
-
 function isAgentRoomDaemonCommand(command: string): boolean {
   return (
     command.includes("agent-roomd") ||
@@ -2301,7 +2281,6 @@ async function ensureDaemonForTui(options: {
   apiToken?: string;
 }): Promise<TuiDaemonEnsureResult> {
   const { host, port } = parseDaemonUrl(options.daemonUrl);
-  const cwd = process.cwd();
   const pidFile = resolve(join(roomDir(), "daemon.pid"));
   const record = await readDaemonPidRecord(pidFile);
   if (record !== undefined) {
@@ -2314,9 +2293,6 @@ async function ensureDaemonForTui(options: {
         daemonProcessVerified(record, processInfo, recordHealth) &&
         recordHealth.ok
       ) {
-        if (!daemonHealthMatchesCwd(recordHealth, cwd, record)) {
-          throw new Error(daemonCwdMismatchMessage(recordHealth, cwd));
-        }
         return {
           daemonUrl:
             record.publicUrl ?? daemonBaseUrl(record.host, record.port),
@@ -2330,23 +2306,7 @@ async function ensureDaemonForTui(options: {
 
   const health = await daemonHealth(host, port, 500);
   if (health.ok) {
-    if (daemonHealthMatchesCwd(health, cwd)) {
-      return { daemonUrl: options.daemonUrl };
-    }
-
-    if (!options.autoStart || !isLoopbackHost(host)) {
-      throw new Error(daemonCwdMismatchMessage(health, cwd));
-    }
-
-    const freePort = await findFreePort(host);
-    console.error(
-      `${daemonCwdMismatchMessage(health, cwd)}; starting this TUI room at ${daemonBaseUrl(host, freePort)} instead.`,
-    );
-    return startTuiOwnedDaemon({
-      host,
-      port: freePort,
-      ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
-    });
+    return { daemonUrl: options.daemonUrl };
   }
 
   if (!options.autoStart) return { daemonUrl: options.daemonUrl };
@@ -2384,21 +2344,6 @@ async function startTuiOwnedDaemon(input: {
     ownedDaemon: resolved,
     ...(record?.apiToken !== undefined ? { apiToken: record.apiToken } : {}),
   };
-}
-
-async function findFreePort(host: string): Promise<number> {
-  return new Promise((resolvePromise, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, host, () => {
-      const address = server.address() as AddressInfo;
-      const port = address.port;
-      server.close((error) => {
-        if (error) reject(error);
-        else resolvePromise(port);
-      });
-    });
-  });
 }
 
 async function resolveTailnetEndpoint(): Promise<TailnetEndpoint> {
@@ -2634,7 +2579,7 @@ async function runtimeAccessForAgent(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Audited runtime access requires an initialized AgentRoom. Run 'agent-room init --runtime RUNTIME' first, or pass --unaudited for manual recovery. ${reason}`,
+      `Audited runtime access requires AgentRoom state; pass --unaudited for manual recovery. ${reason}`,
     );
   }
 
@@ -2691,44 +2636,24 @@ async function loadProjectConfig(): Promise<{
   eventLogPath: string;
   appConfig?: AgentRoomConfig;
 }> {
-  const appConfig = await maybeLoadAgentRoomConfig();
-  if (appConfig) {
-    return {
-      room: {
-        roomId: appConfig.room.id,
-        roomName: appConfig.room.name ?? appConfig.room.id,
-        createdAt: "",
-      },
-      eventLogPath: resolveStoragePath(appConfig),
-      appConfig,
-    };
-  }
-
-  const path = join(roomDir(), "room.json");
-  try {
-    return {
-      room: JSON.parse(await readFile(path, "utf8")) as RoomConfig,
-      eventLogPath: join(roomDir(), "events.jsonl"),
-    };
-  } catch (error) {
-    throw new Error(
-      `No AgentRoom found. Run 'agent-room init --runtime RUNTIME' first. Missing ${path}`,
-    );
-  }
+  const appConfig = await ensureLocalAgentRoomConfig();
+  return {
+    room: {
+      roomId: appConfig.room.id,
+      roomName: appConfig.room.name ?? appConfig.room.id,
+      createdAt: "",
+    },
+    eventLogPath: resolveStoragePath(appConfig),
+    appConfig,
+  };
 }
 
 async function loadAgentRoomConfigForCwd(): Promise<AgentRoomConfig> {
-  try {
-    return await loadAgentRoomConfig();
-  } catch (error) {
-    throw new Error(
-      `No AgentRoom config found. Run 'agent-room init --runtime RUNTIME' first. Missing ${agentRoomConfigPath()}`,
-    );
-  }
+  return ensureLocalAgentRoomConfig();
 }
 
 function roomDir(): string {
-  return join(process.cwd(), ".agentroom");
+  return agentRoomDir();
 }
 
 async function currentActor(): Promise<ActorRef> {
@@ -2770,12 +2695,13 @@ async function runChild(
   command: string,
   args: string[],
   cwd: string,
+  env: Record<string, string> = {},
 ): Promise<void> {
   await new Promise<void>((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd,
       stdio: "inherit",
-      env: process.env,
+      env: { ...process.env, ...env },
     });
     child.on("error", reject);
     child.on("exit", (code, signal) => {
@@ -3091,6 +3017,14 @@ function parseHerdrSplit(
   );
 }
 
+function workspaceLabelFromCwd(cwd: string): string {
+  const label = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return label || "workspace";
+}
+
 function stopTargetFor(
   provider: RuntimeProvider,
   agentId: string,
@@ -3201,15 +3135,9 @@ function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
   throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
 }
 
-function resolveInitRoomId(options: {
-  room: string | undefined;
-  runtime: ConfiguredRuntimeKind;
-  runtimeSession: string | undefined;
-}): string {
+function resolveInitRoomId(options: { room: string | undefined }): string {
   return (
-    normalizedConfigValue(options.room) ??
-    normalizedConfigValue(options.runtimeSession) ??
-    defaultRoomIdForRuntimeEnv(options.runtime)
+    normalizedConfigValue(options.room) ?? defaultRoomIdFromEnv(process.env)
   );
 }
 
@@ -3218,41 +3146,12 @@ function normalizedConfigValue(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function defaultRoomIdForRuntimeEnv(runtime: ConfiguredRuntimeKind): string {
-  const explicit = normalizedConfigValue(process.env.AGENTROOM_ROOM_ID);
-  if (explicit !== undefined) return explicit;
-  const cwdSlug = defaultRoomIdFromCwd();
-  if (cwdSlug !== undefined) return cwdSlug;
-  if (runtime === "herdr") {
-    return normalizedConfigValue(process.env.HERDR_SESSION) ?? DEFAULT_ROOM_ID;
-  }
-  if (runtime === "tmux") {
-    return normalizedConfigValue(process.env.TMUX_SESSION) ?? DEFAULT_ROOM_ID;
-  }
-  return defaultRoomIdFromEnv(process.env);
-}
-
-function defaultRoomIdFromCwd(): string | undefined {
-  const base = basename(process.cwd());
-  const slug = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : undefined;
-}
-
 function resolveInitRuntimeSession(options: {
   runtime: ConfiguredRuntimeKind;
   runtimeSession: string | undefined;
 }): string | undefined {
   const explicit = normalizedConfigValue(options.runtimeSession);
   if (explicit !== undefined) return explicit;
-  if (options.runtime === "herdr") {
-    return normalizedConfigValue(process.env.HERDR_SESSION);
-  }
-  if (options.runtime === "tmux") {
-    return normalizedConfigValue(process.env.TMUX_SESSION);
-  }
   return undefined;
 }
 

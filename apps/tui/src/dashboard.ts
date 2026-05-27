@@ -32,6 +32,7 @@ import { createHelpView } from "./views/help.js";
 import { createMessagesView } from "./views/messages.js";
 import { createOverviewView } from "./views/overview.js";
 import { createTasksView } from "./views/tasks.js";
+import { createWorkspacesView } from "./views/workspaces.js";
 import type { View } from "./views/types.js";
 
 const DASHBOARD_AGENT_CAPABILITIES = [
@@ -205,6 +206,7 @@ export class Dashboard {
     this.views = [
       chatView,
       createOverviewView(options.store),
+      createWorkspacesView(options.store),
       createAgentsView(options.store),
       createTasksView(options.store),
       createMessagesView(options.store),

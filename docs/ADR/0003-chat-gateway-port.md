@@ -66,7 +66,7 @@ The Discord adapter supports a webhook-mode send path that uses per-message `use
 
 ### Daemon wiring
 
-`apps/daemon/src/app.ts` loads configured `ChatGatewayProvider` instances from `.agentroom/config.yaml`. Tokens come from env, not the YAML file.
+`apps/daemon/src/app.ts` loads configured `ChatGatewayProvider` instances from AgentRoom config. Tokens come from env, not the YAML file.
 
 ```yaml
 chat:

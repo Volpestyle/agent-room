@@ -11,7 +11,7 @@ chat systems are adapters. The room stays the product.
 
 AgentRoom is the control layer in the agent-first workspace:
 
-- open the TUI and ask the operator what is happening
+- open the singleton TUI from anywhere and ask what is happening
 - launch agents into Herdr, tmux, or any future runtime provider
 - send and read through audited room commands instead of raw terminal input
 - expose room context through MCP to enrolled agents
@@ -73,7 +73,7 @@ apps/
   mobile/          Expo/React Native client for daemon API access
 packages/
   core/            rooms, agents, messages, tasks, events, ports
-  config/          typed .agentroom/config.yaml parser and writer
+  config/          typed AgentRoom home config parser and writer
   storage-jsonl/   append-only event store for local rooms
   runtime-herdr/   Herdr runtime adapter
   runtime-tmux/    tmux runtime adapter
@@ -97,13 +97,13 @@ pnpm build
 pnpm test
 ```
 
-Create a room with an explicit runtime:
+Start the local singleton room:
 
 ```bash
-agent-room init --room my-project --runtime herdr
 agent-room runtime doctor
 agent-room daemon start
 agent-room tui
+herdr --session agent-room
 ```
 
 Launch a real agent through the selected runtime:
@@ -112,15 +112,16 @@ Launch a real agent through the selected runtime:
 agent-room launch impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd .
+  --cwd /path/to/workspace
 
 agent-room send impl "Use AgentRoom, claim your task, and post status before editing."
 agent-room read impl --lines 40
 ```
 
-`launch`, `send`, `read`, and `stop` require an AgentRoom binding by default so
-terminal input and output stay in the room event log. Use raw provider commands
-only for manual recovery.
+AgentRoom state lives in `$AGENTROOM_HOME` or `~/.agentroom` by default. The room
+id and Herdr session default to `agent-room`; cwd is workspace context, not room
+identity. `launch`, `send`, `read`, and `stop` require an AgentRoom binding by
+default so terminal input and output stay in the room event log.
 
 ## TUI, MCP, And Mobile
 
@@ -133,7 +134,7 @@ agent-room tui
 The TUI starts in operator chat. Type normally to ask what is happening or to
 request room actions. Use `/help`, `/runtime`, `/trace`, and `/effort` for
 operator controls; use `Esc` or `Ctrl+G` / `Ctrl+L` to move across chat,
-overview, agents, tasks, messages, and events.
+overview, workspaces, agents, tasks, messages, and events.
 
 Expose room tools to agents through the MCP server:
 
@@ -181,7 +182,7 @@ AgentRoom launches Clanky as a normal Pi harness command, the same way it can
 launch Codex, Claude Code, Gemini CLI, shell, or a custom command:
 
 ```bash
-agent-room launch clanky --harness pi --command clanky --cwd .
+agent-room launch clanky --harness pi --command clanky --cwd /path/to/workspace
 ```
 
 Room participation and chat ownership are separate. Clanky may keep its own
@@ -233,6 +234,6 @@ storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/
 stop, Herdr pane adoption, wait/events-follow, local task shadows, Linear bridge
 commands, Discord gateway routing primitives, and mobile tailnet pairing.
 
-Next useful work: SQLite event storage, stronger runtime contract tests,
+Next useful work: SQLite event storage, stronger real-runtime contract tests,
 operator CLI support for chat route mutation, more ergonomic tracker bridges,
 and hosted or multi-host runtime adapters.

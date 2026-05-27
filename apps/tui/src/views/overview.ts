@@ -82,6 +82,7 @@ class OverviewPanel extends PanelBase {
     const counts = [
       ["room agents", state.agents.length],
       ["runtime panes", state.runtimeAgents.length],
+      ["workspaces", state.workspaces.length],
       ["tasks", state.tasks.length],
       ["messages", state.messages.length],
       ["events", state.events.length],

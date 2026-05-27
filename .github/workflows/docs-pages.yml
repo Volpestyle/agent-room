@@ -20,8 +20,9 @@ jobs:
   docs-pages:
     permissions:
       contents: read
-      pages: write
-      id-token: write
     uses: Volpestyle/docs/.github/workflows/docs-pages.yml@main
     with:
-      docs-base-path: /agent-room/
+      docs-base-path: /docs/agent-room/
+      site-slug: agent-room
+    secrets:
+      docs-publish-token: ${{ secrets.DOCS_PUBLISH_TOKEN }}

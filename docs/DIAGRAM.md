@@ -60,7 +60,7 @@ flowchart TB
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
   connectors["Connector ports<br/>work tracker, code host, design, chat"]
-  local[".agentroom/<br/>events.jsonl<br/>SQLite planned"]
+  local["~/.agentroom/<br/>config.yaml<br/>events.jsonl<br/>SQLite planned"]
   runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
   adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
 
@@ -76,7 +76,7 @@ flowchart TB
 
 ## Read The Boundaries
 
-- `.agentroom/config.yaml` owns durable room topology: runtime providers,
+- `$AGENTROOM_HOME/config.yaml` owns durable room topology: runtime providers,
   room-owned gateways and routes, dashboard operator defaults, and storage
   settings.
 - The event log owns room state and audit history: messages, local task shadows,
@@ -92,7 +92,7 @@ flowchart TB
 
 1. A human, lead agent, MCP-capable agent, mobile client, or chat gateway sends
    a room action.
-2. `agentroomd` or the CLI loads `.agentroom/config.yaml`, validates the
+2. `agentroomd` or the CLI loads AgentRoom config, validates the
    request, and calls `@agentroom/core`.
 3. Core appends normalized events to the `EventStore` and updates rebuildable
    views.

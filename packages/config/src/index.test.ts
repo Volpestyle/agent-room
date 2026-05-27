@@ -44,7 +44,8 @@ describe("AgentRoom config", () => {
         type: "herdr",
         session: "agent-room",
         layout: expect.objectContaining({
-          workspace: "my-project",
+          mode: "pane-grid",
+          panesPerTab: 2,
         }),
       }),
     );
@@ -53,17 +54,17 @@ describe("AgentRoom config", () => {
     );
   });
 
-  it("derives the default room id from runtime session environment", () => {
+  it("keeps the default room id independent of runtime sessions", () => {
     expect(
       defaultRoomIdFromEnv({
-        HERDR_SESSION: "agent-room",
+        AGENTROOM_ROOM_ID: "custom-room",
       }),
-    ).toBe("agent-room");
+    ).toBe("custom-room");
     expect(
       defaultRoomIdFromEnv({
         TMUX_SESSION: "mux-room",
       }),
-    ).toBe("mux-room");
+    ).toBe("agent-room");
     expect(defaultRoomIdFromEnv({})).toBe("agent-room");
   });
 

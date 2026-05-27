@@ -17,6 +17,7 @@ import {
   taskDetailsUpdateSchema,
   taskLinkRefSchema,
   taskStatusUpdateSchema,
+  workspaceRegisterSchema,
   type ChatGatewayProvider,
   type HarnessSpec,
   type RoomEvent,
@@ -26,6 +27,7 @@ import {
   type StartAgentRequest,
 } from "@agentroom/core";
 import {
+  createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
   maybeLoadAgentRoomConfigSync,
   resolveStoragePath,
@@ -65,7 +67,14 @@ export function createAppWithLifecycle(
   options: CreateAppOptions = {},
 ): CreateAppResult {
   const cwd = options.cwd ?? process.cwd();
-  const configured = options.config ?? maybeLoadAgentRoomConfigSync(cwd);
+  const configured =
+    options.config ??
+    maybeLoadAgentRoomConfigSync(cwd) ??
+    createDefaultAgentRoomConfig({
+      roomId: defaultRoomIdFromEnv(process.env),
+      roomName: "AgentRoom",
+      defaultRuntime: "herdr",
+    });
   const roomId =
     options.roomId ??
     process.env.AGENTROOM_ROOM_ID ??
@@ -235,6 +244,10 @@ export function createAppWithLifecycle(
     return c.json({ tasks: await service.listTasks() });
   });
 
+  app.get("/v1/workspaces", async (c) => {
+    return c.json({ workspaces: await service.listWorkspaces() });
+  });
+
   app.get("/v1/agents", async (c) => {
     return c.json({ agents: await service.listAgents() });
   });
@@ -281,6 +294,17 @@ export function createAppWithLifecycle(
       ...(input.refs.length > 0 ? { refs: input.refs } : {}),
     });
     return c.json({ task }, 201);
+  });
+
+  app.post("/v1/workspaces", async (c) => {
+    const input = workspaceRegisterSchema.parse(await c.req.json());
+    const workspace = await service.registerWorkspace({
+      cwd: input.cwd,
+      ...(input.label !== undefined ? { label: input.label } : {}),
+      ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    });
+    return c.json({ workspace }, 201);
   });
 
   app.get("/v1/tasks/:taskId", async (c) => {
@@ -507,6 +531,12 @@ export function createAppWithLifecycle(
         ? { displayName: body.displayName }
         : {}),
     });
+    if (body.cwd !== undefined) {
+      await service.registerWorkspace({
+        cwd: body.cwd,
+        label: body.workspace ?? body.cwd,
+      });
+    }
 
     const agent = await provider.startAgent({
       agentId: body.agentId,
@@ -517,6 +547,7 @@ export function createAppWithLifecycle(
         ? { displayName: body.displayName }
         : {}),
       ...(body.cwd !== undefined ? { cwd: body.cwd } : {}),
+      ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
       ...(body.env !== undefined ? { env: body.env } : {}),
     });
 

@@ -7,6 +7,7 @@ import type {
   RuntimeAgent,
   RuntimeProviderSummary,
   Task,
+  Workspace,
 } from "./types.js";
 
 export interface RuntimeAgentSnapshot {
@@ -21,6 +22,7 @@ export interface DashboardState {
   agents: Agent[];
   messages: Message[];
   tasks: Task[];
+  workspaces: Workspace[];
   providers: RuntimeProviderSummary[];
   runtimeAgents: RuntimeAgentSnapshot[];
   lastError: string | undefined;
@@ -37,6 +39,7 @@ export class DashboardStore {
     agents: [],
     messages: [],
     tasks: [],
+    workspaces: [],
     providers: [],
     runtimeAgents: [],
     lastError: undefined,

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type {
   ChatConversationKind,
@@ -10,7 +11,7 @@ import type {
 
 export const AGENTROOM_DIR = ".agentroom";
 export const AGENTROOM_CONFIG_FILE = "config.yaml";
-export const DEFAULT_EVENT_LOG_PATH = ".agentroom/events.jsonl";
+export const DEFAULT_EVENT_LOG_PATH = "events.jsonl";
 export const DEFAULT_ROOM_ID = "agent-room";
 export const DEFAULT_HERDR_SESSION = DEFAULT_ROOM_ID;
 export const DEFAULT_TMUX_SESSION_PREFIX = DEFAULT_ROOM_ID;
@@ -18,10 +19,7 @@ export const DEFAULT_TMUX_SESSION_PREFIX = DEFAULT_ROOM_ID;
 export function defaultRoomIdFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  return (
-    firstNonEmpty(env.AGENTROOM_ROOM_ID, env.HERDR_SESSION, env.TMUX_SESSION) ??
-    DEFAULT_ROOM_ID
-  );
+  return firstNonEmpty(env.AGENTROOM_ROOM_ID) ?? DEFAULT_ROOM_ID;
 }
 
 function firstNonEmpty(
@@ -164,11 +162,20 @@ export interface CreateDefaultConfigOptions {
 }
 
 export function agentRoomDir(cwd = process.cwd()): string {
-  return join(cwd, AGENTROOM_DIR);
+  const home = process.env.AGENTROOM_HOME?.trim();
+  return home ? resolve(home) : join(homedir(), AGENTROOM_DIR);
 }
 
 export function agentRoomConfigPath(cwd = process.cwd()): string {
   return join(agentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
+}
+
+export function projectAgentRoomDir(cwd = process.cwd()): string {
+  return join(cwd, AGENTROOM_DIR);
+}
+
+export function projectAgentRoomConfigPath(cwd = process.cwd()): string {
+  return join(projectAgentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
 }
 
 export function createDefaultAgentRoomConfig(
@@ -200,7 +207,6 @@ export function createDefaultAgentRoomConfig(
         cli: "herdr",
         layout: {
           mode: "pane-grid",
-          workspace: options.roomId,
           panesPerTab: 2,
           split: "largest",
           balance: true,
@@ -262,7 +268,7 @@ export async function writeAgentRoomConfig(
 
 export function resolveStoragePath(
   config: AgentRoomConfig,
-  cwd = process.cwd(),
+  cwd = agentRoomDir(),
 ): string {
   return resolve(cwd, config.storage.path);
 }
@@ -327,7 +333,7 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
     case "local-herdr":
       return {
         type: "herdr",
-        session: process.env.HERDR_SESSION ?? DEFAULT_HERDR_SESSION,
+        session: DEFAULT_HERDR_SESSION,
         cli: "herdr",
         layout: {
           mode: "pane-grid",

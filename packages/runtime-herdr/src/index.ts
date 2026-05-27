@@ -1,5 +1,6 @@
 export * from "./socketClient.js";
 import { execFile } from "node:child_process";
+import { basename } from "node:path";
 import { promisify } from "node:util";
 import {
   nowIso,
@@ -193,10 +194,9 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     request: StartAgentRequest,
   ): Promise<RuntimeAgent> {
     const cwd = request.cwd ?? request.harness.cwd ?? process.cwd();
-    const workspace = await this.ensureWorkspace(
-      this.layout.workspace || request.roomId,
-      cwd,
-    );
+    const workspaceLabel =
+      request.workspace || this.layout.workspace || workspaceLabelForCwd(cwd);
+    const workspace = await this.ensureWorkspace(workspaceLabel, cwd);
     const created = await this.createTab(
       workspace.workspace_id,
       cwd,
@@ -215,6 +215,8 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
       sessionId: workspace.workspace_id,
       metadata: {
         workspaceId: workspace.workspace_id,
+        workspaceLabel,
+        cwd,
         tabId: created.tab.tab_id,
         layoutMode: "tab-per-agent",
       },
@@ -225,10 +227,9 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     request: StartAgentRequest,
   ): Promise<RuntimeAgent> {
     const cwd = request.cwd ?? request.harness.cwd ?? process.cwd();
-    const workspace = await this.ensureWorkspace(
-      this.layout.workspace || request.roomId,
-      cwd,
-    );
+    const workspaceLabel =
+      request.workspace || this.layout.workspace || workspaceLabelForCwd(cwd);
+    const workspace = await this.ensureWorkspace(workspaceLabel, cwd);
     const panesPerTab = Math.max(1, this.layout.panesPerTab);
     const placement = await this.nextPaneGridPlacement(
       workspace.workspace_id,
@@ -247,6 +248,8 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
       sessionId: workspace.workspace_id,
       metadata: {
         workspaceId: workspace.workspace_id,
+        workspaceLabel,
+        cwd,
         tabId: placement.tab.tab_id,
         layoutMode: "pane-grid",
       },
@@ -814,7 +817,10 @@ function normalizeHerdrPane(
       agentId === input.pane_id ? (input.agent ?? input.pane_id) : agentId,
     state: isAgentState(state) ? state : "unknown",
     ...(input.workspace_id ? { sessionId: input.workspace_id } : {}),
-    ...(input.metadata ? { metadata: input.metadata } : {}),
+    metadata: {
+      ...(input.metadata ?? {}),
+      ...(workspaceLabel ? { workspaceLabel } : {}),
+    },
   };
 }
 
@@ -833,6 +839,14 @@ function stringField(
 
 function agentRoomWorkspaceLabel(agentId: string): string {
   return `${AGENTROOM_WORKSPACE_LABEL_PREFIX}${agentId}`;
+}
+
+function workspaceLabelForCwd(cwd: string): string {
+  const label = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return label || "workspace";
 }
 
 function shellCommand(

@@ -1,7 +1,7 @@
 export type Id = string;
 export type ISODateTime = string;
 
-export type ActorKind = 'human' | 'agent' | 'system' | 'connector';
+export type ActorKind = "human" | "agent" | "system" | "connector";
 
 export interface ActorRef {
   kind: ActorKind;
@@ -10,39 +10,39 @@ export interface ActorRef {
 }
 
 export type AgentRole =
-  | 'lead'
-  | 'planner'
-  | 'implementer'
-  | 'reviewer'
-  | 'runner'
-  | 'qa'
-  | 'observer'
-  | 'custom';
+  | "lead"
+  | "planner"
+  | "implementer"
+  | "reviewer"
+  | "runner"
+  | "qa"
+  | "observer"
+  | "custom";
 
 export type AgentState =
-  | 'created'
-  | 'starting'
-  | 'online'
-  | 'working'
-  | 'waiting'
-  | 'blocked'
-  | 'needs-human'
-  | 'reviewing'
-  | 'done'
-  | 'idle'
-  | 'failed'
-  | 'stopped'
-  | 'unknown';
+  | "created"
+  | "starting"
+  | "online"
+  | "working"
+  | "waiting"
+  | "blocked"
+  | "needs-human"
+  | "reviewing"
+  | "done"
+  | "idle"
+  | "failed"
+  | "stopped"
+  | "unknown";
 
 export interface RuntimeBinding {
   providerId: string;
   bindingId: string;
-  kind: 'process' | 'pane' | 'container' | 'remote-session' | 'custom';
+  kind: "process" | "pane" | "container" | "remote-session" | "custom";
   metadata?: Record<string, unknown>;
 }
 
 export interface HarnessSpec {
-  kind: 'claude-code' | 'pi' | 'codex' | 'gemini-cli' | 'shell' | 'custom';
+  kind: "claude-code" | "pi" | "codex" | "gemini-cli" | "shell" | "custom";
   command: string;
   args?: string[];
   cwd?: string;
@@ -62,33 +62,46 @@ export interface Agent {
   updatedAt: ISODateTime;
 }
 
-export type MessageKind =
-  | 'chat'
-  | 'announcement'
-  | 'status'
-  | 'question'
-  | 'answer'
-  | 'decision'
-  | 'handoff'
-  | 'review'
-  | 'approval-request'
-  | 'approval-result';
+export interface Workspace {
+  id: Id;
+  roomId: Id;
+  cwd: string;
+  label: string;
+  aliases?: string[];
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+  lastSeenAt: ISODateTime;
+  runtime?: RuntimeBinding;
+  metadata?: Record<string, unknown>;
+}
 
-export type Importance = 'low' | 'normal' | 'high' | 'urgent';
+export type MessageKind =
+  | "chat"
+  | "announcement"
+  | "status"
+  | "question"
+  | "answer"
+  | "decision"
+  | "handoff"
+  | "review"
+  | "approval-request"
+  | "approval-result";
+
+export type Importance = "low" | "normal" | "high" | "urgent";
 
 export interface Ref {
   kind:
-    | 'task'
-    | 'agent'
-    | 'message'
-    | 'github-pr'
-    | 'github-issue'
-    | 'linear-issue'
-    | 'figma-node'
-    | 'runtime-output'
-    | 'url'
-    | 'file'
-    | 'custom';
+    | "task"
+    | "agent"
+    | "message"
+    | "github-pr"
+    | "github-issue"
+    | "linear-issue"
+    | "figma-node"
+    | "runtime-output"
+    | "url"
+    | "file"
+    | "custom";
   id: string;
   label?: string;
   url?: string;
@@ -111,17 +124,17 @@ export interface Message {
 }
 
 export type TaskStatus =
-  | 'planned'
-  | 'assigned'
-  | 'claimed'
-  | 'working'
-  | 'blocked'
-  | 'ready-for-review'
-  | 'changes-requested'
-  | 'approved'
-  | 'merged'
-  | 'done'
-  | 'canceled';
+  | "planned"
+  | "assigned"
+  | "claimed"
+  | "working"
+  | "blocked"
+  | "ready-for-review"
+  | "changes-requested"
+  | "approved"
+  | "merged"
+  | "done"
+  | "canceled";
 
 export interface Task {
   id: Id;
@@ -145,7 +158,7 @@ export interface HumanEscalation {
   question: string;
   contextRefs?: Ref[];
   priority: Importance;
-  status: 'open' | 'answered' | 'dismissed';
+  status: "open" | "answered" | "dismissed";
   createdAt: ISODateTime;
   answeredAt?: ISODateTime;
 }
@@ -156,10 +169,10 @@ export interface ApprovalRequest {
   requestedBy: ActorRef;
   action: string;
   params: Record<string, unknown>;
-  risk: 'low' | 'medium' | 'high';
+  risk: "low" | "medium" | "high";
   reason: string;
-  requiredApprover: 'human' | 'lead' | 'reviewer';
-  status: 'pending' | 'approved' | 'denied' | 'expired';
+  requiredApprover: "human" | "lead" | "reviewer";
+  status: "pending" | "approved" | "denied" | "expired";
   createdAt: ISODateTime;
   expiresAt?: ISODateTime;
 }

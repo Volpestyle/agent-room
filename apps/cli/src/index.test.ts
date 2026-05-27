@@ -17,22 +17,6 @@ const agentRoomBin = fileURLToPath(
 );
 
 describe("agent-room init", () => {
-  it("requires an explicit runtime provider choice", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-runtime-"));
-    const env = testEnv("cli-init-runtime-test");
-
-    try {
-      await expectAgentRoomFailure(
-        cwd,
-        ["init", "--room", "cli-init-runtime-test"],
-        env,
-        "required option '--runtime <runtime>' not specified",
-      );
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   it("can write portable Clanky and work tracker defaults", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-clanky-"));
     const env = testEnv("cli-init-clanky-test");
@@ -59,10 +43,7 @@ describe("agent-room init", () => {
         env,
       );
 
-      const config = await readFile(
-        join(cwd, ".agentroom", "config.yaml"),
-        "utf8",
-      );
+      const config = await readFile(configPathFor(cwd), "utf8");
       expect(config).toContain("workTracker:");
       expect(config).toContain("default: linear");
       expect(config).toContain("teamId: team_123");
@@ -96,10 +77,7 @@ describe("agent-room init", () => {
         env,
       );
 
-      const config = await readFile(
-        join(cwd, ".agentroom", "config.yaml"),
-        "utf8",
-      );
+      const config = await readFile(configPathFor(cwd), "utf8");
       expect(config).toContain("default: herdr");
       expect(config).toContain("session: agent-room");
       expect(config).toContain("cli: herdr-dev");
@@ -108,7 +86,7 @@ describe("agent-room init", () => {
     }
   });
 
-  it("defaults the room id to the runtime session when omitted", async () => {
+  it("defaults the room and Herdr session to the singleton AgentRoom", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-session-room-"));
     const env = {
       ...process.env,
@@ -123,15 +101,10 @@ describe("agent-room init", () => {
         env,
       );
 
-      const config = await readFile(
-        join(cwd, ".agentroom", "config.yaml"),
-        "utf8",
-      );
-      const room = await readFile(join(cwd, ".agentroom", "room.json"), "utf8");
-      expect(config).toContain("id: dev-room");
-      expect(config).toContain("session: dev-room");
+      const config = await readFile(configPathFor(cwd), "utf8");
+      expect(config).toContain("id: agent-room");
+      expect(config).toContain("session: agent-room");
       expect(config).toContain("cli: herdr-dev");
-      expect(room).toContain('"roomId": "dev-room"');
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -291,17 +264,11 @@ describe("agent-room task show", () => {
 });
 
 describe("agent-room runtime command safety", () => {
-  it("requires an initialized room and runtime binding before audited reads", async () => {
+  it("requires a runtime binding before audited reads", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-runtime-safety-"));
     const env = testEnv("cli-runtime-safety-test");
 
     try {
-      await expectAgentRoomFailure(
-        cwd,
-        ["read", "impl", "--runtime", "fake"],
-        env,
-        "Audited runtime access requires an initialized AgentRoom",
-      );
       await execAgentRoom(
         cwd,
         ["init", "--room", "cli-runtime-safety-test", "--runtime", "fake"],
@@ -715,7 +682,7 @@ describe("agent-room daemon lifecycle", () => {
     }
   });
 
-  it("does not adopt a daemon that belongs to a different cwd", async () => {
+  it("connects to the same singleton daemon from a different cwd", async () => {
     const firstCwd = await mkdtemp(join(tmpdir(), "agentroom-headless-a-"));
     const secondCwd = await mkdtemp(join(tmpdir(), "agentroom-headless-b-"));
     const port = await freePort();
@@ -725,20 +692,31 @@ describe("agent-room daemon lifecycle", () => {
     };
 
     try {
-      const expectedFirstCwd = await realpath(firstCwd);
-      const expectedSecondCwd = await realpath(secondCwd);
-      await execAgentRoom(
-        firstCwd,
-        ["--headless", "--port", String(port), "--json"],
-        env,
-      );
+      const first = JSON.parse(
+        (
+          await execAgentRoom(
+            firstCwd,
+            ["--headless", "--port", String(port), "--json"],
+            env,
+          )
+        ).stdout,
+      ) as { state: string; pid: number };
 
-      await expectAgentRoomFailure(
-        secondCwd,
-        ["--headless", "--port", String(port), "--json"],
-        env,
-        `belongs to ${expectedFirstCwd}, not ${expectedSecondCwd}`,
-      );
+      const second = JSON.parse(
+        (
+          await execAgentRoom(
+            secondCwd,
+            ["--headless", "--port", String(port), "--json"],
+            env,
+          )
+        ).stdout,
+      ) as { state: string; pid: number };
+
+      expect(first.state).toBe("running");
+      expect(second).toMatchObject({
+        state: "running",
+        pid: first.pid,
+      });
     } finally {
       await execAgentRoom(
         firstCwd,
@@ -775,12 +753,21 @@ async function execAgentRoom(
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<{ stdout: string; stderr: string }> {
+  env.AGENTROOM_HOME ??= testHomeFor(cwd);
   const { stdout, stderr } = await execFileAsync(agentRoomBin, args, {
     cwd,
     env,
     encoding: "utf8",
   });
   return { stdout, stderr };
+}
+
+function testHomeFor(cwd: string): string {
+  return join(cwd, ".agentroom-home");
+}
+
+function configPathFor(cwd: string): string {
+  return join(testHomeFor(cwd), "config.yaml");
 }
 
 async function expectAgentRoomFailure(

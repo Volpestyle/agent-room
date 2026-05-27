@@ -31,7 +31,37 @@ describe("dashboard launch tool", () => {
     });
   });
 
-  it("derives launch defaults from daemon config and runtime state", async () => {
+  it("requires cwd before launching an agent", async () => {
+    const api = {
+      dashboardConfig: async () => ({
+        roomId: "agent-room",
+        cwd: "/repo",
+        defaultRuntime: "herdr",
+      }),
+      listRuntimeProviders: async () => ({
+        providers: [
+          {
+            id: "herdr",
+            kind: "herdr",
+            default: true,
+            capabilities: runtimeCapabilities,
+          },
+        ],
+      }),
+      listRuntimeAgents: async () => ({ agents: [] }),
+    } as unknown as ApiClient;
+    const tools = createDashboardTools({
+      api,
+      poller: { tick: async () => undefined } as unknown as Poller,
+    });
+    const launch = tools.find((tool) => tool.name === "launch_runtime_agent");
+
+    await expect(launch?.execute("call-1", {})).rejects.toThrow(
+      "cwd is required",
+    );
+  });
+
+  it("derives launch defaults after cwd is provided", async () => {
     const launchRuntimeAgent = vi.fn(
       async (_providerId: string, input: { agentId: string }) => ({
         agent: {
@@ -81,7 +111,7 @@ describe("dashboard launch tool", () => {
     const launch = tools.find((tool) => tool.name === "launch_runtime_agent");
 
     expect(launch).toBeDefined();
-    await launch?.execute("call-1", {});
+    await launch?.execute("call-1", { cwd: "/repo" });
 
     expect(launchRuntimeAgent).toHaveBeenCalledWith("herdr", {
       agentId: "implementer-2",
@@ -92,6 +122,7 @@ describe("dashboard launch tool", () => {
         cwd: "/repo",
       },
       cwd: "/repo",
+      workspace: "repo",
     });
     expect(attachRuntimeAgent).toHaveBeenCalledWith("herdr", "implementer-2");
   });
