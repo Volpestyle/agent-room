@@ -33,9 +33,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Checkout shared docs framework
-        run: |
-          git clone --depth 1 https://github.com/Volpestyle/clanky.git ../clanky-pi
-          cp -R ../clanky-pi/packages/agent-docs ../agent-docs
+        run: git clone --depth 1 https://github.com/Volpestyle/docs.git ../docs
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -48,7 +46,7 @@ jobs:
           corepack prepare pnpm@11.0.0 --activate
 
       - name: Install shared docs dependencies
-        run: pnpm --dir ../agent-docs install --no-frozen-lockfile
+        run: pnpm --dir ../docs install --no-frozen-lockfile
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile

@@ -12,7 +12,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@volpestyle/agent-docs": "link:../../../agent-docs",
+    "@volpestyle/night-compiler": "link:../../../docs/packages/night-compiler",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

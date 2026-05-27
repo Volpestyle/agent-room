@@ -14,7 +14,7 @@ export default defineConfig({
   },
   server: {
     fs: {
-      allow: ["../..", "../../../agent-docs"],
+      allow: ["../..", "../../../docs/packages/night-compiler"],
     },
   },
 });

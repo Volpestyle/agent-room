@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateLlmsFiles } from "@volpestyle/agent-docs/llms";
+import { generateLlmsFiles } from "@volpestyle/night-compiler/llms";
 import { docsMeta, groups, site } from "../src/docs-manifest.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));

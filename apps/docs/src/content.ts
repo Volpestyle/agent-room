@@ -1,4 +1,4 @@
-import { defineDocsConfig } from "@volpestyle/agent-docs";
+import { defineDocsConfig } from "@volpestyle/night-compiler";
 import adrRuntimeProvider from "../../../docs/ADR/0002-runtime-provider-port.md?raw";
 import adrChatGateway from "../../../docs/ADR/0003-chat-gateway-port.md?raw";
 import architecture from "../../../docs/ARCHITECTURE.md?raw";
