@@ -25,4 +25,4 @@ jobs:
       docs-base-path: /docs/agent-room/
       site-slug: agent-room
     secrets:
-      docs-publish-token: ${{ secrets.DOCS_PUBLISH_TOKEN }}
+      docs-publish-key: ${{ secrets.DOCS_PUBLISH_KEY }}
