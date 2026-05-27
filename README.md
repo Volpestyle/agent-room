@@ -36,6 +36,10 @@ examples/
 
 These repo-relative `docs/...` links are intended to open directly in the docs UI:
 
+```bash
+pnpm docs:dev
+```
+
 - [System diagram](docs/DIAGRAM.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Setup guide](docs/SETUP.md)

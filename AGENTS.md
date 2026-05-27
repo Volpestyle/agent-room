@@ -1,16 +1,16 @@
 # Agent Guidance
 
-AgentRoom has nearby reference repositories under `/Users/jamesvolpe/web`. Use them to understand mature implementations and compatible terminology before making larger design changes here.
+AgentRoom has nearby reference repositories under `/Users/jamesvolpe/dev`. Use them to understand mature implementations and compatible terminology before making larger design changes here.
 
 Reference repos:
 
-- `/Users/jamesvolpe/web/herdr`
+- `/Users/jamesvolpe/dev/herdr`
   - Use when working on the Herdr adapter or comparing terminal-multiplexer behavior. Do not let Herdr terminology leak into core AgentRoom concepts.
-- `/Users/jamesvolpe/web/pi`
+- `/Users/jamesvolpe/dev/external/earendil-works/pi`
   - Use for coding-agent harness design, tool calling, runtime state management, model provider abstractions, and TUI patterns.
-- `/Users/jamesvolpe/web/hermes-agent`
+- `/Users/jamesvolpe/dev/hermes-agent`
   - Use for agent gateway architecture, skills, memory, cron scheduling, messaging platforms, provider configuration, and remote execution patterns.
-- `/Users/jamesvolpe/web/clanky-pi`
+- `/Users/jamesvolpe/dev/agents/clanky-pi`
   - Use for a TypeScript daemon/CLI/MCP implementation built around Pi sessions, profile-local storage, cron, Linear, memory, Telegram/Discord messaging, and HTTP/WebSocket APIs.
 
 Rules for using these references:
@@ -39,9 +39,9 @@ Agent handling:
 
 Good lookup starting points:
 
-- Herdr adapter work only: `/Users/jamesvolpe/web/herdr/README.md`, `SOCKET_API.md`, `SKILL.md`
-- Pi harness/tooling work: `/Users/jamesvolpe/web/pi/README.md`, `packages/agent`, `packages/coding-agent`
-- Hermes gateway/skills/memory/cron work: `/Users/jamesvolpe/web/hermes-agent/README.md`, `providers`, `environments`, `web`, `ui-tui`
-- Clanky daemon/MCP/HTTP/profile work: `/Users/jamesvolpe/web/clanky-pi/README.md`
+- Herdr adapter work only: `/Users/jamesvolpe/dev/herdr/README.md`, `SOCKET_API.md`, `SKILL.md`
+- Pi harness/tooling work: `/Users/jamesvolpe/dev/external/earendil-works/pi/README.md`, `packages/agent`, `packages/coding-agent`
+- Hermes gateway/skills/memory/cron work: `/Users/jamesvolpe/dev/hermes-agent/README.md`, `providers`, `environments`, `web`, `ui-tui`
+- Clanky daemon/MCP/HTTP/profile work: `/Users/jamesvolpe/dev/agents/clanky-pi/README.md`
 
 Operator-facing AgentRoom commands and `.agentroom/config.yaml` runtime setup are documented in `README.md` and `docs/SETUP.md`; link there instead of duplicating the workflow in this file.

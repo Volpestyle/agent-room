@@ -58,7 +58,7 @@ while real coding work landed on disk from agents running in those panes.
   from the observer after two consecutive `pane_not_found` results.
 - Herdr observer socket lookup wrong:
   `[herdr-observer] failed to start … ENOENT
-  /Users/jamesvolpe/.config/herdr/sessions/agent-room/herdr.sock`. Events
+/Users/jamesvolpe/.config/herdr/sessions/agent-room/herdr.sock`. Events
   still flow via CLI fallback, so this is silent degradation.
 - Unrelated Vite import error in `clanky-pi/apps/docs/src/content.ts:3`
   (`../../../docs/demo.md?raw`) recycled into the room's output stream
@@ -78,11 +78,11 @@ while real coding work landed on disk from agents running in those panes.
 Captured at the close of the session so a future human or agent can
 check out the exact state of the system that produced this milestone.
 
-| Repo | Path | Branch | HEAD | Commit date | Subject |
-|---|---|---|---|---|---|
-| AgentRoom | `/Users/jamesvolpe/web/agent-room` | `main` | `0262ffbc35bffbfffcf5bfcebde01593039d1142` | 2026-05-26 23:33:42 -0500 | Expand AgentRoom dashboard and config surfaces |
-| clanky-pi (operator) | `/Users/jamesvolpe/web/clanky-pi` | `v2-vanilla` | `34f2a3b8b7cdf50771d6bea83b703186b60ce2a0` | 2026-05-26 23:36:24 -0500 | Register configuration.md in docs content map |
-| herdr (runtime provider) | `/Users/jamesvolpe/web/herdr` | `feat/balance-panes` | `324b778fdbe1232b5e684a5c096bd79deac3c399` | 2026-05-25 02:36:40 -0500 | feat: expose tab balance command |
+| Repo                     | Path                                      | Branch               | HEAD                                       | Commit date               | Subject                                        |
+| ------------------------ | ----------------------------------------- | -------------------- | ------------------------------------------ | ------------------------- | ---------------------------------------------- |
+| AgentRoom                | `/Users/jamesvolpe/dev/agents/agent-room` | `main`               | `0262ffbc35bffbfffcf5bfcebde01593039d1142` | 2026-05-26 23:33:42 -0500 | Expand AgentRoom dashboard and config surfaces |
+| clanky-pi (operator)     | `/Users/jamesvolpe/dev/agents/clanky-pi`  | `v2-vanilla`         | `34f2a3b8b7cdf50771d6bea83b703186b60ce2a0` | 2026-05-26 23:36:24 -0500 | Register configuration.md in docs content map  |
+| herdr (runtime provider) | `/Users/jamesvolpe/dev/herdr`             | `feat/balance-panes` | `324b778fdbe1232b5e684a5c096bd79deac3c399` | 2026-05-25 02:36:40 -0500 | feat: expose tab balance command               |
 
 Working-tree notes at snapshot time:
 
@@ -108,9 +108,9 @@ Working-tree notes at snapshot time:
 To restore to this snapshot:
 
 ```bash
-git -C /Users/jamesvolpe/web/agent-room checkout 0262ffbc35bffbfffcf5bfcebde01593039d1142
-git -C /Users/jamesvolpe/web/clanky-pi checkout 34f2a3b8b7cdf50771d6bea83b703186b60ce2a0
-git -C /Users/jamesvolpe/web/herdr     checkout 324b778fdbe1232b5e684a5c096bd79deac3c399
+git -C /Users/jamesvolpe/dev/agents/agent-room checkout 0262ffbc35bffbfffcf5bfcebde01593039d1142
+git -C /Users/jamesvolpe/dev/agents/clanky-pi checkout 34f2a3b8b7cdf50771d6bea83b703186b60ce2a0
+git -C /Users/jamesvolpe/dev/herdr     checkout 324b778fdbe1232b5e684a5c096bd79deac3c399
 ```
 
 The room state itself (events, daemon log, clanky session log) lives

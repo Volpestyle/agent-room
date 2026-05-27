@@ -21,7 +21,7 @@ fi
 
 case "${1:-}" in
   "")
-    exec "$TSX" "$ROOT/apps/cli/src/index.ts" --help
+    exec "$TSX" "$ROOT/apps/cli/src/index.ts"
     ;;
   mcp)
     shift

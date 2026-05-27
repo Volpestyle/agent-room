@@ -100,6 +100,18 @@ describe("agentroom daemon app", () => {
     });
   });
 
+  it("exposes daemon cwd in health checks", async () => {
+    const options = await appOptions();
+    const app = createApp(options);
+
+    const response = await app.request("/health");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      roomId: "test-room",
+      cwd: options.cwd,
+    });
+  });
+
   it("posts and filters room messages", async () => {
     const app = createApp(await appOptions());
 

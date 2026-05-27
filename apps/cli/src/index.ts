@@ -14,6 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createServer, type AddressInfo } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Command } from "commander";
@@ -106,6 +107,19 @@ interface DaemonHealthCheck {
   reason?: string;
 }
 
+interface TuiCommandOptions {
+  daemon: string;
+  apiToken?: string;
+  refreshMs?: number;
+  autoStart: boolean;
+}
+
+interface TuiDaemonEnsureResult {
+  daemonUrl: string;
+  apiToken?: string;
+  ownedDaemon?: DaemonCommandOptions;
+}
+
 interface DaemonStatusPayload {
   ok: boolean;
   state: string;
@@ -183,7 +197,11 @@ program
   .description(
     "Runtime-agnostic coordination plane for long-running coding agents",
   )
-  .version("0.1.0");
+  .version("0.1.0")
+  .addHelpText(
+    "after",
+    "\nShortcuts:\n  agent-room              Open the TUI for the current cwd\n  agent-room --headless   Start the current cwd daemon without the TUI",
+  );
 
 program
   .command("init")
@@ -332,22 +350,18 @@ program
     process.env.AGENTROOM_API_TOKEN,
   )
   .option("--refresh-ms <ms>", "refresh interval in milliseconds", parseInteger)
+  .option(
+    "--no-auto-start",
+    "do not auto-start a local daemon if none is reachable",
+  )
   .action(
     async (options: {
       daemon: string;
       apiToken?: string;
       refreshMs?: number;
+      autoStart: boolean;
     }) => {
-      const { runAgentRoomTui } = await loadTui();
-      await runAgentRoomTui({
-        baseUrl: options.daemon,
-        ...(options.apiToken !== undefined
-          ? { apiToken: options.apiToken }
-          : {}),
-        ...(options.refreshMs !== undefined
-          ? { refreshMs: options.refreshMs }
-          : {}),
-      });
+      await runTuiCommand(options);
     },
   );
 
@@ -361,7 +375,7 @@ program
     const bin = resolve(REPO_ROOT, "bin", "agent-room");
     const payload = {
       cwd,
-      command: `${bin} tui`,
+      command: bin,
       setupCommand: "/setup",
     };
     if (options.json) {
@@ -372,12 +386,12 @@ program
       console.log("");
       console.log("Run:");
       console.log(`  cd ${cwd}`);
-      console.log(`  ${bin} tui`);
+      console.log(`  ${bin}`);
       console.log("");
       console.log("Inside the TUI, run /setup.");
     }
     if (options.run === true) {
-      await runChild(bin, ["tui"], cwd);
+      await runChild(bin, [], cwd);
     }
   });
 
@@ -1315,10 +1329,18 @@ program
     },
   );
 
-program.parseAsync(process.argv).catch((error) => {
+program.parseAsync(normalizeRootArgv(process.argv)).catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+
+function normalizeRootArgv(argv: string[]): string[] {
+  const [node, script, first, ...rest] = argv;
+  if (node === undefined || script === undefined) return argv;
+  if (first === undefined) return [node, script, "tui"];
+  if (first === "--headless") return [node, script, "daemon", "start", ...rest];
+  return argv;
+}
 
 async function runtimeProviderForCwd(
   runtimeName?: string,
@@ -1409,6 +1431,44 @@ async function handleDaemonCommand(
       outputDaemonResult({ ok: true, stopped, started }, resolvedOptions.json);
       return;
     }
+  }
+}
+
+async function runTuiCommand(options: TuiCommandOptions): Promise<void> {
+  const ensured = await ensureDaemonForTui({
+    daemonUrl: options.daemon,
+    autoStart: options.autoStart,
+    ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
+  });
+  const apiToken = options.apiToken ?? ensured.apiToken;
+
+  try {
+    const { runAgentRoomTui } = await loadTui();
+    await runAgentRoomTui({
+      baseUrl: ensured.daemonUrl,
+      ...(apiToken !== undefined ? { apiToken } : {}),
+      ...(options.refreshMs !== undefined
+        ? { refreshMs: options.refreshMs }
+        : {}),
+    });
+  } finally {
+    if (ensured.ownedDaemon !== undefined) {
+      await stopTuiOwnedDaemon(ensured.ownedDaemon);
+    }
+  }
+}
+
+async function stopTuiOwnedDaemon(
+  options: DaemonCommandOptions,
+): Promise<void> {
+  try {
+    await stopDaemon({ ...options, force: true });
+  } catch (error) {
+    console.error(
+      `Failed to stop TUI-owned AgentRoom daemon: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }
 
@@ -1507,6 +1567,9 @@ async function startDaemon(
           `AgentRoom daemon pid ${existing.pid} is alive but health check failed: ${reason}`,
         );
       }
+      if (!daemonHealthMatchesCwd(health, process.cwd(), existing)) {
+        throw new Error(daemonCwdMismatchMessage(health, process.cwd()));
+      }
       return daemonStatusPayload(
         "running",
         existing,
@@ -1516,6 +1579,36 @@ async function startDaemon(
       );
     }
     await removeDaemonPidFile(pidFile);
+  }
+
+  const occupied = await daemonHealth(options.host, options.port, 500);
+  if (occupied.ok) {
+    if (!daemonHealthMatchesCwd(occupied, process.cwd())) {
+      throw new Error(daemonCwdMismatchMessage(occupied, process.cwd()));
+    }
+    const pid = daemonHealthPid(occupied) ?? 0;
+    const existingRecord: DaemonPidRecord = {
+      pid,
+      host: options.host,
+      port: options.port,
+      cwd: process.cwd(),
+      startedAt: "",
+      command,
+      logFile,
+      ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
+      ...(options.publicUrl !== undefined
+        ? { publicUrl: options.publicUrl }
+        : {}),
+      ...(options.tailnet === true ? { tailnet: true } : {}),
+    };
+    if (pid > 0) await writePrivateJson(pidFile, existingRecord);
+    return daemonStatusPayload(
+      "running",
+      existingRecord,
+      pidFile,
+      occupied,
+      pid > 0 ? await daemonProcessInfo(pid) : undefined,
+    );
   }
 
   const log = await open(logFile, "a");
@@ -1557,6 +1650,9 @@ async function startDaemon(
 
   try {
     const health = await waitForDaemonHealth(record, options.timeout * 1000);
+    if (!daemonHealthMatchesCwd(health, process.cwd(), record)) {
+      throw new Error(daemonCwdMismatchMessage(health, process.cwd()));
+    }
     const daemonPid = daemonHealthPid(health) ?? record.pid;
     const verifiedRecord = { ...record, pid: daemonPid };
     if (verifiedRecord.pid !== record.pid)
@@ -1948,6 +2044,34 @@ function daemonHealthPid(health?: DaemonHealthCheck): number | undefined {
   return typeof pid === "number" ? pid : undefined;
 }
 
+function daemonHealthCwd(health?: DaemonHealthCheck): string | undefined {
+  if (!health?.body || typeof health.body !== "object") return undefined;
+  const cwd = (health.body as { cwd?: unknown }).cwd;
+  return typeof cwd === "string" ? cwd : undefined;
+}
+
+function daemonHealthMatchesCwd(
+  health: DaemonHealthCheck,
+  cwd: string,
+  record?: DaemonPidRecord,
+): boolean {
+  const healthCwd = daemonHealthCwd(health);
+  if (healthCwd !== undefined) return samePath(healthCwd, cwd);
+  return record !== undefined && samePath(record.cwd, cwd);
+}
+
+function daemonCwdMismatchMessage(
+  health: DaemonHealthCheck,
+  expectedCwd: string,
+): string {
+  const actualCwd = daemonHealthCwd(health) ?? "an unknown cwd";
+  return `AgentRoom daemon at ${health.url} belongs to ${actualCwd}, not ${expectedCwd}`;
+}
+
+function samePath(left: string, right: string): boolean {
+  return resolve(left) === resolve(right);
+}
+
 function isAgentRoomDaemonCommand(command: string): boolean {
   return (
     command.includes("agent-roomd") ||
@@ -2060,6 +2184,131 @@ function daemonBaseUrl(host: string, port: number): string {
   const formattedHost =
     host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
   return `http://${formattedHost}:${port}`;
+}
+
+function parseDaemonUrl(value: string): { host: string; port: number } {
+  const url = new URL(value);
+  const port = url.port ? Number.parseInt(url.port, 10) : DEFAULT_PORT;
+  const host =
+    url.hostname.startsWith("[") && url.hostname.endsWith("]")
+      ? url.hostname.slice(1, -1)
+      : url.hostname;
+  return { host, port };
+}
+
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "0.0.0.0"
+  );
+}
+
+async function ensureDaemonForTui(options: {
+  daemonUrl: string;
+  autoStart: boolean;
+  apiToken?: string;
+}): Promise<TuiDaemonEnsureResult> {
+  const { host, port } = parseDaemonUrl(options.daemonUrl);
+  const cwd = process.cwd();
+  const pidFile = resolve(join(roomDir(), "daemon.pid"));
+  const record = await readDaemonPidRecord(pidFile);
+  if (record !== undefined) {
+    const processInfo = await daemonProcessInfo(record.pid);
+    if (!processInfo.alive) {
+      await removeDaemonPidFile(pidFile);
+    } else {
+      const recordHealth = await daemonHealth(record.host, record.port, 500);
+      if (
+        daemonProcessVerified(record, processInfo, recordHealth) &&
+        recordHealth.ok
+      ) {
+        if (!daemonHealthMatchesCwd(recordHealth, cwd, record)) {
+          throw new Error(daemonCwdMismatchMessage(recordHealth, cwd));
+        }
+        return {
+          daemonUrl:
+            record.publicUrl ?? daemonBaseUrl(record.host, record.port),
+          ...(record.apiToken !== undefined
+            ? { apiToken: record.apiToken }
+            : {}),
+        };
+      }
+    }
+  }
+
+  const health = await daemonHealth(host, port, 500);
+  if (health.ok) {
+    if (daemonHealthMatchesCwd(health, cwd)) {
+      return { daemonUrl: options.daemonUrl };
+    }
+
+    if (!options.autoStart || !isLoopbackHost(host)) {
+      throw new Error(daemonCwdMismatchMessage(health, cwd));
+    }
+
+    const freePort = await findFreePort(host);
+    console.error(
+      `${daemonCwdMismatchMessage(health, cwd)}; starting this TUI room at ${daemonBaseUrl(host, freePort)} instead.`,
+    );
+    return startTuiOwnedDaemon({
+      host,
+      port: freePort,
+      ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
+    });
+  }
+
+  if (!options.autoStart) return { daemonUrl: options.daemonUrl };
+  if (!isLoopbackHost(host)) return { daemonUrl: options.daemonUrl };
+
+  console.error(
+    `AgentRoom daemon not reachable at ${daemonBaseUrl(host, port)}; starting it…`,
+  );
+
+  return startTuiOwnedDaemon({
+    host,
+    port,
+    ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}),
+  });
+}
+
+async function startTuiOwnedDaemon(input: {
+  host: string;
+  port: number;
+  apiToken?: string;
+}): Promise<TuiDaemonEnsureResult> {
+  await assertDaemonLifecycleAllowed("start");
+  const resolved = await resolveDaemonCommandOptions("start", {
+    host: input.host,
+    port: input.port,
+    timeout: 5,
+    ...(input.apiToken !== undefined ? { apiToken: input.apiToken } : {}),
+  });
+  const started = await startDaemon(resolved);
+
+  const pidFile = resolve(join(roomDir(), "daemon.pid"));
+  const record = await readDaemonPidRecord(pidFile);
+  return {
+    daemonUrl: started.publicUrl ?? daemonBaseUrl(started.host, started.port),
+    ownedDaemon: resolved,
+    ...(record?.apiToken !== undefined ? { apiToken: record.apiToken } : {}),
+  };
+}
+
+async function findFreePort(host: string): Promise<number> {
+  return new Promise((resolvePromise, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const address = server.address() as AddressInfo;
+      const port = address.port;
+      server.close((error) => {
+        if (error) reject(error);
+        else resolvePromise(port);
+      });
+    });
+  });
 }
 
 async function resolveTailnetEndpoint(): Promise<TailnetEndpoint> {

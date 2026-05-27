@@ -66,6 +66,7 @@ export interface DaemonHealth {
   ok: boolean;
   pid: number;
   roomId: string;
+  cwd: string;
   runtimes: RuntimeProviderSummary[];
   chatGateways: Array<{
     id: string;

@@ -1,6 +1,6 @@
 # Clanky Agent Integration
 
-Clanky remains a standalone project in `/Users/jamesvolpe/web/clanky-pi`.
+Clanky remains a standalone project in `/Users/jamesvolpe/dev/agents/clanky-pi`.
 AgentRoom integrates with it as an external Pi harness command, the same way it
 can launch any other runtime-backed agent.
 
@@ -30,6 +30,6 @@ or put its bin on `PATH`.
 The Clanky repo owns its package-level smoke tests:
 
 ```bash
-cd /Users/jamesvolpe/web/clanky-pi
+cd /Users/jamesvolpe/dev/agents/clanky-pi
 pnpm exec tsx agents/clanky/test/runtime-smoke.ts
 ```

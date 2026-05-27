@@ -23,6 +23,9 @@
     "dev:mcp": "pnpm --filter @agentroom/mcp-server dev",
     "dev:tui": "pnpm --filter @agentroom/tui dev --",
     "dev:setup:fresh": "./bin/agent-room dev-new-user --run",
+    "docs:build": "pnpm --filter @agentroom/docs build",
+    "docs:dev": "pnpm --filter @agentroom/docs dev",
+    "docs:preview": "pnpm --filter @agentroom/docs preview",
     "test": "vitest run",
     "typecheck": "tsc -b && pnpm --filter @agentroom/mobile typecheck",
     "format": "prettier --write ."

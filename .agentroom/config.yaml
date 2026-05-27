@@ -9,8 +9,8 @@ operator:
   agentId: operator
   displayName: Clanky Operator
   kind: clanky
-  command: pnpm --dir /Users/jamesvolpe/web/clanky-pi clanky --profile operator --home /Users/jamesvolpe/web/agent-room/.agentroom/clanky
-  sessionDir: /Users/jamesvolpe/web/agent-room/.agentroom/clanky/profiles/operator/sessions
+  command: pnpm --dir /Users/jamesvolpe/dev/agents/clanky-pi clanky --profile operator --home /Users/jamesvolpe/dev/agents/agent-room/.agentroom/clanky
+  sessionDir: /Users/jamesvolpe/dev/agents/agent-room/.agentroom/clanky/profiles/operator/sessions
 
 runtimes:
   fake:
@@ -18,7 +18,7 @@ runtimes:
   herdr:
     type: herdr
     session: agent-room
-    cli: /Users/jamesvolpe/web/herdr/target/debug/herdr
+    cli: /Users/jamesvolpe/dev/herdr/target/debug/herdr
     layout:
       mode: pane-grid
       workspace: agent-room

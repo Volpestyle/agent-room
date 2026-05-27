@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AgentRoom Docs</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="%BASE_URL%branding/agent-room-icon.svg"
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("agent-room-docs:theme");
+          const prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          if (saved === "dark" || (!saved && prefersDark)) {
+            document.documentElement.classList.add("dark");
+          }
+        } catch {}
+      })();
+    </script>
+    <meta property="og:title" content="AgentRoom Docs" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:description"
+      content="Local-first coordination docs for long-running coding agents."
+    />
+    <meta name="twitter:card" content="summary" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

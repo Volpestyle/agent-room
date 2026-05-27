@@ -39,17 +39,17 @@ together unless you impose discipline manually.
 An agent's working directory is independent from the room root:
 
 ```bash
-cd /Users/jamesvolpe/web/agent-room
+cd /Users/jamesvolpe/dev/agents/agent-room
 
 agent-room launch portfolio-impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/web/portfolio
+  --cwd /Users/jamesvolpe/dev/portfolio
 
 agent-room launch browser-reviewer \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/web/agent-browser
+  --cwd /Users/jamesvolpe/dev/agent-browser
 ```
 
 Both agents share the same room messages, tasks, audit log, and operator
@@ -66,15 +66,15 @@ Use this when projects need separate logs, tasks, permissions, chat gateways, or
 lifecycle.
 
 ```bash
-cd /Users/jamesvolpe/web/project-a
+cd /Users/jamesvolpe/dev/project-a
 agent-room init --room project-a --runtime RUNTIME
 agent-room daemon start --port 4317
 
-cd /Users/jamesvolpe/web/project-b
+cd /Users/jamesvolpe/dev/project-b
 agent-room init --room project-b --runtime RUNTIME
 agent-room daemon start --port 4318
 
-cd /Users/jamesvolpe/web/project-c
+cd /Users/jamesvolpe/dev/project-c
 agent-room init --room project-c --runtime RUNTIME
 agent-room daemon start --port 4319
 ```
@@ -95,12 +95,12 @@ Use this when one lead/operator should coordinate related work across several
 repositories.
 
 ```bash
-cd /Users/jamesvolpe/web/agent-room
+cd /Users/jamesvolpe/dev/agents/agent-room
 agent-room daemon start
 
-agent-room launch api-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/api
-agent-room launch web-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/frontend
-agent-room launch reviewer --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/review-tools
+agent-room launch api-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/api
+agent-room launch web-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/frontend
+agent-room launch reviewer --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/review-tools
 ```
 
 This keeps all room messages, local tasks, handoffs, and runtime audit events in
@@ -130,8 +130,8 @@ doctor --json` to see the session namespace and socket before attaching.
 For fresh work in a shared Herdr session, pass an explicit workspace label:
 
 ```bash
-agent-room launch impl-a --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/project-a
-agent-room launch impl-b --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/web/project-a
+agent-room launch impl-a --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
+agent-room launch impl-b --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
 ```
 
 Use distinct daemon ports for distinct AgentRoom daemons. Use distinct Herdr

@@ -1,0 +1,27 @@
+{
+  "name": "@agentroom/docs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "dev": "vite --host 127.0.0.1",
+    "generate:llms": "tsx scripts/generate-llms.ts",
+    "predev": "pnpm run generate:llms",
+    "prebuild": "pnpm run generate:llms",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@volpestyle/agent-docs": "link:../../../agent-docs",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.0.14"
+  }
+}

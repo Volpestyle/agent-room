@@ -2,42 +2,26 @@
 
 This is the docs-UI-friendly map of the AgentRoom system boundaries.
 
-```text
-+----------------------------------------------------------+
-| User-facing surfaces                                     |
-| humans, lead agents, enrolled workers, chat participants |
-| agent-room CLI, TUI, agentroom-mcp, mobile app, gateways |
-+-----------------------------+----------------------------+
-                              |
-                              v
-+----------------------------------------------------------+
-| agentroomd / CLI command handlers                        |
-| HTTP API, daemon lifecycle, gateway routing, local ops    |
-+-----------------------------+----------------------------+
-                              |
-                              v
-+----------------------------------------------------------+
-| @agentroom/core                                          |
-| rooms, agents, task shadows, messages, approvals,        |
-| handoffs, normalized events                              |
-+-----------------------------+----------------------------+
-                              |
-          +-------------------+-------------------+
-          |                   |                   |
-          v                   v                   v
-+------------------+  +------------------+  +--------------------+
-| EventStore       |  | RuntimeProvider  |  | Connector ports    |
-| room state and   |  | audited launch,  |  | work tracker, code |
-| audit history    |  | read, send, stop |  | host, design, chat |
-+--------+---------+  +--------+---------+  +---------+----------+
-         |                     |                      |
-         v                     v                      v
-+------------------+  +------------------+  +--------------------+
-| .agentroom/      |  | Herdr            |  | Linear, GitHub     |
-| events.jsonl     |  | tmux             |  | Figma, Discord     |
-| SQLite planned   |  | fake             |  | Telegram, custom   |
-+------------------+  | future runtimes  |  | adapters           |
-                      +------------------+  +--------------------+
+```mermaid
+flowchart TB
+  surfaces["User-facing surfaces<br/>humans, lead agents, enrolled workers, chat participants<br/>CLI, TUI, MCP, mobile app, gateways"]
+  daemon["agentroomd / CLI command handlers<br/>HTTP API, daemon lifecycle, gateway routing, local ops"]
+  core["@agentroom/core<br/>rooms, agents, task shadows, messages, approvals,<br/>handoffs, normalized events"]
+  store["EventStore<br/>room state and audit history"]
+  runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
+  connectors["Connector ports<br/>work tracker, code host, design, chat"]
+  local[".agentroom/<br/>events.jsonl<br/>SQLite planned"]
+  runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
+  adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
+
+  surfaces --> daemon
+  daemon --> core
+  core --> store
+  core --> runtime
+  core --> connectors
+  store --> local
+  runtime --> runtimes
+  connectors --> adapters
 ```
 
 ## Read The Boundaries

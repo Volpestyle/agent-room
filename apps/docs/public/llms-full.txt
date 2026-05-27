@@ -1,0 +1,1328 @@
+# AgentRoom - Full Docs
+
+> AgentRoom is a local-first, runtime-agnostic coordination plane for long-running coding agents, with provider ports for runtimes, trackers, chat gateways, and local room state.
+
+Generated from the live docs site. Each section below is one page; see the heading and source path for context.
+
+---
+
+# Overview
+
+Source: `README.md` - https://volpestyle.github.io/agent-room/?doc=overview
+
+# AgentRoom
+
+AgentRoom is a local-first, runtime-agnostic coordination plane for long-running coding agents.
+
+The core is built around replaceable provider ports so the same room/task/message/approval system can run on Herdr, tmux, Docker, SSH, ECS, Kubernetes, or a custom runtime without changing core room behavior.
+
+## What is in this repo
+
+```text
+apps/
+  cli/             agent-room CLI
+  daemon/          local HTTP API daemon
+  mcp-server/      stdio MCP server for room messages, tasks, waits, and audit context
+  tui/             interactive terminal dashboard
+  mobile/          Expo/React Native client for daemon API access
+packages/
+  core/            domain model, events, service layer, provider ports
+  storage-jsonl/   append-only JSONL event store for local rooms
+  storage-memory/  in-memory event store for tests and demos
+  runtime-fake/    fake runtime provider used by tests
+  runtime-herdr/   Herdr runtime provider adapter
+  runtime-tmux/    working minimal tmux runtime provider
+  integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/Discord/etc.
+                   includes chat-discord (ChatGatewayProvider, bot or user token)
+skills/
+  agentroom/       enrolled-agent coordination skill
+  agentroom-operator/
+                   operator/lead skill for launching and managing agents
+docs/
+  architecture, coordination, runtime adapters, security, roadmap, ADRs
+examples/
+  configs and role/policy examples
+```
+
+## Documentation
+
+These repo-relative `docs/...` links are intended to open directly in the docs UI:
+
+```bash
+pnpm docs:dev
+```
+
+- [System diagram](docs/DIAGRAM.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Setup guide](docs/SETUP.md)
+- [Configuration model](docs/CONFIGURATION.md)
+- [Room topology](docs/TOPOLOGY.md)
+- [Coordination model](docs/COORDINATION.md)
+- [Runtime providers](docs/RUNTIMES.md)
+- [Security model](docs/SECURITY.md)
+- [Protocol notes](docs/PROTOCOL.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Migration notes](docs/MIGRATION.md)
+
+## Tech stack
+
+- TypeScript across core, CLI, daemon, TUI, MCP server, provider adapters, and the mobile client.
+- Node.js 24 LTS target for the local daemon and CLI.
+- pnpm workspaces for the monorepo.
+- Hono for the daemon HTTP API.
+- MCP SDK for the stdio AgentRoom server.
+- Expo/React Native for the mobile client.
+- Vitest for contract and unit tests.
+- Zod for schemas at process and network boundaries.
+- Work tracker, design, code host, notification, and chat integrations live behind provider ports; AgentRoom keeps local room/audit state.
+- SQLite is still planned as the durable local event store; JSONL is the current event store.
+
+See `docs/ADR/0001-tech-stack.md` for the rationale.
+
+## Quick start
+
+For first-time setup, follow `docs/SETUP.md`. It walks through choosing the runtime provider, work tracker, design integration, messaging surface, Discord/`discord_mcp` usage, and agent skills without assuming a specific stack.
+
+Prerequisites:
+
+```bash
+corepack enable
+corepack prepare pnpm@11 --activate
+pnpm install
+pnpm build
+pnpm test
+```
+
+Initialize a project room:
+
+```bash
+agent-room init --room my-project --runtime RUNTIME
+agent-room post "hello from the room" --channel announcements
+agent-room dm api-impl "Can you take auth callback?"
+agent-room task create "Implement auth callback" --assignee api-impl
+agent-room events --limit 20
+```
+
+`init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, room-owned gateways/routes, and the local event log path. The TUI should act as a human-friendly editor and control plane over the same typed config model, not as a separate hidden topology store; see `docs/CONFIGURATION.md`.
+
+For room layout choices, including one room per project versus one room coordinating agents across many repositories, see `docs/TOPOLOGY.md`.
+
+AgentRoom does not try to replace your durable work tracker. Use the tracker you choose for issues, ownership, workflow status, and durable comments. Use AgentRoom for channel/DM coordination, review transitions, runtime audit, and local task shadows linked to external tracker refs. See `docs/COORDINATION.md`.
+
+Agent-facing room behavior lives in `skills/agentroom/SKILL.md`. Operator and lead-agent launch behavior lives in `skills/agentroom-operator/SKILL.md`.
+
+Run the local API daemon:
+
+```bash
+agent-room daemon
+curl http://127.0.0.1:4317/health
+```
+
+For managed background use, the CLI writes `.agentroom/daemon.pid` and allows human operators plus enrolled `lead`/`gateway` agents to change daemon lifecycle state:
+
+```bash
+agent-room daemon start
+agent-room daemon status
+agent-room daemon stop
+agent-room daemon restart
+```
+
+Daemon lifecycle commands print concise operator messages by default; pass `--json` when scripts or agents need the full health payload.
+
+For iOS/mobile access over a private tailnet, bind the daemon to this machine's Tailscale address. This also enables bearer-token protection for `/v1/*` API routes:
+
+```bash
+agent-room daemon start --tailnet
+agent-room mobile-connect
+```
+
+Enter the printed base URL and API token in the mobile app. The tailnet keeps the connection off the public internet, and the API token prevents other tailnet devices from reading or controlling the room accidentally.
+For one-tap pairing, run `agent-room mobile-connect --copy` and paste the copied `agentroom://connect?...` link on the iPhone with Universal Clipboard, Messages, AirDrop, or Notes. Opening the link in AgentRoom saves the URL and token and connects automatically.
+
+Try the fake runtime smoke test:
+
+```bash
+agent-room runtime fake-smoke
+```
+
+Pick or inspect the runtime:
+
+```bash
+agent-room runtime providers
+agent-room runtime use <runtime>
+agent-room runtime doctor
+```
+
+If `runtime doctor` reports adapter-specific setup requirements, see `docs/RUNTIMES.md`.
+
+Launch an agent using the configured default runtime:
+
+```bash
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room read impl --lines 40
+```
+
+`launch` creates the runtime binding and runs the configured harness command. If you allocate a shell first, the session is not an active coding agent until a coding-agent command starts:
+
+```bash
+agent-room launch impl --harness shell --command "bash" --cwd .
+agent-room send impl "AGENT_COMMAND"
+agent-room read impl --lines 40
+agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
+```
+
+Prefer `agent-room send` over raw provider commands for bound agents so terminal input is recorded in the AgentRoom event log. `read`, `send`, and `stop` require a room binding by default; use `--unaudited` only for manual recovery or sessions that are not AgentRoom-bound.
+
+See `skills/agentroom-operator/SKILL.md` for the full operator playbook.
+
+When the selected runtime supports adoption, the daemon can enroll existing runtime sessions through the adapter. For one-off manual enrollment of a supported pane or shell when the daemon is not running, use `agent-room enroll --json`. Adapter-specific behavior lives in `docs/RUNTIMES.md`.
+
+Open the dashboard:
+
+```bash
+agent-room tui
+```
+
+The TUI starts in a chat view and can launch a lead agent named `operator` when `operator.command` or `AGENTROOM_OPERATOR_COMMAND` is configured. Type normally to ask what is happening or request room actions; use `/help` for slash commands, `/effort [level]` to show or set model effort (`off|minimal|low|medium|high|xhigh`), `Esc` to browse dashboard views, and `Ctrl+G` / `Ctrl+L` to cycle through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
+
+Use `/runtime` or `/runtime herdr` in the TUI to show the configured runtime session namespace, socket path, workspace label, workspace ids, join command, and bound agent count. For Herdr, pass the session namespace to `herdr --session <name>`; ids like `w652aca9fd72f08` are Herdr workspace ids inside that session, not `--session` names. Use `/trace off|tools|full` to control how much of the dashboard agent stream is shown; `full` shows thinking and tool requests for debugging.
+
+Configure the dashboard operator in `.agentroom/config.yaml` or with env overrides:
+
+```yaml
+operator:
+  agentId: operator
+  kind: custom # claude-code, codex, pi, clanky, shell, gemini-cli, custom
+  command: "AGENT_COMMAND"
+```
+
+For Clanky-backed operation, use `kind: clanky` with either the default `clanky --profile <agentId> --home .agentroom/clanky` launch or an explicit command such as `clanky --profile operator --home .agentroom/clanky` or `clanky subagent --profile operator`. The matching env overrides are `AGENTROOM_OPERATOR_KIND`, `AGENTROOM_OPERATOR_COMMAND`, `AGENTROOM_OPERATOR_CWD`, `AGENTROOM_OPERATOR_SESSION_DIR`, and `AGENTROOM_OPERATOR_DISPLAY_NAME`.
+
+Wait for room activity from scripts or handoffs:
+
+```bash
+agent-room wait --message "ready for review" --timeout 300 --json
+agent-room wait --task-status task_xxx:done --timeout 60
+agent-room wait --dm-to-me --since now
+```
+
+`wait` polls the room event log from a cursor and exits 0 on the first matching message, task status change, or DM to `AGENTROOM_AGENT_ID`; it exits non-zero on timeout. `--since now` starts at the moment `wait` begins running.
+
+Stream the room audit log as newline-delimited JSON:
+
+```bash
+agent-room events --follow --json
+```
+
+Runtime selection is config-driven, and each runtime remains an adapter so replacing the terminal multiplexer does not affect the rest of the platform. Adapter-specific setup lives in `docs/RUNTIMES.md`.
+
+Example `.agentroom/config.yaml` shape after choosing a runtime:
+
+```yaml
+room:
+  id: my-project
+  name: My Project
+
+runtime:
+  default: runtime-id
+
+runtimes:
+  runtime-id:
+    type: RUNTIME
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: .agentroom/events.jsonl
+```
+
+## Design goals
+
+1. Herdr is an adapter, not the platform.
+2. Every agent opt-in is explicit.
+3. The event log is source of truth.
+4. Terminal input/output is privileged and auditable.
+5. Agents coordinate through structured room commands plus lightweight channel/DM messages.
+6. The selected external tracker remains canonical; AgentRoom keeps local execution context and audit events.
+7. Third-party chat systems are gateways, not the core state store.
+8. The MVP should run locally on one machine, but the ports should survive a hosted/AWS version.
+
+## Current maturity
+
+This is a runnable local coordination plane. It includes core room/task/message services, the CLI, daemon HTTP API, TUI, MCP server, Expo mobile client, JSONL event storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/stop flows, Herdr pane adoption, wait/events-follow, local task shadows, Linear bridge commands, chat gateway routing/dispatch primitives, Discord gateway config loading, read-only chat gateway route APIs, and mobile tailnet pairing.
+
+The next useful build steps are to add a durable SQLite event store, harden real runtime provider contract tests, make external tracker bridges more ergonomic, add operator CLI support for chat route inspection/mutation, and prototype hosted or multi-host runtime adapters.
+
+---
+
+# Setup Guide
+
+Source: `docs/SETUP.md` - https://volpestyle.github.io/agent-room/?doc=setup
+
+# AgentRoom Setup Guide
+
+AgentRoom is provider-neutral. A working room is assembled from explicit choices:
+
+- runtime provider / terminal multiplexer
+- agent harness command
+- work tracker
+- design provider
+- messaging surface
+- agent skills
+
+Use native AgentRoom messages and events as the source of truth for room coordination. Add external systems only where they are the system of record or the surface you want humans to use.
+
+## 1. Install The Local Tooling
+
+Prerequisites:
+
+- Node.js 24 LTS or newer within the supported engine range
+- Corepack
+- pnpm 11
+- any runtime provider CLI you choose, such as `tmux` or `herdr`
+- any agent harness CLI you choose, such as Codex, Claude Code, Pi, Gemini CLI, or a custom command
+
+From the AgentRoom checkout:
+
+```bash
+corepack enable
+corepack prepare pnpm@11 --activate
+pnpm install
+pnpm build
+pnpm test
+```
+
+## 2. Choose The Room Shape
+
+Pick a room root before initialization. The room root holds `.agentroom/config.yaml`, the event log, daemon metadata, and local task shadows.
+
+- One room per project: best isolation for logs, tasks, policies, and gateways.
+- One HQ room across many repositories: best when one lead coordinates related work in several repos.
+- Hybrid: HQ for planning plus project rooms for larger execution swarms.
+
+See `docs/TOPOLOGY.md` for the tradeoffs.
+
+`.agentroom/config.yaml` is the durable source of truth for room topology. The TUI and CLI should edit the same typed config model rather than keeping separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env override, and secret-handling rules.
+
+## 3. Choose The Runtime Provider
+
+Initialize with an explicit runtime. Do not rely on a generated default:
+
+```bash
+agent-room init --room my-project --runtime RUNTIME
+agent-room runtime providers
+agent-room runtime doctor
+```
+
+Runtime choices:
+
+- `tmux`: local terminal multiplexer via `@agentroom/runtime-tmux`.
+- `herdr`: Herdr adapter via `@agentroom/runtime-herdr`.
+- `fake`: contract tests and smoke checks only; not a real agent runtime.
+
+Runtime-specific setup belongs in `.agentroom/config.yaml` and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
+
+## 4. Choose The Agent Harness
+
+Launching an agent requires an explicit harness kind and command:
+
+```bash
+agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room read lead --lines 40
+```
+
+Supported harness kinds are `claude-code`, `codex`, `pi`, `gemini-cli`, `shell`, and `custom`. `shell` allocates a bound shell; it is not an active coding agent until you start one inside it with `agent-room send`.
+
+If you use the dashboard operator, configure it instead of relying on an implicit harness:
+
+```yaml
+operator:
+  agentId: operator
+  kind: HARNESS_KIND
+  command: "AGENT_COMMAND"
+```
+
+## 5. Choose The Work Tracker
+
+AgentRoom local tasks are execution shadows. Choose one durable work tracker for issues, ownership, workflow status, acceptance criteria, and long-lived comments.
+
+Options:
+
+- Native only: use AgentRoom local tasks without an external tracker.
+- Linear: use the current `@agentroom/worktracker-linear` bridge and `linear-issue` refs.
+- GitHub Issues, Jira, or custom: keep the tracker as the durable source and add or implement the matching provider/refs before expecting bridge commands to update it.
+
+For Linear-backed rooms:
+
+```bash
+agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
+agent-room task link-linear task_implement_auth_callback_xxx ENG-123
+agent-room tracker health
+```
+
+If the selected tracker is unavailable, agents must report `tracker_update_skipped` with the reason. They should not pretend a tracker update happened.
+
+## 6. Choose The Design Integration
+
+Design is optional. If design data matters for the room, choose one source of truth:
+
+- Native only: link screenshots, files, or URLs in room messages and task refs.
+- Figma: use the `DesignProvider` port and `@agentroom/design-figma` scaffold where available; use Figma MCP/tools for direct Figma operations until the AgentRoom adapter workflow is complete.
+- Custom: implement the `DesignProvider` port and keep provider-specific language out of core room guidance.
+
+Workers should discuss design work through AgentRoom messages and task refs, not by assuming every room uses Figma.
+
+## 7. Choose The Messaging Surface
+
+Native-only rooms need no external chat setup:
+
+```bash
+agent-room post "Planning is done" --channel announcements
+agent-room dm reviewer "Ready for review"
+agent-room messages --channel implementation --limit 20
+agent-room wait --dm-to-me --timeout 600 --json
+```
+
+If you add an external messaging surface, choose ownership per conversation:
+
+- Room-owned gateway: `agentroomd` owns the token and route table for a channel/DM.
+- Agent-owned gateway: one agent owns its own connector identity and may also participate in AgentRoom.
+
+For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in `.agentroom/config.yaml`; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
+
+See `docs/ADR/0003-chat-gateway-port.md` for gateway topology and ownership details.
+
+## 8. Install Or Expose Skills
+
+AgentRoom has two local skills:
+
+- `skills/agentroom-operator/SKILL.md`: outside-the-room operator and lead-agent playbook.
+- `skills/agentroom/SKILL.md`: enrolled worker/reviewer behavior.
+
+Expose these skills to the agent harnesses you launch using that harness's normal skill mechanism. If a harness does not support skills, include the relevant playbook text in the launch prompt and verify `agent-room whoami --json` before work begins.
+
+## 9. Choose Operator Clients
+
+The daemon can be driven from several local clients:
+
+- CLI: `agent-room ...` commands read and write the same room event log.
+- TUI: `agent-room tui` opens the terminal dashboard against `AGENTROOM_DAEMON` or `--daemon`.
+- MCP: `agentroom-mcp` exposes room context, messages, tasks, waits, and audit reads to MCP-capable agents.
+- Mobile: `apps/mobile` connects to the daemon API. For iPhone access over Tailscale, start with `agent-room daemon start --tailnet`, then run `agent-room mobile-connect --copy` and open the `agentroom://connect?...` link on the phone.
+
+When `AGENTROOM_API_TOKEN` is set, or when the daemon is started with `--tailnet`, `/v1/*` routes require `Authorization: Bearer <token>` or `x-agentroom-api-token`.
+
+## 10. Validate The Room
+
+After choosing the pieces:
+
+```bash
+agent-room runtime doctor
+agent-room daemon start
+agent-room daemon status
+agent-room mobile-connect --json
+agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room read smoke --lines 40
+agent-room post "room ready" --channel announcements
+agent-room events --limit 20
+```
+
+Stop or reconfigure anything that fails health checks before launching a real multi-agent workflow.
+
+---
+
+# Configuration Model
+
+Source: `docs/CONFIGURATION.md` - https://volpestyle.github.io/agent-room/?doc=configuration
+
+# Configuration Model
+
+AgentRoom uses one typed durable configuration model with multiple editing
+surfaces.
+
+## Source Of Truth
+
+`.agentroom/config.yaml` is the durable source of truth for room topology:
+
+- room id and name
+- default runtime provider and runtime adapter settings
+- dashboard operator defaults
+- room-owned chat gateways and routes
+- event-store location
+
+The file is parsed, validated, and formatted by `@agentroom/config`. Hand edits,
+CLI commands, daemon APIs, and future TUI settings screens should all round-trip
+through that same package.
+
+The event log is not static configuration. `.agentroom/events.jsonl` records
+runtime bindings, messages, task shadows, chat ingress/egress, and audit events.
+It can rebuild room views, but it should not become the place where topology is
+configured.
+
+Secrets do not belong in `.agentroom/config.yaml`. Store references such as
+`tokenEnv: AGENTROOM_DISCORD_TOKEN`, then supply the secret through the launch
+environment or a dedicated auth store. The TUI's model credentials live in
+`~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
+room topology.
+
+## Editing Surfaces
+
+The intended product model is:
+
+```text
+.agentroom/config.yaml  durable, reviewable, headless
+AgentRoom TUI           human-friendly editor, status, and lifecycle controls
+CLI / daemon API        scriptable operations over the same config model
+```
+
+The TUI should be able to configure all durable AgentRoom settings over time,
+but it must not create a second hidden topology store. A TUI config editor should
+load the YAML through `@agentroom/config`, show the effective value and source,
+write back with `writeAgentRoomConfig`, and ask the daemon to reload or restart
+affected providers.
+
+Until a TUI editor exists for a setting, hand-edit `.agentroom/config.yaml` or
+use the existing CLI command that writes it.
+
+## Environment Overrides
+
+Environment variables are for secrets, process-local deployment choices, and
+explicit overrides where a feature documents them. Examples include daemon
+binding (`AGENTROOM_HOST`, `AGENTROOM_PORT`, `AGENTROOM_API_TOKEN`), dashboard
+operator overrides, and gateway token env vars.
+
+Do not add broad implicit env overrides for every config field. If a setting
+supports an env override, document the precedence next to the setting and show
+it in status output.
+
+## Chat Gateway Example
+
+Room-owned Discord is configured in YAML and supplied a token by env:
+
+```yaml
+chat:
+  gateways:
+    discord-main:
+      type: discord
+      tokenEnv: AGENTROOM_DISCORD_TOKEN
+      credentialKind: bot-token
+      webhookMode: true
+  routes:
+    main-lead:
+      provider: discord-main
+      conversationId: "1234567890"
+      conversationKind: channel
+      target:
+        type: agent-stdin
+        agentId: clanky-lead
+      outbound:
+        type: agent-message
+        agentId: clanky-lead
+        channelId: implementation
+```
+
+One external conversation should still have exactly one owner. If Clanky owns a
+Discord DM or channel through its profile credential, do not also route that
+same conversation through an AgentRoom room-owned gateway.
+
+## Rule For New Settings
+
+Every new durable setting should answer four questions in code and docs:
+
+1. Which file or store owns it?
+2. Which parser/validator owns the schema?
+3. Which TUI or CLI surface edits it?
+4. Which env vars, if any, override it?
+
+If the answer is "only the TUI remembers it," the setting is session-local, not
+durable configuration.
+
+---
+
+# Room Topology
+
+Source: `docs/TOPOLOGY.md` - https://volpestyle.github.io/agent-room/?doc=topology
+
+# Room Topology
+
+AgentRoom state is directory-scoped. A room lives at the directory that contains
+`.agentroom/config.yaml`.
+
+```text
+/path/to/workspace/
+  .agentroom/
+    config.yaml
+    events.jsonl
+    daemon.pid
+    agents/
+```
+
+The room root is the coordination root. It is not a filesystem jail. Agents
+launched from that room can work in any repository by setting `--cwd`.
+
+## Room Root
+
+The CLI discovers the room from the current working directory:
+
+```bash
+cd /path/to/workspace
+agent-room daemon status
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+```
+
+`agent-room init --room ROOM_ID --runtime RUNTIME` creates
+`.agentroom/config.yaml` in the current directory. That config selects the room
+id, default runtime provider, runtime settings, and local event log path.
+
+Use a dedicated room directory or a project repository root by default. A room
+at the user's home directory is possible, but it makes all room state global:
+messages, tasks, runtime bindings, daemon metadata, policies, and logs all mix
+together unless you impose discipline manually.
+
+## Agent Working Directories
+
+An agent's working directory is independent from the room root:
+
+```bash
+cd /Users/jamesvolpe/dev/agents/agent-room
+
+agent-room launch portfolio-impl \
+  --harness HARNESS_KIND \
+  --command "AGENT_COMMAND" \
+  --cwd /Users/jamesvolpe/dev/portfolio
+
+agent-room launch browser-reviewer \
+  --harness HARNESS_KIND \
+  --command "AGENT_COMMAND" \
+  --cwd /Users/jamesvolpe/dev/agent-browser
+```
+
+Both agents share the same room messages, tasks, audit log, and operator
+controls. Each agent starts in its own target repository.
+
+Always pass `--cwd` when the agent should work somewhere other than the room
+root.
+
+## Common Topologies
+
+### One Room Per Project
+
+Use this when projects need separate logs, tasks, permissions, chat gateways, or
+lifecycle.
+
+```bash
+cd /Users/jamesvolpe/dev/project-a
+agent-room init --room project-a --runtime RUNTIME
+agent-room daemon start --port 4317
+
+cd /Users/jamesvolpe/dev/project-b
+agent-room init --room project-b --runtime RUNTIME
+agent-room daemon start --port 4318
+
+cd /Users/jamesvolpe/dev/project-c
+agent-room init --room project-c --runtime RUNTIME
+agent-room daemon start --port 4319
+```
+
+Connect to each daemon explicitly:
+
+```bash
+agent-room tui --daemon http://127.0.0.1:4317
+agent-room tui --daemon http://127.0.0.1:4318
+agent-room tui --daemon http://127.0.0.1:4319
+```
+
+This is the cleanest model for three independent swarms.
+
+### One HQ Room Across Many Projects
+
+Use this when one lead/operator should coordinate related work across several
+repositories.
+
+```bash
+cd /Users/jamesvolpe/dev/agents/agent-room
+agent-room daemon start
+
+agent-room launch api-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/api
+agent-room launch web-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/frontend
+agent-room launch reviewer --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/review-tools
+```
+
+This keeps all room messages, local tasks, handoffs, and runtime audit events in
+one place. It is useful for cross-repository work, but weaker for isolation.
+
+### Hybrid
+
+Use a stable HQ room for cross-project planning, plus project-specific rooms for
+larger execution swarms. The HQ can track high-level coordination while each
+project room keeps its own runtime bindings and detailed audit log.
+
+## Runtime Placement
+
+Room topology and runtime placement are related but separate.
+
+With Herdr, AgentRoom commonly uses one broad Herdr session named `agentroom`
+and one workspace per room or workstream. The generated config can also use a
+shared workspace with a pane grid.
+
+The Herdr session is the `--session` value you attach to. The workspace is a
+visual/runtime grouping inside that session. Workspace ids such as
+`w652aca9fd72f08` may show up as runtime agent `sessionId` values because the
+runtime provider is describing where the pane lives, but those ids are not Herdr
+session namespaces. Use `/runtime herdr` in the TUI or `agent-room runtime
+doctor --json` to see the session namespace and socket before attaching.
+
+For fresh work in a shared Herdr session, pass an explicit workspace label:
+
+```bash
+agent-room launch impl-a --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
+agent-room launch impl-b --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
+```
+
+Use distinct daemon ports for distinct AgentRoom daemons. Use distinct Herdr
+workspace labels when you want separate visual/runtime grouping inside the same
+Herdr session.
+
+## Choosing A Shape
+
+Prefer one project room when:
+
+- the team, logs, tasks, or chat gateway belong to one project
+- work should be easy to stop, archive, or inspect independently
+- the project has its own policies or reviewer flow
+
+Prefer one HQ room when:
+
+- one lead should coordinate multiple repositories
+- all agents are working on a single cross-repository objective
+- shared channel history is more valuable than isolation
+
+Prefer multiple rooms when:
+
+- several swarms should run at the same time without shared task state
+- different external conversations or gateway routes should attach to each room
+- stopping or restarting one swarm should not affect the others
+
+---
+
+# Coordination Model
+
+Source: `docs/COORDINATION.md` - https://volpestyle.github.io/agent-room/?doc=coordination
+
+# Coordination Model
+
+AgentRoom has two coordination layers with different jobs.
+
+For enrolled agents, this guidance is operationalized in `skills/agentroom/SKILL.md`.
+
+## External Work Tracker
+
+Choose one durable work tracker for planned work:
+
+- issues
+- ownership
+- priority
+- workflow status
+- acceptance criteria
+- durable implementation notes
+- review comments that should survive outside the room
+
+Agents should use the selected tracker through that tracker's MCP server, CLI, skill, or AgentRoom provider bridge. AgentRoom should not reimplement an issue database or workflow engine.
+
+The current concrete bridge is Linear (`@agentroom/worktracker-linear` and `linear-issue` refs). Other trackers should be integrated through their own provider or represented as explicit refs until a bridge exists.
+
+## AgentRoom Is The Room
+
+AgentRoom is the native coordination plane around active agent execution:
+
+- channel messages
+- direct messages
+- task-specific threads
+- handoffs
+- short status updates
+- human questions
+- runtime launch/input/output audit events
+- local task shadows that can link active agent work to external tracker refs
+
+These messages are intentionally lighter than tracker comments. Use them for coworker-style coordination that would be noisy in the durable tracker.
+
+## What To Put Where
+
+Put it in the selected work tracker when it changes the durable work record:
+
+- a new task or bug exists
+- ownership changes
+- status changes
+- acceptance criteria changes
+- important implementation or review context should stay with the issue
+- the human needs to see it in the normal project tracker
+
+Put it in AgentRoom when it coordinates active execution:
+
+- "I am editing `packages/core` now"
+- "Reviewer, look at this output"
+- "Tests are running in agent `qa-1`"
+- "Do not interrupt `impl-2`; it is applying a patch"
+- runtime input/output audit
+- short-lived channel or DM chatter
+
+If a room message becomes important to the durable work record, post a concise tracker comment through the selected tracker integration and keep the AgentRoom message as local execution context.
+
+## Local Task Shadows
+
+AgentRoom can keep local task shadows so agents can attach runtime state and room messages to a piece of work. These local tasks should normally link to the selected tracker when a durable issue exists.
+
+Linear example:
+
+```bash
+agent-room task create "Implement runtime audit" --linear ENG-123
+agent-room task link-linear task_implement_runtime_audit_xxx ENG-123
+```
+
+New local task IDs include a creation-time title slug plus a UUID suffix, for example `task_implement_runtime_audit_<uuid>`, so logs and commands stay readable without losing uniqueness.
+
+When an external tracker ref is present, treat that tracker as canonical and AgentRoom as the local room/audit layer.
+
+## Tracker Update Failures
+
+If the selected tracker MCP, CLI, skill, bridge, or credentials are unavailable, agents must report `tracker_update_skipped` with the reason. Do not silently pretend a tracker update happened.
+
+---
+
+# Runtime Providers
+
+Source: `docs/RUNTIMES.md` - https://volpestyle.github.io/agent-room/?doc=runtimes
+
+# Runtime Providers
+
+AgentRoom core is runtime-agnostic. Normal operator and agent workflows should use AgentRoom commands:
+
+```bash
+agent-room runtime providers
+agent-room runtime use <runtime>
+agent-room runtime doctor
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room send impl "message"
+agent-room read impl --lines 40
+agent-room stop impl
+```
+
+Provider-specific commands belong in adapter work, adapter docs, or manual recovery. Do not make worker agents depend on a specific terminal multiplexer.
+
+Runtime `read`, `send`, and `stop` require an AgentRoom binding by default so input/output stays audited. `--unaudited` is reserved for manual recovery against non-bound runtime sessions.
+
+## Herdr Adapter
+
+Herdr support lives behind `@agentroom/runtime-herdr`. If Herdr is the selected runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
+
+```bash
+herdr session attach agentroom
+agent-room runtime doctor
+```
+
+For Herdr configs generated by `agent-room init --room my-project --runtime herdr`, the Herdr session is `agentroom` and the Herdr workspace is `my-project`. Override the Herdr session with `agent-room init --runtime-session <name>` or by editing `.agentroom/config.yaml`.
+
+### Herdr session vs workspace
+
+Keep these names separate:
+
+- **Herdr session namespace**: the Herdr server/socket namespace. This is the value to pass to `herdr --session <name>` or `herdr-dev --session <name>`.
+- **Herdr workspace label**: the human label AgentRoom uses to group a room or workstream inside that Herdr session.
+- **Herdr workspace id**: an internal id such as `w652aca9fd72f08`. This can appear as a runtime agent `sessionId`, but it is not a Herdr `--session` value.
+- **Herdr pane id**: the binding id AgentRoom uses for read/send/stop.
+
+If the Agents view shows a value like `session=w652aca9fd72f08`, read that as “workspace id inside the configured Herdr session”, not as the command to join Herdr. To join the Herdr server for the room, use the configured session namespace:
+
+```bash
+herdr --session agentroom
+# or, when using a local dev binary:
+herdr-dev --session agentroom
+```
+
+To inspect the current coordinates without guessing:
+
+```bash
+agent-room runtime doctor --json
+herdr session list --json
+herdr --session agentroom status
+```
+
+Inside the AgentRoom TUI, use `/runtime` or `/runtime herdr`. The Overview view also shows the runtime session namespace, socket path, workspace label, workspace ids, and join command when the daemon exposes provider metadata.
+
+The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, point `cli` at the built binary or at a real wrapper script on `PATH`:
+
+```yaml
+runtimes:
+  herdr:
+    type: herdr
+    session: agentroom
+    cli: /Users/jamesvolpe/dev/herdr/target/debug/herdr
+```
+
+Herdr layout is config-driven:
+
+- `workspace-per-agent`: each agent gets a dedicated Herdr workspace.
+- `tab-per-agent`: agents share a Herdr workspace, with one tab per agent.
+- `pane-grid`: agents share a Herdr workspace, filling tabs up to `panesPerTab`. The default generated config uses two panes per tab, splits the existing agent pane to the right, and balances the tab.
+
+For Herdr, `launch` can override placement without editing config:
+
+```bash
+agent-room launch lead --placement workspace --harness shell --command "bash"
+agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash"
+agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash"
+```
+
+For fresh pane-grid work, use a workspace label that is unique to the team or task:
+
+```bash
+agent-room launch impl-a --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch impl-b --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+```
+
+This avoids crowding new agents into stale panes from an older Herdr workspace. Clean up old Herdr workspaces or panes only when you have verified they are no longer running useful work; Herdr supports `workspace close` and `pane close` for manual recovery.
+
+### Adopting human-opened panes
+
+The Herdr adapter implements `adoptAgent`. When the AgentRoom daemon is running with a Herdr-backed room, it opens a long-lived subscription to the configured Herdr session's socket and listens for `pane.created` and `pane.closed` events. New panes are auto-enrolled with a stable agent id `herdr:<session>:<pane>`; closed panes transition their bound agent to `offline`. Adoption does not execute a harness command; whatever shell or harness is already running in the pane stays running.
+
+For one-off manual enrollment when the daemon is not running, use `agent-room enroll --json` from inside the pane.
+
+## tmux Adapter
+
+tmux support lives behind `@agentroom/runtime-tmux`.
+
+```bash
+agent-room runtime use tmux
+agent-room launch demo-tmux --runtime tmux --harness shell --command "bash" --cwd .
+```
+
+---
+
+# Protocol Notes
+
+Source: `docs/PROTOCOL.md` - https://volpestyle.github.io/agent-room/?doc=protocol
+
+# AgentRoom Protocol Notes
+
+## Agent opt-in
+
+A process is enrolled only when launched by AgentRoom or explicitly configured to join.
+
+Expected environment variables:
+
+```bash
+AGENTROOM=1
+AGENTROOM_AGENT_ID=api-impl
+AGENTROOM_ROOM_ID=my-project
+AGENTROOM_ROLE=implementer
+AGENTROOM_DAEMON=http://127.0.0.1:4317
+AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
+```
+
+`agent-room whoami --json` resolves identity from `AGENTROOM_AGENT_ID` first. If that is not set, it can resolve a Herdr pane that has already been adopted by the daemon or enrolled with `agent-room enroll`.
+
+## Structured actions
+
+Agents should prefer structured commands over free-form chat. The canonical local command is `agent-room`:
+
+```bash
+agent-room whoami --json
+agent-room post "Starting task" --channel implementation --kind status
+agent-room dm reviewer "Ready for review on ENG-123"
+agent-room messages --channel implementation --limit 20
+agent-room task show AR-42 --json
+agent-room task claim AR-42
+agent-room task status AR-42 ready-for-review --summary "Implemented callback and tests pass"
+agent-room ask-human "Which redirect URI should staging use?" --task AR-42
+agent-room block AR-42 --reason "Need staging redirect URI"
+agent-room done AR-42 --summary "Implemented and tested"
+```
+
+Use the selected external tracker MCP/CLI/skill/provider as the canonical work tracker. AgentRoom task IDs are local shadows unless explicitly linked to an external tracker ref. If tracker tools are unavailable when a tracker update is required, report `tracker_update_skipped` with the reason.
+
+Current Linear bridge commands:
+
+```bash
+agent-room task link-linear AR-42 ENG-123
+agent-room task comment AR-42 "Implemented callback and tests pass"
+```
+
+Use `skills/agentroom/SKILL.md` as the enrolled-agent behavior playbook.
+
+---
+
+# Security Model
+
+Source: `docs/SECURITY.md` - https://volpestyle.github.io/agent-room/?doc=security
+
+# Security model
+
+AgentRoom can read terminal output, send terminal input, route credentials-adjacent data, and trigger external tool actions. Treat it as privileged local automation.
+
+## Principles
+
+- Runtime provider sockets stay local.
+- Remote clients talk to `agentroomd`, not directly to the runtime.
+- Every enrolled agent gets a scoped token.
+- Normal `agent-room read`, `agent-room send`, and `agent-room stop` calls require an AgentRoom runtime binding so terminal input/output can be audited.
+- `--unaudited` runtime access is manual recovery only and should not be used for normal operator or worker flows.
+- Third-party gateways should receive summaries by default, not full transcripts.
+- Dangerous actions require approvals.
+- The default install is local-only.
+
+## Dangerous actions
+
+Require approvals, either by current local operator policy or by future daemon-enforced policy, for:
+
+- merging PRs
+- deploying
+- deleting worktrees with uncommitted changes
+- sending terminal input to another agent
+- exposing full transcripts to Discord/Telegram
+- installing dependencies
+- running migrations
+- spending money
+
+## Secrets
+
+Do not paste `.env`, API keys, OAuth tokens, SSH keys, or cloud credentials into room messages. Add redaction before exposing transcripts to mobile or bot gateways.
+
+---
+
+# Architecture
+
+Source: `docs/ARCHITECTURE.md` - https://volpestyle.github.io/agent-room/?doc=architecture
+
+# Architecture
+
+For a docs-UI-friendly end-to-end map of the surfaces, daemon, core, ports, adapters, and external systems, see [AgentRoom Diagram](docs/DIAGRAM.md).
+
+```text
+Human UIs / bots / custom app
+             │
+             ▼
+        agentroomd
+             │
+   ┌─────────┼─────────┐
+   ▼         ▼         ▼
+EventStore Runtime   Connectors
+          Provider   GitHub/Linear/Figma/etc.
+             │
+   ┌─────────┼──────────────┐
+   ▼         ▼              ▼
+ Herdr     tmux         future ECS/K8s
+```
+
+## Core domain
+
+The core domain owns:
+
+- rooms
+- agents
+- local task shadows linked to external tracker refs
+- channel and direct messages
+- threads
+- approvals
+- human escalations
+- decisions
+- handoffs
+- normalized events
+
+The core domain does not own terminal multiplexing, cloud scheduling, durable work tracking, code hosting, design data, or notification delivery.
+
+## Coordination Split
+
+AgentRoom is not a durable work tracker replacement.
+
+The selected external tracker is canonical for issues, assignment, priority, workflow status, and durable comments. Agents should use that tracker's MCP server, CLI, skill, or AgentRoom provider bridge for that layer.
+
+AgentRoom owns the local room around active execution: channel messages, direct messages, handoffs, human questions, runtime launch/input/output audit, and local task shadows that can point to external tracker issues through refs.
+
+## Ports
+
+AgentRoom talks to the world through ports:
+
+- `RuntimeProvider`
+- `EventStore`
+- `WorkTrackerProvider`
+- `CodeHostProvider`
+- `DesignProvider`
+- `NotificationProvider`
+- `ChatGatewayProvider`
+
+`NotificationProvider` is fire-and-forget alerting (one-way, no inbound). `ChatGatewayProvider` is a bidirectional chat surface that can attach a Discord/Telegram/SMS/etc. conversation to a room channel, a directed room message, or a runtime-backed agent's input. See `docs/ADR/0003-chat-gateway-port.md`.
+
+## Adapters
+
+Adapters implement ports:
+
+- `runtime-herdr`
+- `runtime-tmux`
+- `runtime-fake`
+- `worktracker-linear`
+- `codehost-github`
+- `design-figma`
+- `notify-telegram`
+- `notify-discord`
+- `chat-discord` (`ChatGatewayProvider`, bot-token and user-token modes)
+
+## Configuration Model
+
+AgentRoom's durable topology lives in `.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+
+The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
+
+## Chat gateways
+
+Chat gateways are not the core state store; rooms and the event log remain authoritative. A gateway attaches an external conversation to room state through two pieces:
+
+- the adapter (`ChatGatewayProvider`) — owns the socket, credential mode, inbound normalization, and outbound send.
+- the router (`ChatGatewayRouter`, in core) — consumes normalized inbound messages and routes them to `room-channel | agent-dm | agent-stdin` targets via a static route table keyed by `{ providerId, conversationId, threadId? }`.
+
+### Room Participation And Gateway Ownership
+
+Room participation and chat gateway ownership are separate axes:
+
+- An agent can run outside AgentRoom or participate in a room.
+- Each external conversation is owned either by an agent process or by `agentroomd`.
+
+Agent-owned Discord preserves the single-Clanky-with-its-own-Discord identity and can coexist with AgentRoom participation. Room-owned Discord uses the room connector identity, flows through `ChatGatewayRouter`, and is the right fit for shared public channels or one-bot-to-many-agents fanout.
+
+Lead vs worker is configuration, not agent code. Pointing a room-owned route at `agent-stdin:<id>` makes that agent the lead for that conversation; the rest of the room is reached through AgentRoom native messaging from the lead.
+
+One Discord channel/DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
+
+### Outbound dispatcher
+
+`ChatGatewayRouter` covers inbound only. `ChatGatewayOutboundDispatcher` covers the symmetric outbound primitive (room events -> `provider.sendMessage()`). The daemon loads chat gateway config, exposes read-only `/v1/chat/gateways` and `/v1/chat/routes` inspection APIs, and dispatches messages posted through its HTTP API; event-log subscription for messages posted by separate CLI processes is still pending.
+
+### Multi-agent attribution (Discord-specific)
+
+In a multi-agent room mirrored to Discord, webhook-mode outbound sends use per-message `username` + `avatar_url` so distinct agent identities stay visible under a single bot token. Bot permissions must include `Manage Webhooks` on target channels. Other adapters implement equivalent attribution per platform constraints.
+
+### What is built vs planned
+
+Built: port, Discord adapter (bot + user token + webhook-mode posting), inbound router, outbound dispatcher primitive, daemon config loading and gateway instantiation, and daemon read APIs for gateways/routes.
+Planned: operator CLI for route inspection/mutation and daemon event-log subscription for CLI-originated messages.
+
+## Runtime capability negotiation
+
+Each runtime provider declares capabilities. The CLI, daemon, mobile app, and lead agent should check capabilities before offering actions such as attach, send input, stream events, or read semantic state.
+
+## Event-first model
+
+Everything important becomes an event. Materialized views are rebuildable.
+
+For local MVPs, JSONL is enough. For production local use, add SQLite. For multi-host, use Postgres and an event bus. External tracker state remains in the tracker; AgentRoom records refs and audit events rather than duplicating the tracker database.
+
+---
+
+# System Diagram
+
+Source: `docs/DIAGRAM.md` - https://volpestyle.github.io/agent-room/?doc=diagram
+
+# AgentRoom Diagram
+
+This is the docs-UI-friendly map of the AgentRoom system boundaries.
+
+```mermaid
+flowchart TB
+  surfaces["User-facing surfaces<br/>humans, lead agents, enrolled workers, chat participants<br/>CLI, TUI, MCP, mobile app, gateways"]
+  daemon["agentroomd / CLI command handlers<br/>HTTP API, daemon lifecycle, gateway routing, local ops"]
+  core["@agentroom/core<br/>rooms, agents, task shadows, messages, approvals,<br/>handoffs, normalized events"]
+  store["EventStore<br/>room state and audit history"]
+  runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
+  connectors["Connector ports<br/>work tracker, code host, design, chat"]
+  local[".agentroom/<br/>events.jsonl<br/>SQLite planned"]
+  runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
+  adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
+
+  surfaces --> daemon
+  daemon --> core
+  core --> store
+  core --> runtime
+  core --> connectors
+  store --> local
+  runtime --> runtimes
+  connectors --> adapters
+```
+
+## Read The Boundaries
+
+- `.agentroom/config.yaml` owns durable room topology: runtime providers, room-owned gateways and routes, dashboard operator defaults, and storage settings.
+- The event log owns room state and audit history: messages, local task shadows, runtime bindings, chat ingress/egress, and terminal input/output observations.
+- Runtime providers own process placement and terminal control. AgentRoom uses provider capabilities instead of assuming Herdr, tmux, Docker, SSH, or a hosted scheduler.
+- Connector ports keep durable external systems external. The work tracker remains canonical for issues and workflow; AgentRoom keeps local execution context and refs.
+
+## Primary Flow
+
+1. A human, lead agent, MCP-capable agent, mobile client, or chat gateway sends a room action.
+2. `agentroomd` or the CLI loads `.agentroom/config.yaml`, validates the request, and calls `@agentroom/core`.
+3. Core appends normalized events to the `EventStore` and updates rebuildable views.
+4. Runtime actions go through `RuntimeProvider` adapters so `launch`, `read`, `send`, and `stop` stay audited.
+5. External tracker, code host, design, notification, and chat systems are reached through connector ports when the room explicitly configures them.
+
+For the written model, see [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md), [Coordination](docs/COORDINATION.md), and [Runtime Providers](docs/RUNTIMES.md).
+
+---
+
+# Roadmap
+
+Source: `docs/ROADMAP.md` - https://volpestyle.github.io/agent-room/?doc=roadmap
+
+# Roadmap
+
+See [`MILESTONES.md`](./MILESTONES.md) for the dated log of end-to-end
+moments.
+
+## Built
+
+- Runtime provider port with fake, tmux, and Herdr adapters.
+- JSONL event store and in-memory test store.
+- Native channel/DM messages, wait/event streaming, human escalations, and local task shadows with external refs.
+- CLI for init, daemon lifecycle, mobile pairing, TUI launch, messages, tasks, tracker commands, runtime selection, launch/enroll/read/send/stop, and audit events.
+- Hono daemon with health, dashboard config, events, messages, tasks, runtime providers/agents/input/output, chat gateway route inspection, and bearer-token protection for `/v1/*` when configured.
+- Interactive TUI dashboard with chat, overview, agents, tasks, messages, events, slash-command templates, and optional operator bootstrap.
+- Expo/React Native mobile client for health, tasks, messages, events, runtime providers/agents, room posting, and runtime input.
+- MCP stdio server for room context, messages, events, posts, DMs, task shadows, and waits.
+- Chat gateway port, Discord adapter, inbound router, outbound dispatcher, webhook-mode attribution, and daemon config loading.
+- Herdr pane adoption for daemon-observed panes and one-off `agent-room enroll`.
+
+## Next
+
+- Add SQLite as the durable local event store while preserving event replay.
+- Harden tmux/Herdr provider contract tests against real runtime sessions.
+- Add operator CLI and TUI support for editing `.agentroom/config.yaml` through `@agentroom/config`, starting with chat gateway route inspection and mutation.
+- Improve Linear and future tracker bridge ergonomics, including clearer skipped-update reporting.
+- Add richer approval enforcement beyond local policy files.
+- Expand mobile/TUI controls for task editing, launch forms, config editing, and chat gateway status.
+- Prototype SSH, Docker, and hosted/cloud runtime providers.
+
+---
+
+# Milestones
+
+Source: `docs/MILESTONES.md` - https://volpestyle.github.io/agent-room/?doc=milestones
+
+# Milestones
+
+A dated log of moments where the AgentRoom system did something end-to-end
+that it could not do before. Each entry names the session, the artifacts
+that prove it, and what is explicitly not yet wired.
+
+## 2026-05-26 — Passive multi-pane dashboard over live Codex/Claude work
+
+First session where a lead agent in the AgentRoom TUI produced an
+accurate per-pane status across seven parallel runtime panes in one turn,
+while real coding work landed on disk from agents running in those panes.
+
+### Topology
+
+- Operator: Clanky against the `agent-room` profile.
+- Lead agent: `dashboard` (openai-codex / gpt-5.5), joining and rejoining
+  across effort tiers (low → medium → xhigh) before producing the
+  consolidated status read.
+- Runtime: `herdr` provider, two workspaces.
+  - `w652ad8185cafa2-1..6` — six panes (Vite docs server, idle pane,
+    Claude on a Mermaid theme fix, the TUI itself, Codex on a duplicate
+    ElevenLabs TTS root-cause, Codex on configuration contracts).
+  - `w652c48cca32463-1` — `implementer-1` codex pane, joined at
+    2026-05-27T03:53Z.
+
+### What worked
+
+- Single-turn fan-out: the dashboard issued seven `read_runtime_agent`
+  calls in parallel and synthesized them into a per-pane status that
+  matched ground truth in `events.jsonl`.
+- Event pipeline healthy across the session window: `agent.joined`,
+  `runtime.bound`, `agent.heartbeat`, `message.posted`, and
+  `runtime.output_observed` all firing as expected; ~9k events tailed
+  with no schema drift.
+- Real artifacts produced by agents inside the observed panes:
+  - `docs/CONFIGURATION.md` (commit `0262ffb`, "Expand AgentRoom
+    dashboard and config surfaces").
+  - `clanky-pi/docs/configuration.md` (commit `2e5c92b`, "Document
+    Clanky configuration ownership").
+  - Mermaid dark/light theme fix in `clanky-pi` (commit `7148f23`).
+  - Evidence-backed root-cause writeup for the duplicate ElevenLabs TTS
+    bug, produced in pane `w652ad8185cafa2-5` from `clankvox` buffer
+    logs.
+
+### What is explicitly not yet wired
+
+- The drive half of the loop. During the session there were zero
+  `runtime.input_sent` events to any bound pane; the agents in panes 5
+  and 6 ran under direct user steering, not under dashboard dispatch.
+  The single post-session `runtime.input_sent` event (`"hi"` to
+  `operator`, 2026-05-27T00:46Z) is an input-path smoke test, not a
+  programmatic dispatch.
+
+### Known cracks observed in the same window
+
+- Stale pane polling: `daemon.log` filled with `pane_not_found` for
+  `w652aca9fd72f08-8` at 160-line read cadence. Pane should be dropped
+  from the observer after two consecutive `pane_not_found` results.
+- Herdr observer socket lookup wrong:
+  `[herdr-observer] failed to start … ENOENT
+/Users/jamesvolpe/.config/herdr/sessions/agent-room/herdr.sock`. Events
+  still flow via CLI fallback, so this is silent degradation.
+- Unrelated Vite import error in `clanky-pi/apps/docs/src/content.ts:3`
+  (`../../../docs/demo.md?raw`) recycled into the room's output stream
+  for ~30 minutes. Not an AgentRoom bug, but the room is faithfully
+  logging it forever.
+
+### Evidence
+
+- `.agentroom/events.jsonl` (tail of session window).
+- `.agentroom/daemon.log`.
+- `.agentroom/clanky/profiles/operator/sessions/2026-05-26T02-19-17-411Z_019e6214-4a23-77b1-a719-a7af49533021.jsonl`.
+- Output commits produced during the session: `0262ffb`, `2e5c92b`,
+  `7148f23` (see Snapshot below for the repos and HEADs).
+
+### Snapshot — restore points
+
+Captured at the close of the session so a future human or agent can
+check out the exact state of the system that produced this milestone.
+
+| Repo                     | Path                                      | Branch               | HEAD                                       | Commit date               | Subject                                        |
+| ------------------------ | ----------------------------------------- | -------------------- | ------------------------------------------ | ------------------------- | ---------------------------------------------- |
+| AgentRoom                | `/Users/jamesvolpe/dev/agents/agent-room` | `main`               | `0262ffbc35bffbfffcf5bfcebde01593039d1142` | 2026-05-26 23:33:42 -0500 | Expand AgentRoom dashboard and config surfaces |
+| clanky-pi (operator)     | `/Users/jamesvolpe/dev/agents/clanky-pi`  | `v2-vanilla`         | `34f2a3b8b7cdf50771d6bea83b703186b60ce2a0` | 2026-05-26 23:36:24 -0500 | Register configuration.md in docs content map  |
+| herdr (runtime provider) | `/Users/jamesvolpe/dev/herdr`             | `feat/balance-panes` | `324b778fdbe1232b5e684a5c096bd79deac3c399` | 2026-05-25 02:36:40 -0500 | feat: expose tab balance command               |
+
+Working-tree notes at snapshot time:
+
+- `agent-room`: clean for session-critical files. Dirty diffs in
+  `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, and the
+  untracked `docs/MILESTONES.md` are this milestone-documentation pass
+  itself, not session output.
+- `clanky-pi`: uncommitted edits in
+  `agents/clanky/src/agentDiscordVoice.ts`,
+  `agents/clanky/src/voice/openAiRealtimeClient.ts`,
+  `agents/clanky/src/voice/xAiRealtimeClient.ts`, and
+  `agents/clanky/test/voice-smoke.ts` — work-in-progress on the
+  duplicate-TTS bug from pane `w652ad8185cafa2-5`, not part of the
+  milestone artifact.
+- `herdr`: uncommitted edits in `CONFIGURATION.md`,
+  `src/app/input/navigate.rs`, `src/detect.rs`. The herdr binary that
+  the daemon was talking to during the session was whatever was last
+  built locally; if exact reproduction matters, rebuild from
+  `324b778` with the working tree clean, then re-apply these diffs
+  only if the session symptoms (e.g. `pane_not_found` polling) need to
+  be reproduced.
+
+To restore to this snapshot:
+
+```bash
+git -C /Users/jamesvolpe/dev/agents/agent-room checkout 0262ffbc35bffbfffcf5bfcebde01593039d1142
+git -C /Users/jamesvolpe/dev/agents/clanky-pi checkout 34f2a3b8b7cdf50771d6bea83b703186b60ce2a0
+git -C /Users/jamesvolpe/dev/herdr     checkout 324b778fdbe1232b5e684a5c096bd79deac3c399
+```
+
+The room state itself (events, daemon log, clanky session log) lives
+under `.agentroom/` in this repo and is not tracked by git; if you need
+that side preserved, copy `.agentroom/` to a snapshot directory before
+running any new sessions, since `events.jsonl` and `daemon.log` will
+keep appending.

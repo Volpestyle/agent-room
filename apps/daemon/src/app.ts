@@ -160,6 +160,7 @@ export function createAppWithLifecycle(
       ok: true,
       pid: process.pid,
       roomId,
+      cwd,
       auth: {
         apiTokenRequired: Boolean(apiToken),
       },
