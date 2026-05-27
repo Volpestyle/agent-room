@@ -48,7 +48,7 @@ See `docs/TOPOLOGY.md` for the tradeoffs.
 Initialize with an explicit runtime. Do not rely on a generated default:
 
 ```bash
-agent-room init --room my-project --runtime RUNTIME
+agent-room init --runtime RUNTIME
 agent-room runtime providers
 agent-room runtime doctor
 ```
@@ -57,7 +57,7 @@ When the runtime command is not the default binary name, write it into config
 at init time:
 
 ```bash
-agent-room init --room agents --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
+agent-room init --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
 ```
 
 For a Clanky-first room, write the shared defaults in the same config file:

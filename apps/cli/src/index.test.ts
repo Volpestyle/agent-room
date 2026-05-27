@@ -107,6 +107,35 @@ describe("agent-room init", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("defaults the room id to the runtime session when omitted", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-session-room-"));
+    const env = {
+      ...process.env,
+      HERDR_SESSION: "dev-room",
+      AGENTROOM_ROOM_ID: undefined,
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--runtime", "herdr", "--runtime-cli", "herdr-dev"],
+        env,
+      );
+
+      const config = await readFile(
+        join(cwd, ".agentroom", "config.yaml"),
+        "utf8",
+      );
+      const room = await readFile(join(cwd, ".agentroom", "room.json"), "utf8");
+      expect(config).toContain("id: dev-room");
+      expect(config).toContain("session: dev-room");
+      expect(config).toContain("cli: herdr-dev");
+      expect(room).toContain('"roomId": "dev-room"');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("agent-room wait", () => {

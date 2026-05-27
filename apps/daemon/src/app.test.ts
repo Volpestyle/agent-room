@@ -112,6 +112,30 @@ describe("agentroom daemon app", () => {
     });
   });
 
+  it("uses the Herdr session as the unconfigured daemon room id", async () => {
+    const options = await appOptions();
+    const previousRoom = process.env.AGENTROOM_ROOM_ID;
+    const previousHerdr = process.env.HERDR_SESSION;
+    delete process.env.AGENTROOM_ROOM_ID;
+    process.env.HERDR_SESSION = "agent-room";
+    try {
+      const app = createApp({
+        cwd: options.cwd,
+        eventLogPath: options.eventLogPath,
+      });
+
+      const response = await app.request("/health");
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        roomId: "agent-room",
+        cwd: options.cwd,
+      });
+    } finally {
+      restoreEnv("AGENTROOM_ROOM_ID", previousRoom);
+      restoreEnv("HERDR_SESSION", previousHerdr);
+    }
+  });
+
   it("posts and filters room messages", async () => {
     const app = createApp(await appOptions());
 
@@ -835,4 +859,12 @@ async function appOptions() {
 
 function jsonHeaders(): HeadersInit {
   return { "content-type": "application/json" };
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }

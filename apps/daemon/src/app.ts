@@ -26,6 +26,7 @@ import {
   type StartAgentRequest,
 } from "@agentroom/core";
 import {
+  defaultRoomIdFromEnv,
   maybeLoadAgentRoomConfigSync,
   resolveStoragePath,
   type AgentRoomConfig,
@@ -69,7 +70,7 @@ export function createAppWithLifecycle(
     options.roomId ??
     process.env.AGENTROOM_ROOM_ID ??
     configured?.room.id ??
-    "default";
+    defaultRoomIdFromEnv(process.env);
   const eventLogPath =
     options.eventLogPath ??
     process.env.AGENTROOM_EVENT_LOG ??

@@ -37,9 +37,11 @@ import {
   taskStatusSchema,
 } from "@agentroom/core";
 import {
+  DEFAULT_ROOM_ID,
   agentRoomConfigPath,
   builtInRuntimeConfig,
   createDefaultAgentRoomConfig,
+  defaultRoomIdFromEnv,
   ensureRuntimeConfig,
   loadAgentRoomConfig,
   maybeLoadAgentRoomConfig,
@@ -49,6 +51,7 @@ import {
   writeAgentRoomConfig,
   type AgentRoomConfig,
   type ClankyChatGatewayOwner,
+  type ConfiguredRuntimeKind,
   type HerdrLayoutConfig,
   type RuntimeConfig,
   type WorkTrackerConfig,
@@ -210,7 +213,10 @@ program
 program
   .command("init")
   .description("Initialize AgentRoom metadata in the current project")
-  .option("--room <id>", "room id", basename(process.cwd()))
+  .option(
+    "--room <id>",
+    "room id; defaults to the runtime session or agent-room",
+  )
   .option("--name <name>", "human-readable room name")
   .requiredOption(
     "--runtime <runtime>",
@@ -218,7 +224,7 @@ program
   )
   .option(
     "--runtime-session <name>",
-    "Herdr session name or tmux session prefix; defaults to agentroom for Herdr and room id for tmux",
+    "Herdr session name or tmux session prefix; defaults to agent-room for Herdr and room id for tmux",
   )
   .option(
     "--runtime-cli <command>",
@@ -248,7 +254,7 @@ program
   )
   .action(
     async (options: {
-      room: string;
+      room?: string;
       name?: string;
       runtime: string;
       runtimeSession?: string;
@@ -262,13 +268,21 @@ program
     }) => {
       const dir = roomDir();
       await mkdir(join(dir, "agents"), { recursive: true });
+      const defaultRuntime = parseConfiguredRuntime(options.runtime);
+      const roomId = resolveInitRoomId({
+        room: options.room,
+        runtime: defaultRuntime,
+        runtimeSession: options.runtimeSession,
+      });
+      const runtimeSession = resolveInitRuntimeSession({
+        runtime: defaultRuntime,
+        runtimeSession: options.runtimeSession,
+      });
       const appConfig = createDefaultAgentRoomConfig({
-        roomId: options.room,
+        roomId,
         ...(options.name !== undefined ? { roomName: options.name } : {}),
-        defaultRuntime: parseConfiguredRuntime(options.runtime),
-        ...(options.runtimeSession !== undefined
-          ? { runtimeSession: options.runtimeSession }
-          : {}),
+        defaultRuntime,
+        ...(runtimeSession !== undefined ? { runtimeSession } : {}),
       });
       applyRuntimeCliOverride(appConfig, options.runtime, options.runtimeCli);
       appConfig.workTracker = createWorkTrackerConfig({
@@ -307,8 +321,8 @@ program
       }
 
       await writeJson(join(dir, "room.json"), {
-        roomId: options.room,
-        roomName: options.name ?? options.room,
+        roomId,
+        roomName: options.name ?? roomId,
         createdAt: new Date().toISOString(),
       } satisfies RoomConfig);
       await writeAgentRoomConfig(process.cwd(), appConfig);
@@ -325,7 +339,7 @@ program
         "utf8",
       );
 
-      console.log(`Initialized AgentRoom room '${options.room}' in ${dir}`);
+      console.log(`Initialized AgentRoom room '${roomId}' in ${dir}`);
       console.log(`Configured runtime: ${appConfig.runtime.default}`);
       console.log(`Configured work tracker: ${appConfig.workTracker.default}`);
       if (appConfig.clanky !== undefined) {
@@ -3182,13 +3196,53 @@ function bindingFor(
   };
 }
 
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).at(-1) ?? "default";
-}
-
 function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
   if (value === "fake" || value === "herdr" || value === "tmux") return value;
   throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
+}
+
+function resolveInitRoomId(options: {
+  room: string | undefined;
+  runtime: ConfiguredRuntimeKind;
+  runtimeSession: string | undefined;
+}): string {
+  return (
+    normalizedConfigValue(options.room) ??
+    normalizedConfigValue(options.runtimeSession) ??
+    defaultRoomIdForRuntimeEnv(options.runtime)
+  );
+}
+
+function normalizedConfigValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function defaultRoomIdForRuntimeEnv(runtime: ConfiguredRuntimeKind): string {
+  const explicit = normalizedConfigValue(process.env.AGENTROOM_ROOM_ID);
+  if (explicit !== undefined) return explicit;
+  if (runtime === "herdr") {
+    return normalizedConfigValue(process.env.HERDR_SESSION) ?? DEFAULT_ROOM_ID;
+  }
+  if (runtime === "tmux") {
+    return normalizedConfigValue(process.env.TMUX_SESSION) ?? DEFAULT_ROOM_ID;
+  }
+  return defaultRoomIdFromEnv(process.env);
+}
+
+function resolveInitRuntimeSession(options: {
+  runtime: ConfiguredRuntimeKind;
+  runtimeSession: string | undefined;
+}): string | undefined {
+  const explicit = normalizedConfigValue(options.runtimeSession);
+  if (explicit !== undefined) return explicit;
+  if (options.runtime === "herdr") {
+    return normalizedConfigValue(process.env.HERDR_SESSION);
+  }
+  if (options.runtime === "tmux") {
+    return normalizedConfigValue(process.env.TMUX_SESSION);
+  }
+  return undefined;
 }
 
 function applyRuntimeCliOverride(

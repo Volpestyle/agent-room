@@ -11,7 +11,28 @@ import type {
 export const AGENTROOM_DIR = ".agentroom";
 export const AGENTROOM_CONFIG_FILE = "config.yaml";
 export const DEFAULT_EVENT_LOG_PATH = ".agentroom/events.jsonl";
-export const DEFAULT_HERDR_SESSION = "agentroom";
+export const DEFAULT_ROOM_ID = "agent-room";
+export const DEFAULT_HERDR_SESSION = DEFAULT_ROOM_ID;
+export const DEFAULT_TMUX_SESSION_PREFIX = DEFAULT_ROOM_ID;
+
+export function defaultRoomIdFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return (
+    firstNonEmpty(env.AGENTROOM_ROOM_ID, env.HERDR_SESSION, env.TMUX_SESSION) ??
+    DEFAULT_ROOM_ID
+  );
+}
+
+function firstNonEmpty(
+  ...values: Array<string | undefined>
+): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
 
 export type ConfiguredRuntimeKind = Extract<
   RuntimeProviderKind,
@@ -317,7 +338,11 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
       };
     case "tmux":
     case "local-tmux":
-      return { type: "tmux", sessionPrefix: "agentroom", cli: "tmux" };
+      return {
+        type: "tmux",
+        sessionPrefix: DEFAULT_TMUX_SESSION_PREFIX,
+        cli: "tmux",
+      };
     default:
       throw new Error(`Unknown runtime '${runtimeName}'`);
   }

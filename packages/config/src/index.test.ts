@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDefaultAgentRoomConfig,
+  defaultRoomIdFromEnv,
   formatAgentRoomConfig,
   parseAgentRoomConfig,
   withDefaultRuntime,
@@ -41,7 +42,7 @@ describe("AgentRoom config", () => {
     expect(config.runtimes.herdr).toEqual(
       expect.objectContaining({
         type: "herdr",
-        session: "agentroom",
+        session: "agent-room",
         layout: expect.objectContaining({
           workspace: "my-project",
         }),
@@ -50,6 +51,20 @@ describe("AgentRoom config", () => {
     expect(config.runtimes.tmux).toEqual(
       expect.objectContaining({ sessionPrefix: "my-project" }),
     );
+  });
+
+  it("derives the default room id from runtime session environment", () => {
+    expect(
+      defaultRoomIdFromEnv({
+        HERDR_SESSION: "agent-room",
+      }),
+    ).toBe("agent-room");
+    expect(
+      defaultRoomIdFromEnv({
+        TMUX_SESSION: "mux-room",
+      }),
+    ).toBe("mux-room");
+    expect(defaultRoomIdFromEnv({})).toBe("agent-room");
   });
 
   it("parses Herdr layout numbers and booleans from YAML", () => {

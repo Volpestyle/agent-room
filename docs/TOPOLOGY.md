@@ -116,7 +116,7 @@ project room keeps its own runtime bindings and detailed audit log.
 
 Room topology and runtime placement are related but separate.
 
-With Herdr, AgentRoom commonly uses one broad Herdr session named `agentroom`
+With Herdr, AgentRoom commonly uses one broad Herdr session named `agent-room`
 and one workspace per room or workstream. The generated config can also use a
 shared workspace with a pane grid.
 

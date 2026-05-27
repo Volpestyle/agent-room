@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { nowIso, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type StartAgentRequest } from '@agentroom/core';
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_TMUX_SESSION_PREFIX = 'agent-room';
 
 export interface TmuxRuntimeProviderOptions {
   id?: string;
@@ -34,7 +35,7 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
   constructor(options: TmuxRuntimeProviderOptions = {}) {
     this.id = options.id ?? 'local-tmux';
     this.cli = options.cli ?? 'tmux';
-    this.sessionPrefix = options.sessionPrefix ?? 'agentroom';
+    this.sessionPrefix = options.sessionPrefix ?? DEFAULT_TMUX_SESSION_PREFIX;
   }
 
   async health(): Promise<RuntimeHealth> {
