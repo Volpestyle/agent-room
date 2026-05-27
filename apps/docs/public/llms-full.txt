@@ -207,7 +207,7 @@ chat systems are adapters. The room stays the product.
 
 AgentRoom is the control layer in the agent-first workspace:
 
-- open the TUI and ask the operator what is happening
+- open the singleton TUI from anywhere and ask what is happening
 - launch agents into Herdr, tmux, or any future runtime provider
 - send and read through audited room commands instead of raw terminal input
 - expose room context through MCP to enrolled agents
@@ -269,7 +269,7 @@ apps/
   mobile/          Expo/React Native client for daemon API access
 packages/
   core/            rooms, agents, messages, tasks, events, ports
-  config/          typed .agentroom/config.yaml parser and writer
+  config/          typed AgentRoom home config parser and writer
   storage-jsonl/   append-only event store for local rooms
   runtime-herdr/   Herdr runtime adapter
   runtime-tmux/    tmux runtime adapter
@@ -293,13 +293,13 @@ pnpm build
 pnpm test
 ```
 
-Create a room with an explicit runtime:
+Start the local singleton room:
 
 ```bash
-agent-room init --room my-project --runtime herdr
 agent-room runtime doctor
 agent-room daemon start
 agent-room tui
+herdr --session agent-room
 ```
 
 Launch a real agent through the selected runtime:
@@ -308,15 +308,16 @@ Launch a real agent through the selected runtime:
 agent-room launch impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd .
+  --cwd /path/to/workspace
 
 agent-room send impl "Use AgentRoom, claim your task, and post status before editing."
 agent-room read impl --lines 40
 ```
 
-`launch`, `send`, `read`, and `stop` require an AgentRoom binding by default so
-terminal input and output stay in the room event log. Use raw provider commands
-only for manual recovery.
+AgentRoom state lives in `$AGENTROOM_HOME` or `~/.agentroom` by default. The room
+id and Herdr session default to `agent-room`; cwd is workspace context, not room
+identity. `launch`, `send`, `read`, and `stop` require an AgentRoom binding by
+default so terminal input and output stay in the room event log.
 
 ## TUI, MCP, And Mobile
 
@@ -329,7 +330,7 @@ agent-room tui
 The TUI starts in operator chat. Type normally to ask what is happening or to
 request room actions. Use `/help`, `/runtime`, `/trace`, and `/effort` for
 operator controls; use `Esc` or `Ctrl+G` / `Ctrl+L` to move across chat,
-overview, agents, tasks, messages, and events.
+overview, workspaces, agents, tasks, messages, and events.
 
 Expose room tools to agents through the MCP server:
 
@@ -377,7 +378,7 @@ AgentRoom launches Clanky as a normal Pi harness command, the same way it can
 launch Codex, Claude Code, Gemini CLI, shell, or a custom command:
 
 ```bash
-agent-room launch clanky --harness pi --command clanky --cwd .
+agent-room launch clanky --harness pi --command clanky --cwd /path/to/workspace
 ```
 
 Room participation and chat ownership are separate. Clanky may keep its own
@@ -429,7 +430,7 @@ storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/
 stop, Herdr pane adoption, wait/events-follow, local task shadows, Linear bridge
 commands, Discord gateway routing primitives, and mobile tailnet pairing.
 
-Next useful work: SQLite event storage, stronger runtime contract tests,
+Next useful work: SQLite event storage, stronger real-runtime contract tests,
 operator CLI support for chat route mutation, more ergonomic tracker bridges,
 and hosted or multi-host runtime adapters.
 
@@ -472,45 +473,50 @@ pnpm build
 pnpm test
 ```
 
-## 2. Choose The Room Shape
+## 2. Start The Singleton Room
 
-Pick a room root before initialization. The room root holds `.agentroom/config.yaml`, the event log, daemon metadata, and local task shadows.
+AgentRoom defaults to one local room named `agent-room`. Its durable state lives
+in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
+`herdr --session agent-room`.
 
-- One room per project: best isolation for logs, tasks, policies, and gateways.
-- One HQ room across many repositories: best when one lead coordinates related work in several repos.
-- Hybrid: HQ for planning plus project rooms for larger execution swarms.
+- The room is global for this workstation.
+- A cwd is workspace context, not room identity.
+- Herdr workspaces/tabs/panes are the visible layout under the same session.
 
 See `docs/TOPOLOGY.md` for the tradeoffs.
 
-`.agentroom/config.yaml` is the durable source of truth for room topology. The TUI and CLI should edit the same typed config model rather than keeping separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env override, and secret-handling rules.
+`config.yaml` in AgentRoom home is the durable source of truth for room topology.
+The TUI and CLI should edit the same typed config model rather than keeping
+separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env
+override, and secret-handling rules.
 
 ## 3. Choose The Runtime Provider
 
-Initialize with an explicit runtime. Do not rely on a generated default:
+The default runtime is Herdr. Check or switch it explicitly when needed:
 
 ```bash
-agent-room init --runtime RUNTIME
 agent-room runtime providers
 agent-room runtime doctor
+herdr --session agent-room
 ```
 
 When the runtime command is not the default binary name, write it into config
 at init time:
 
 ```bash
-agent-room init --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
+agent-room init --runtime herdr --runtime-cli herdr-dev
 ```
 
 For a Clanky-first room, write the shared defaults in the same config file:
 
 ```bash
-agent-room init --room my-project --runtime herdr --clanky --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
 ```
 
 That creates a portable `workTracker` block and a `clanky` block. When Clanky
-starts inside this project without explicit `--home` or `--profile` overrides,
+starts without explicit `--home` or `--profile` overrides,
 it can adopt `.clanky-room`, profile `lead`, the configured chat ownership, and
-the selected tracker defaults from `.agentroom/config.yaml`.
+the selected tracker defaults from AgentRoom config.
 
 Runtime choices:
 
@@ -518,14 +524,14 @@ Runtime choices:
 - `herdr`: Herdr adapter via `@agentroom/runtime-herdr`.
 - `fake`: contract tests and smoke checks only; not a real agent runtime.
 
-Runtime-specific setup belongs in `.agentroom/config.yaml` and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
+Runtime-specific setup belongs in AgentRoom config and `docs/RUNTIMES.md`. Normal operators and agents should use `agent-room runtime`, `launch`, `read`, `send`, and `stop` rather than raw multiplexer commands.
 
 ## 4. Choose The Agent Harness
 
 Launching an agent requires an explicit harness kind and command:
 
 ```bash
-agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch lead --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room read lead --lines 40
 ```
 
@@ -553,7 +559,7 @@ Options:
 For Linear-backed rooms:
 
 ```bash
-agent-room init --room my-project --runtime herdr --work-tracker linear --linear-team team_123
+agent-room init --runtime herdr --work-tracker linear --linear-team team_123
 agent-room task create "Implement auth callback" --assignee api-impl --linear ENG-123
 agent-room task link-linear task_implement_auth_callback_xxx ENG-123
 agent-room tracker health
@@ -587,7 +593,7 @@ If you add an external messaging surface, choose ownership per conversation:
 - Room-owned gateway: `agentroomd` owns the token and route table for a channel/DM.
 - Agent-owned gateway: one agent owns its own connector identity and may also participate in AgentRoom.
 
-For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in `.agentroom/config.yaml`; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
+For Discord room-owned gateways, configure `chat.gateways` and `chat.routes` in AgentRoom config; keep tokens in env vars such as `AGENTROOM_DISCORD_TOKEN`. Use `discord-mcp` / `discord_mcp` for Discord-only actions such as reading unrelated channels, inspecting attachments, one-off messages, or reactions. Do not make Discord the room source of truth.
 
 See `docs/ADR/0003-chat-gateway-port.md` for gateway topology and ownership details.
 
@@ -620,7 +626,7 @@ agent-room runtime doctor
 agent-room daemon start
 agent-room daemon status
 agent-room mobile-connect --json
-agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room read smoke --lines 40
 agent-room post "room ready" --channel announcements
 agent-room events --limit 20
@@ -641,7 +647,8 @@ surfaces.
 
 ## Source Of Truth
 
-`.agentroom/config.yaml` is the durable source of truth for room topology:
+`$AGENTROOM_HOME/config.yaml` is the durable source of truth for local room
+topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
 
 - room id and name
 - default runtime provider and runtime adapter settings
@@ -655,12 +662,12 @@ The file is parsed, validated, and formatted by `@agentroom/config`. Hand edits,
 CLI commands, daemon APIs, and future TUI settings screens should all round-trip
 through that same package.
 
-The event log is not static configuration. `.agentroom/events.jsonl` records
-runtime bindings, messages, task shadows, chat ingress/egress, and audit events.
-It can rebuild room views, but it should not become the place where topology is
-configured.
+The event log is not static configuration. `events.jsonl` in the AgentRoom home
+records runtime bindings, workspace registrations, messages, task shadows, chat
+ingress/egress, and audit events. It can rebuild room views, but it should not
+become the place where topology is configured.
 
-Secrets do not belong in `.agentroom/config.yaml`. Store references such as
+Secrets do not belong in `config.yaml`. Store references such as
 `tokenEnv: AGENTROOM_DISCORD_TOKEN`, then supply the secret through the launch
 environment or a dedicated auth store. The TUI's model credentials live in
 `~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
@@ -693,7 +700,7 @@ credentials, memory, sessions, and agent-owned connector state.
 The intended product model is:
 
 ```text
-.agentroom/config.yaml  durable, reviewable, headless
+~/.agentroom/config.yaml durable, reviewable, headless
 AgentRoom TUI           human-friendly editor, status, and lifecycle controls
 CLI / daemon API        scriptable operations over the same config model
 ```
@@ -704,7 +711,7 @@ load the YAML through `@agentroom/config`, show the effective value and source,
 write back with `writeAgentRoomConfig`, and ask the daemon to reload or restart
 affected providers.
 
-Until a TUI editor exists for a setting, hand-edit `.agentroom/config.yaml` or
+Until a TUI editor exists for a setting, hand-edit the AgentRoom home config or
 use the existing CLI command that writes it.
 
 ## Environment Overrides
@@ -768,163 +775,83 @@ Source: `docs/TOPOLOGY.md` - https://volpestyle.github.io/docs/agent-room/?doc=t
 
 # Room Topology
 
-AgentRoom state is directory-scoped. A room lives at the directory that contains
-`.agentroom/config.yaml`.
+AgentRoom is a singleton local room by default. The room id is `agent-room`,
+durable state lives in `$AGENTROOM_HOME` or `~/.agentroom`, and the default
+visible runtime is:
+
+```bash
+herdr --session agent-room
+```
+
+A working directory is workspace context. It should not create a separate room
+unless the operator explicitly starts a separate daemon/home.
+
+## Layers
 
 ```text
-/path/to/workspace/
-  .agentroom/
-    config.yaml
-    events.jsonl
-    daemon.pid
-    agents/
+AgentRoom daemon/event store   durable room state
+Herdr session agent-room       visible local runtime surface
+Herdr workspace                cwd/project grouping
+Herdr tab                      task or subcontext grouping
+Herdr pane                     visible agent/process binding
+Headless agent                 room agent with no pane binding
 ```
 
-The room root is the coordination root. It is not a filesystem jail. Agents
-launched from that room can work in any repository by setting `--cwd`.
+Herdr workspace ids and pane ids are live runtime bindings. They can change when
+the layout changes. AgentRoom stores durable facts such as room id, cwd, agent
+id, task id, messages, and runtime binding history.
 
-## Room Root
+## Workspaces
 
-The CLI discovers the room from the current working directory:
+Register a cwd when you want it to appear as a stable workspace:
 
 ```bash
-cd /path/to/workspace
-agent-room daemon status
-agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room workspace add /Users/jamesvolpe/dev/project-a --label project-a
+agent-room workspace list
 ```
 
-`agent-room init --room ROOM_ID --runtime RUNTIME` creates
-`.agentroom/config.yaml` in the current directory. That config selects the room
-id, default runtime provider, runtime settings, and local event log path.
-
-Use a dedicated room directory or a project repository root by default. A room
-at the user's home directory is possible, but it makes all room state global:
-messages, tasks, runtime bindings, daemon metadata, policies, and logs all mix
-together unless you impose discipline manually.
-
-## Agent Working Directories
-
-An agent's working directory is independent from the room root:
+Launching with `--cwd` registers the workspace automatically and uses a
+cwd-derived workspace label unless `--workspace` is supplied:
 
 ```bash
-cd /Users/jamesvolpe/dev/agents/agent-room
-
-agent-room launch portfolio-impl \
+agent-room launch api-impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/portfolio
+  --cwd /Users/jamesvolpe/dev/api
 
-agent-room launch browser-reviewer \
+agent-room launch reviewer \
+  --workspace project-a-review \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/agent-browser
+  --cwd /Users/jamesvolpe/dev/project-a
 ```
 
-Both agents share the same room messages, tasks, audit log, and operator
-controls. Each agent starts in its own target repository.
+## TUI Portal
 
-Always pass `--cwd` when the agent should work somewhere other than the room
-root.
+`agent-room tui` connects to the same local daemon from any cwd. The dashboard is
+a portal into the full room: overview, workspaces, agents, tasks, messages,
+runtime state, and events.
 
-## Common Topologies
+The dashboard agent should not guess a cwd when asked to create an agent. It can
+use a selected workspace when the UI provides one; otherwise it should ask the
+operator which cwd/workspace to use.
 
-### One Room Per Project
+## Multiple Rooms
 
-Use this when projects need separate logs, tasks, permissions, chat gateways, or
-lifecycle.
+Use the singleton room for the local product path. Create separate rooms only
+when you intentionally need isolation, for example a test fixture, another user
+profile, or a hosted/multi-host deployment. Prefer changing `AGENTROOM_HOME` or
+daemon port explicitly over deriving rooms from cwd.
 
-```bash
-cd /Users/jamesvolpe/dev/project-a
-agent-room init --room project-a --runtime RUNTIME
-agent-room daemon start --port 4317
+## tmux Mapping
 
-cd /Users/jamesvolpe/dev/project-b
-agent-room init --room project-b --runtime RUNTIME
-agent-room daemon start --port 4318
+tmux does not have Herdr's workspace concept. The intended mapping is:
 
-cd /Users/jamesvolpe/dev/project-c
-agent-room init --room project-c --runtime RUNTIME
-agent-room daemon start --port 4319
-```
+- AgentRoom workspace -> tmux window
+- task/subcontext -> window name or pane grouping
+- agent/process -> pane
 
-Connect to each daemon explicitly:
-
-```bash
-agent-room tui --daemon http://127.0.0.1:4317
-agent-room tui --daemon http://127.0.0.1:4318
-agent-room tui --daemon http://127.0.0.1:4319
-```
-
-This is the cleanest model for three independent swarms.
-
-### One HQ Room Across Many Projects
-
-Use this when one lead/operator should coordinate related work across several
-repositories.
-
-```bash
-cd /Users/jamesvolpe/dev/agents/agent-room
-agent-room daemon start
-
-agent-room launch api-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/api
-agent-room launch web-impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/frontend
-agent-room launch reviewer --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/review-tools
-```
-
-This keeps all room messages, local tasks, handoffs, and runtime audit events in
-one place. It is useful for cross-repository work, but weaker for isolation.
-
-### Hybrid
-
-Use a stable HQ room for cross-project planning, plus project-specific rooms for
-larger execution swarms. The HQ can track high-level coordination while each
-project room keeps its own runtime bindings and detailed audit log.
-
-## Runtime Placement
-
-Room topology and runtime placement are related but separate.
-
-With Herdr, AgentRoom commonly uses one broad Herdr session named `agent-room`
-and one workspace per room or workstream. The generated config can also use a
-shared workspace with a pane grid.
-
-The Herdr session is the `--session` value you attach to. The workspace is a
-visual/runtime grouping inside that session. Workspace ids such as
-`w652aca9fd72f08` may show up as runtime agent `sessionId` values because the
-runtime provider is describing where the pane lives, but those ids are not Herdr
-session namespaces. Use `/runtime herdr` in the TUI or `agent-room runtime
-doctor --json` to see the session namespace and socket before attaching.
-
-For fresh work in a shared Herdr session, pass an explicit workspace label:
-
-```bash
-agent-room launch impl-a --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
-agent-room launch impl-b --workspace project-a --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /Users/jamesvolpe/dev/project-a
-```
-
-Use distinct daemon ports for distinct AgentRoom daemons. Use distinct Herdr
-workspace labels when you want separate visual/runtime grouping inside the same
-Herdr session.
-
-## Choosing A Shape
-
-Prefer one project room when:
-
-- the team, logs, tasks, or chat gateway belong to one project
-- work should be easy to stop, archive, or inspect independently
-- the project has its own policies or reviewer flow
-
-Prefer one HQ room when:
-
-- one lead should coordinate multiple repositories
-- all agents are working on a single cross-repository objective
-- shared channel history is more valuable than isolation
-
-Prefer multiple rooms when:
-
-- several swarms should run at the same time without shared task state
-- different external conversations or gateway routes should attach to each room
-- stopping or restarting one swarm should not affect the others
+The durable AgentRoom workspace record remains the same either way.
 
 ---
 
@@ -1024,7 +951,7 @@ AgentRoom core is runtime-agnostic. Normal operator and agent workflows should u
 agent-room runtime providers
 agent-room runtime use <runtime>
 agent-room runtime doctor
-agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch impl --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 agent-room send impl "message"
 agent-room read impl --lines 40
 agent-room stop impl
@@ -1036,14 +963,17 @@ Runtime `read`, `send`, and `stop` require an AgentRoom binding by default so in
 
 ## Herdr Adapter
 
-Herdr support lives behind `@agentroom/runtime-herdr`. If Herdr is the selected runtime, start or attach the configured Herdr session before launching Herdr-backed agents:
+Herdr support lives behind `@agentroom/runtime-herdr`. The local default is the
+singleton Herdr session named `agent-room`:
 
 ```bash
-herdr session attach agent-room
+herdr --session agent-room
 agent-room runtime doctor
 ```
 
-For Herdr configs generated by `agent-room init --runtime herdr`, the Herdr session and room id default to `HERDR_SESSION` when present, then `agent-room`. The Herdr CLI command defaults to `herdr`, and the Herdr workspace defaults to the room id. Override the Herdr session with `agent-room init --runtime-session <name>`, and override the Herdr command with `agent-room init --runtime-cli <command>`.
+The room id and default Herdr session are both `agent-room`. The Herdr CLI
+command defaults to `herdr`. A launch cwd becomes workspace context; AgentRoom
+uses a cwd-derived workspace label unless `--workspace` is supplied.
 
 ### Herdr session vs workspace
 
@@ -1072,10 +1002,10 @@ herdr --session agent-room status
 
 Inside the AgentRoom TUI, use `/runtime` or `/runtime herdr`. The Overview view also shows the runtime session namespace, socket path, workspace label, workspace ids, and join command when the daemon exposes provider metadata.
 
-The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` through init or point it at the built binary or at a real wrapper script on `PATH`:
+The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` in `$AGENTROOM_HOME/config.yaml` or point it at the built binary or at a real wrapper script on `PATH`:
 
 ```bash
-agent-room init --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
+agent-room init --runtime herdr --runtime-cli herdr-dev
 ```
 
 ```yaml
@@ -1090,21 +1020,21 @@ Herdr layout is config-driven:
 
 - `workspace-per-agent`: each agent gets a dedicated Herdr workspace.
 - `tab-per-agent`: agents share a Herdr workspace, with one tab per agent.
-- `pane-grid`: agents share a Herdr workspace, filling tabs up to `panesPerTab`. The default generated config uses two panes per tab, splits the existing agent pane to the right, and balances the tab.
+- `pane-grid`: agents share a Herdr workspace, filling tabs up to `panesPerTab`. The default config uses two panes per tab, splits the existing agent pane to the right, and balances the tab.
 
 For Herdr, `launch` can override placement without editing config:
 
 ```bash
-agent-room launch lead --placement workspace --harness shell --command "bash"
-agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash"
-agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash"
+agent-room launch lead --placement workspace --harness shell --command "bash" --cwd /path/to/workspace
+agent-room launch impl --placement tab --workspace my-project --harness shell --command "bash" --cwd /path/to/workspace
+agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash" --cwd /path/to/workspace
 ```
 
 For fresh pane-grid work, use a workspace label that is unique to the team or task:
 
 ```bash
-agent-room launch impl-a --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
-agent-room launch impl-b --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
+agent-room launch impl-a --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
+agent-room launch impl-b --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace
 ```
 
 This avoids crowding new agents into stale panes from an older Herdr workspace. Clean up old Herdr workspaces or panes only when you have verified they are no longer running useful work; Herdr supports `workspace close` and `pane close` for manual recovery.
@@ -1296,7 +1226,7 @@ Adapters implement ports:
 
 ## Configuration Model
 
-AgentRoom's durable topology lives in `.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+AgentRoom's durable topology lives in `$AGENTROOM_HOME/config.yaml`, defaulting to `~/.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
 
 The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
 
@@ -1411,7 +1341,7 @@ flowchart TB
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
   connectors["Connector ports<br/>work tracker, code host, design, chat"]
-  local[".agentroom/<br/>events.jsonl<br/>SQLite planned"]
+  local["~/.agentroom/<br/>config.yaml<br/>events.jsonl<br/>SQLite planned"]
   runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
   adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
 
@@ -1427,7 +1357,7 @@ flowchart TB
 
 ## Read The Boundaries
 
-- `.agentroom/config.yaml` owns durable room topology: runtime providers,
+- `$AGENTROOM_HOME/config.yaml` owns durable room topology: runtime providers,
   room-owned gateways and routes, dashboard operator defaults, and storage
   settings.
 - The event log owns room state and audit history: messages, local task shadows,
@@ -1443,7 +1373,7 @@ flowchart TB
 
 1. A human, lead agent, MCP-capable agent, mobile client, or chat gateway sends
    a room action.
-2. `agentroomd` or the CLI loads `.agentroom/config.yaml`, validates the
+2. `agentroomd` or the CLI loads AgentRoom config, validates the
    request, and calls `@agentroom/core`.
 3. Core appends normalized events to the `EventStore` and updates rebuildable
    views.
@@ -1484,7 +1414,7 @@ moments.
 
 - Add SQLite as the durable local event store while preserving event replay.
 - Harden tmux/Herdr provider contract tests against real runtime sessions.
-- Add operator CLI and TUI support for editing `.agentroom/config.yaml` through `@agentroom/config`, starting with chat gateway route inspection and mutation.
+- Add operator CLI and TUI support for editing AgentRoom home config through `@agentroom/config`, starting with chat gateway route inspection and mutation.
 - Improve Linear and future tracker bridge ergonomics, including clearer skipped-update reporting.
 - Add richer approval enforcement beyond local policy files.
 - Expand mobile/TUI controls for task editing, launch forms, config editing, and chat gateway status.
