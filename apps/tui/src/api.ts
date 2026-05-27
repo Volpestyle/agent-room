@@ -118,10 +118,21 @@ export function createApiClient(options: ApiClientOptions = {}) {
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,
       ),
-    listMessages: (limit = 80) =>
-      apiRequest<{ messages: Message[] }>(
-        `/v1/messages?limit=${encodeURIComponent(limit)}`,
-      ),
+    listMessages: (
+      input: {
+        limit?: number;
+        channelId?: string;
+        threadId?: string;
+      } = {},
+    ) => {
+      const search = new URLSearchParams();
+      search.set("limit", String(input.limit ?? 80));
+      if (input.channelId) search.set("channelId", input.channelId);
+      if (input.threadId) search.set("threadId", input.threadId);
+      return apiRequest<{ messages: Message[] }>(
+        `/v1/messages?${search.toString()}`,
+      );
+    },
     postMessage: (input: MessageCreateInput) =>
       apiRequest<{ message: Message }>("/v1/messages", {
         method: "POST",

@@ -1,0 +1,109 @@
+import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { PanelBase } from "../components/panel.js";
+import { palette } from "../theme.js";
+import type { View } from "./types.js";
+
+class HelpPanel extends PanelBase {
+  constructor(private readonly hotkeyHint: () => string) {
+    super();
+  }
+
+  render(width: number): string[] {
+    const lines: string[] = [];
+    lines.push("");
+    lines.push(palette.label("AGENT ROOM DASHBOARD"));
+    lines.push(
+      palette.muted(
+        "Hybrid TUI: dashboard + the dashboard-agent who lives in the room.",
+      ),
+    );
+
+    lines.push("");
+    lines.push(palette.label("VIEWS"));
+    lines.push("  " + this.hotkeyHint());
+    lines.push(
+      "  " +
+        palette.muted(
+          "Tab / Shift+Tab cycle views · Esc opens the view menu",
+        ),
+    );
+
+    lines.push("");
+    lines.push(palette.label("CHAT VIEW"));
+    lines.push("  " + palette.muted("Talk to the dashboard agent in plain language."));
+    lines.push(
+      "  " +
+        palette.muted(
+          "It can post messages, manage tasks, launch/read/send to runtime agents.",
+        ),
+    );
+    lines.push("  " + palette.muted("Built-in slash commands:"));
+    lines.push("    " + palette.accent("/help") + palette.muted("           this screen"));
+    lines.push("    " + palette.accent("/refresh") + palette.muted("        force a poll"));
+    lines.push("    " + palette.accent("/clear") + palette.muted("          clear the chat transcript"));
+    lines.push(
+      "    " +
+        palette.accent("/login [provider]") +
+        palette.muted(" OAuth sign-in (default: openai → ChatGPT Plus/Pro)"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/logout <provider>") +
+        palette.muted(" clear stored credentials"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/post <text>") +
+        palette.muted("     post raw text to the room as the dashboard agent"),
+    );
+    lines.push(
+      "    " + palette.accent("/quit") + palette.muted("           exit the dashboard"),
+    );
+
+    lines.push("");
+    lines.push(palette.label("ENVIRONMENT"));
+    lines.push(
+      "  " +
+        palette.muted("AGENTROOM_DAEMON          base URL of the daemon (default http://127.0.0.1:4317)"),
+    );
+    lines.push(
+      "  " + palette.muted("AGENTROOM_API_TOKEN       bearer token if --tailnet daemon"),
+    );
+    lines.push(
+      "  " +
+        palette.muted(
+          "AGENTROOM_TUI_OPERATOR_ID id of the dashboard agent (default: dashboard)",
+        ),
+    );
+    lines.push(
+      "  " +
+        palette.muted(
+          "AGENTROOM_TUI_MODEL       provider/model (default: anthropic/claude-sonnet-4-5-20250929)",
+        ),
+    );
+    lines.push(
+      "  " +
+        palette.muted(
+          "ANTHROPIC_API_KEY etc.    LLM provider creds (chat is read-only without)",
+        ),
+    );
+
+    return lines.map((line) => fit(line, width));
+  }
+}
+
+function fit(line: string, width: number): string {
+  return visibleWidth(line) > width ? truncateToWidth(line, width) : line;
+}
+
+export function createHelpView(hotkeyHint: () => string): View {
+  const root = new Container();
+  root.addChild(new HelpPanel(hotkeyHint));
+  return {
+    id: "help",
+    label: "Help",
+    hotkey: "?",
+    description: "Hotkeys, env vars, dashboard agent capabilities",
+    root,
+  };
+}

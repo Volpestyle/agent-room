@@ -1,0 +1,321 @@
+import {
+  Container,
+  Key,
+  matchesKey,
+  SelectList,
+  Spacer,
+  TruncatedText,
+  TUI,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import type { Component, OverlayHandle, Terminal } from "@earendil-works/pi-tui";
+import { PanelBase } from "./components/panel.js";
+import type { AuthStorage } from "./auth/storage.js";
+import type { DashboardAgent, DashboardAgentError } from "./agent/index.js";
+import type { ApiClient } from "./api.js";
+import type { Poller } from "./poller.js";
+import { selectListTheme, palette } from "./theme.js";
+import { dashboardActor } from "./agent/identity.js";
+import type { DashboardStore } from "./state.js";
+import { createAgentsView } from "./views/agents.js";
+import { createChatView } from "./views/chat.js";
+import { createEventsView } from "./views/events.js";
+import { createHelpView } from "./views/help.js";
+import { createMessagesView } from "./views/messages.js";
+import { createOverviewView } from "./views/overview.js";
+import { createTasksView } from "./views/tasks.js";
+import type { View } from "./views/types.js";
+
+export interface DashboardOptions {
+  terminal: Terminal;
+  api: ApiClient;
+  poller: Poller;
+  store: DashboardStore;
+  agent: DashboardAgent | DashboardAgentError;
+  auth: AuthStorage;
+  rebuildAgent(): DashboardAgent | DashboardAgentError;
+  baseUrl: string;
+}
+
+class HeaderBar extends PanelBase {
+  constructor(
+    private readonly views: () => View[],
+    private readonly activeId: () => string,
+    private readonly store: DashboardStore,
+    private readonly baseUrl: string,
+    private readonly agentLabel: () => string,
+  ) {
+    super();
+  }
+
+  render(width: number): string[] {
+    const state = this.store.get();
+    const active = this.activeId();
+    const tabs = this.views()
+      .map((view) => {
+        const label = `${view.label} ${palette.muted("(" + view.hotkey + ")")}`;
+        return view.id === active
+          ? palette.badgeActive(" " + view.label + " ")
+          : palette.badge(" " + label + " ");
+      })
+      .join(" ");
+    const room = state.health?.roomId ?? state.config?.roomId ?? "—";
+    const right = `${palette.muted("room: ")}${palette.accentBold(room)}  ${palette.muted("daemon: ")}${palette.accent(stripScheme(this.baseUrl))}  ${palette.muted("agent: ")}${palette.accent(this.agentLabel())}`;
+    const top = pad(tabs, right, width);
+    const status = renderStatusLine(state, width);
+    return [top, status];
+  }
+}
+
+class FooterBar extends PanelBase {
+  constructor(private readonly hint: () => string) {
+    super();
+  }
+  render(width: number): string[] {
+    return [fit(palette.muted(this.hint()), width)];
+  }
+}
+
+function renderStatusLine(
+  state: { lastError: string | undefined; lastRefreshAt: string | undefined },
+  width: number,
+): string {
+  const refreshed = state.lastRefreshAt
+    ? `refreshed ${new Date(state.lastRefreshAt).toLocaleTimeString()}`
+    : "refreshing…";
+  const error = state.lastError ? palette.bad(" · error: " + state.lastError) : "";
+  return fit(palette.muted(refreshed) + error, width);
+}
+
+export class Dashboard {
+  private readonly tui: TUI;
+  private readonly views: View[];
+  private readonly viewIndexById: Map<string, number>;
+  private activeIndex = 0;
+  private currentViewContainer = new Container();
+  private overlayHandle: OverlayHandle | undefined;
+  private shuttingDown = false;
+  private currentAgent: DashboardAgent | DashboardAgentError;
+
+  constructor(private readonly options: DashboardOptions) {
+    this.tui = new TUI(options.terminal);
+    options.store.subscribe(() => {
+      this.tui.requestRender();
+    });
+
+    this.currentAgent = options.agent;
+    const chatView = createChatView({
+      tui: this.tui,
+      api: options.api,
+      poller: options.poller,
+      auth: options.auth,
+      agent: options.agent,
+      rebuildAgent: () => {
+        if (!("reason" in this.currentAgent)) {
+          try {
+            this.currentAgent.abort();
+          } catch {
+            // ignore — agent may already be settled
+          }
+        }
+        const next = options.rebuildAgent();
+        this.currentAgent = next;
+        if (!("reason" in next)) {
+          void this.announceJoin(next);
+        }
+        return next;
+      },
+      onCommand: (cmd) => {
+        if (cmd === "quit" || cmd === "exit") {
+          void this.shutdown();
+          return true;
+        }
+        if (cmd === "help") {
+          this.switchToId("help");
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.views = [
+      chatView,
+      createOverviewView(options.store),
+      createAgentsView(options.store),
+      createTasksView(options.store),
+      createMessagesView(options.store),
+      createEventsView(options.store),
+      createHelpView(() => this.hotkeyHint()),
+    ];
+    this.viewIndexById = new Map(this.views.map((v, i) => [v.id, i]));
+
+    const header = new HeaderBar(
+      () => this.views,
+      () => this.views[this.activeIndex]!.id,
+      options.store,
+      options.baseUrl,
+      () =>
+        "reason" in this.currentAgent
+          ? "disabled"
+          : `${this.currentAgent.agentId}@${this.currentAgent.resolvedModel.provider}`,
+    );
+    const footer = new FooterBar(() => this.hotkeyHint());
+
+    this.tui.addChild(header);
+    this.tui.addChild(new Spacer(1));
+    this.tui.addChild(this.currentViewContainer);
+    this.tui.addChild(new Spacer(1));
+    this.tui.addChild(footer);
+
+    this.tui.addInputListener((data) => this.onGlobalInput(data));
+
+    this.activateView(0);
+  }
+
+  hotkeyHint(): string {
+    return (
+      this.views
+        .map((v) => `${palette.accent(v.label)} ${palette.faint(v.hotkey)}`)
+        .join("  ") +
+      "  " +
+      palette.muted("Ctrl+G next · Ctrl+L prev · Esc view picker · Ctrl+C quit")
+    );
+  }
+
+  async start(): Promise<void> {
+    this.tui.start();
+    if (!("reason" in this.currentAgent)) {
+      await this.announceJoin(this.currentAgent);
+    }
+    this.options.poller.start();
+  }
+
+  private async announceJoin(agent: DashboardAgent): Promise<void> {
+    try {
+      await this.options.api.postMessage({
+        body:
+          `📊 Dashboard agent **${dashboardActor().id}** is online — using model ` +
+          `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId}.`,
+        sender: dashboardActor(),
+        kind: "announcement",
+      });
+    } catch {
+      // ignore — the daemon may be unreachable at boot
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    this.options.poller.stop();
+    if (!("reason" in this.currentAgent)) {
+      try {
+        await this.options.api.postMessage({
+          body: `Dashboard agent ${dashboardActor().id} signing off.`,
+          sender: dashboardActor(),
+          kind: "announcement",
+        });
+      } catch {
+        // ignore
+      }
+    }
+    this.tui.stop();
+    process.exit(0);
+  }
+
+  private activateView(index: number): void {
+    const previous = this.views[this.activeIndex];
+    previous?.onDeactivate?.();
+    this.activeIndex = index;
+    const next = this.views[index]!;
+    this.currentViewContainer.clear();
+    this.currentViewContainer.addChild(next.root);
+    next.onActivate?.({
+      setFocus: (component) => this.tui.setFocus(component),
+    });
+    if (!next.onActivate) {
+      this.tui.setFocus(null);
+    }
+    this.tui.requestRender();
+  }
+
+  private switchToId(id: string): void {
+    const index = this.viewIndexById.get(id);
+    if (index === undefined) return;
+    this.activateView(index);
+  }
+
+  private cycleView(delta: number): void {
+    const next = (this.activeIndex + delta + this.views.length) % this.views.length;
+    this.activateView(next);
+  }
+
+  private onGlobalInput(data: string): { consume?: boolean } | undefined {
+    if (matchesKey(data, Key.ctrl("c"))) {
+      void this.shutdown();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl("g"))) {
+      this.cycleView(1);
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl("l"))) {
+      this.cycleView(-1);
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.escape)) {
+      if (!this.overlayHandle) {
+        this.openViewPicker();
+        return { consume: true };
+      }
+    }
+    return undefined;
+  }
+
+  private openViewPicker(): void {
+    const items = this.views.map((view) => ({
+      value: view.id,
+      label: view.label,
+      description: view.description ?? "",
+    }));
+    const list = new SelectList(items, 10, selectListTheme);
+    list.onSelect = (item) => {
+      this.closeOverlay();
+      this.switchToId(item.value);
+    };
+    list.onCancel = () => this.closeOverlay();
+    this.overlayHandle = this.tui.showOverlay(list, {
+      width: 50,
+      anchor: "center",
+    });
+  }
+
+  private closeOverlay(): void {
+    if (this.overlayHandle) {
+      this.overlayHandle.hide();
+      this.overlayHandle = undefined;
+    }
+  }
+}
+
+function pad(left: string, right: string, width: number): string {
+  const leftWidth = visibleWidth(left);
+  const rightWidth = visibleWidth(right);
+  const space = Math.max(1, width - leftWidth - rightWidth);
+  if (leftWidth + rightWidth + 1 > width) {
+    return fit(left + " " + right, width);
+  }
+  return left + " ".repeat(space) + right;
+}
+
+function fit(line: string, width: number): string {
+  return visibleWidth(line) > width ? truncateToWidth(line, width) : line;
+}
+
+function stripScheme(url: string): string {
+  return url.replace(/^https?:\/\//, "");
+}
+
+// `TruncatedText` is imported to keep the option of a future single-line header.
+export { TruncatedText };
