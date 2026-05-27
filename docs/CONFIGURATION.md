@@ -5,8 +5,10 @@ surfaces.
 
 ## Source Of Truth
 
-`$AGENTROOM_HOME/config.yaml` is the durable source of truth for local room
-topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
+The nearest `.agentroom/config.yaml`, found by walking upward from the current
+working directory, is the durable source of truth for room topology. If
+`AGENTROOM_HOME` is explicitly set, AgentRoom uses `$AGENTROOM_HOME/config.yaml`
+instead:
 
 - room id and name
 - default runtime provider and runtime adapter settings
@@ -16,20 +18,26 @@ topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
 - room-owned chat gateways and routes
 - event-store location
 
+Room behavior and policy live next to it in `.agentroom/AGENTS.md`. That file
+is the editable room protocol: the place to tune how the dashboard agent and
+launched workers should treat the work tracker, coordination, status updates,
+and local room norms.
+
 The file is parsed, validated, and formatted by `@agentroom/config`. Hand edits,
 CLI commands, daemon APIs, and future TUI settings screens should all round-trip
 through that same package.
 
-The event log is not static configuration. `events.jsonl` in the AgentRoom home
-records runtime bindings, workspace registrations, messages, task shadows, chat
+The event log is not static configuration. `events.jsonl` next to the AgentRoom
+config records runtime bindings, workspace registrations, messages, task shadows, chat
 ingress/egress, and audit events. It can rebuild room views, but it should not
 become the place where topology is configured.
 
-Secrets do not belong in `config.yaml`. Store references such as
-`tokenEnv: AGENTROOM_DISCORD_TOKEN`, then supply the secret through the launch
-environment or a dedicated auth store. The TUI's model credentials live in
-`~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
-room topology.
+Secrets do not belong in `config.yaml`. Daemon-owned gateways may store env var
+references such as `tokenEnv: AGENTROOM_DISCORD_TOKEN`, then read the secret
+from the daemon environment. Work tracker auth is different: each agent
+authenticates with its own MCP connector, CLI, skill, or auth store. The TUI's
+model credentials live in `~/.agentroom/auth.json`; those credentials configure
+the dashboard agent, not room topology.
 
 The portable cross-product subset is intentionally non-secret:
 
@@ -39,7 +47,6 @@ workTracker:
   providers:
     linear:
       type: linear
-      tokenEnv: LINEAR_API_KEY
       teamId: team_123
 
 clanky:
@@ -57,19 +64,21 @@ credentials, memory, sessions, and agent-owned connector state.
 The intended product model is:
 
 ```text
-~/.agentroom/config.yaml durable, reviewable, headless
+.agentroom/config.yaml durable, reviewable, headless
 AgentRoom TUI           human-friendly editor, status, and lifecycle controls
 CLI / daemon API        scriptable operations over the same config model
 ```
 
-The TUI should be able to configure all durable AgentRoom settings over time,
-but it must not create a second hidden topology store. A TUI config editor should
-load the YAML through `@agentroom/config`, show the effective value and source,
-write back with `writeAgentRoomConfig`, and ask the daemon to reload or restart
-affected providers.
+The TUI exposes `/setup` and `/config` for first-run setup and common durable
+settings. Those commands read and write the YAML through the daemon and
+`@agentroom/config`; they do not create a second hidden topology store.
+The TUI also exposes `/protocol`, which shows the editable
+`.agentroom/AGENTS.md` room protocol.
 
-Until a TUI editor exists for a setting, hand-edit the AgentRoom home config or
-use the existing CLI command that writes it.
+The initial TUI setup surface covers the default runtime, portable work tracker
+defaults, and Clanky room defaults. For settings that are not in the setup
+surface yet, hand-edit the AgentRoom config or use the existing CLI command that
+writes it.
 
 ## Environment Overrides
 

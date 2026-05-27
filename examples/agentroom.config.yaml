@@ -10,8 +10,6 @@ workTracker:
   providers:
     linear:
       type: linear
-      tokenEnv: LINEAR_API_KEY
-      commandEnv: AGENTROOM_LINEAR_COMMAND
 
 clanky:
   home: .clanky-room
@@ -32,4 +30,4 @@ runtimes:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl

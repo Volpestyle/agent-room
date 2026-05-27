@@ -87,7 +87,12 @@ describe("AgentRoomService", () => {
     });
     await service.linkTaskRef({
       taskId: created.id,
-      ref: { kind: "linear-issue", id: "ENG-123", label: "ENG-123" },
+      ref: {
+        kind: "tracker-issue",
+        id: "ENG-123",
+        label: "ENG-123",
+        metadata: { providerKind: "linear" },
+      },
     });
     const done = await service.completeTask({
       taskId: created.id,
@@ -101,7 +106,14 @@ describe("AgentRoomService", () => {
       id: created.id,
       status: "done",
       assignee: { kind: "agent", id: "impl" },
-      refs: [{ kind: "linear-issue", id: "ENG-123", label: "ENG-123" }],
+      refs: [
+        {
+          kind: "tracker-issue",
+          id: "ENG-123",
+          label: "ENG-123",
+          metadata: { providerKind: "linear" },
+        },
+      ],
     });
     expect((await service.listTasks()).map((task) => task.id)).toEqual([
       created.id,
@@ -111,7 +123,7 @@ describe("AgentRoomService", () => {
       "task.assigned",
       "task.status_changed",
       "task.ref_added",
-      "linear.issue_event",
+      "tracker.ref_event",
       "task.status_changed",
       "agent.done",
     ]);

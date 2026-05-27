@@ -35,11 +35,14 @@ pnpm build
 pnpm test
 ```
 
-## 2. Start The Singleton Room
+## 2. Start The Shared Room
 
-AgentRoom defaults to one local room named `agent-room`. Its durable state lives
-in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
-`herdr --session agent-room`.
+AgentRoom defaults to one local room named `agent-room`. Its durable room config
+lives in the nearest `.agentroom/config.yaml`, found by walking upward from the
+current directory. The editable room protocol lives beside it at
+`.agentroom/AGENTS.md`. `AGENTROOM_HOME` is an explicit override for singleton
+or operator deployments. The default visible runtime is `herdr --session
+agent-room`.
 
 Start with the human surface:
 
@@ -51,8 +54,8 @@ The dashboard opens in operator chat. Ask it what is running, which agents are
 active, or what needs attention. The CLI remains available for exact automation,
 but the TUI should be the first interface a human learns.
 
-- The room is global for this workstation.
-- A cwd is workspace context, not room identity.
+- The room config is shared by every process launched inside that project tree.
+- A cwd is workspace context inside the room, not a separate room identity.
 - Herdr workspaces/tabs/panes are the visible layout under the same session.
 
 See `docs/TOPOLOGY.md` for the tradeoffs.

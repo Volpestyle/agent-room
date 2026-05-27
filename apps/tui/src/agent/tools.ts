@@ -368,6 +368,18 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     },
   });
 
+  const getRoomProtocol = defineTool({
+    name: "get_room_protocol",
+    label: "Get room protocol",
+    description:
+      "Return the editable AgentRoom room protocol from .agentroom/AGENTS.md.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const protocol = await api.protocol();
+      return jsonContent(protocol);
+    },
+  });
+
   const listProviders = defineTool({
     name: "list_runtime_providers",
     label: "List runtime providers",
@@ -620,6 +632,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     claimTask,
     updateTaskStatus,
     listEvents,
+    getRoomProtocol,
     listProviders,
     listAgents,
     getRuntimeStatus,

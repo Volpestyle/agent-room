@@ -47,7 +47,7 @@ export type RoomEventType =
   | "chat.inbound_received"
   | "chat.outbound_sent"
   | "github.pr_event"
-  | "linear.issue_event"
+  | "tracker.ref_event"
   | "figma.design_event"
   | "decision.recorded"
   | "handoff.created";
@@ -154,17 +154,15 @@ export type RoomEvent =
       }
     >
   | BaseEvent<
-      "linear.issue_event",
+      "tracker.ref_event",
       {
         issueId: Id;
+        providerKind: string;
+        providerId?: string;
         action:
           | "linked"
-          | "commented"
-          | "status_updated"
           | "tracker_update_skipped";
         taskId?: Id;
-        body?: string;
-        status?: string;
         reason?: string;
       }
     >

@@ -15,6 +15,7 @@ AGENTROOM=1
 AGENTROOM_AGENT_ID=api-impl
 AGENTROOM_ROOM_ID=my-project
 AGENTROOM_ROLE=implementer
+AGENTROOM_PROTOCOL_FILE=/repo/.agentroom/AGENTS.md
 AGENTROOM_DAEMON=http://127.0.0.1:4317
 AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
 ```
@@ -22,6 +23,16 @@ AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
 The local identity check resolves `AGENTROOM_AGENT_ID` first. If that is not
 set, AgentRoom can resolve a runtime pane that has already been adopted by the
 daemon or explicitly enrolled.
+
+## Editable Room Protocol
+
+The room protocol lives at `.agentroom/AGENTS.md` next to
+`.agentroom/config.yaml`. Config is for topology; this Markdown file is for
+behavior and policy. Agents should read `AGENTROOM_PROTOCOL_FILE` when present
+and follow it alongside their installed skills.
+
+Use `agent-room protocol --json` or TUI `/protocol` to inspect the active room
+protocol.
 
 ## Room-Native Actions
 
@@ -41,8 +52,8 @@ lead-agent playbook is `skills/agentroom-operator/SKILL.md`.
 
 ## Tracker Refs
 
-Use the selected external tracker MCP, CLI, or skill as the canonical work
-tracker. AgentRoom task IDs are local execution shadows unless explicitly
+Use the selected external tracker MCP, connector, CLI, or skill as the
+canonical work tracker. AgentRoom task IDs are local execution shadows unless explicitly
 linked to an external tracker ref.
 
 If tracker tools are unavailable when a tracker update is required, agents must

@@ -8,7 +8,6 @@
     { "path": "packages/runtime-fake" },
     { "path": "packages/runtime-herdr" },
     { "path": "packages/runtime-tmux" },
-    { "path": "packages/integrations/worktracker-linear" },
     { "path": "packages/integrations/codehost-github" },
     { "path": "packages/integrations/design-figma" },
     { "path": "packages/integrations/notify-telegram" },

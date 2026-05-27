@@ -5,6 +5,12 @@ room:
 runtime:
   default: herdr
 
+workTracker:
+  default: linear
+  providers:
+    linear:
+      type: linear
+
 operator:
   agentId: operator
   displayName: Clanky Operator
@@ -32,4 +38,4 @@ runtimes:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl

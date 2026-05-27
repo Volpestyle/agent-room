@@ -27,11 +27,20 @@ import {
   type StartAgentRequest,
 } from "@agentroom/core";
 import {
+  agentRoomProtocolPath,
+  agentRoomConfigPath,
   createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
+  ensureAgentRoomProtocol,
   maybeLoadAgentRoomConfigSync,
+  readAgentRoomProtocol,
   resolveStoragePath,
+  withDefaultRuntime,
+  writeAgentRoomConfig,
   type AgentRoomConfig,
+  type ClankyChatGatewayOwner,
+  type WorkTrackerProviderConfig,
+  type WorkTrackerProviderKind,
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { HerdrPaneObserver, resolveHerdrSocketPath } from "./herdrObserver.js";
@@ -67,7 +76,7 @@ export function createAppWithLifecycle(
   options: CreateAppOptions = {},
 ): CreateAppResult {
   const cwd = options.cwd ?? process.cwd();
-  const configured =
+  let configured =
     options.config ??
     maybeLoadAgentRoomConfigSync(cwd) ??
     createDefaultAgentRoomConfig({
@@ -206,8 +215,35 @@ export function createAppWithLifecycle(
     return c.json({
       roomId,
       cwd,
+      protocolPath: agentRoomProtocolPath(cwd),
       defaultRuntime: configured?.runtime.default ?? null,
       operator: configured?.operator ?? null,
+    });
+  });
+
+  app.get("/v1/config", (c) => {
+    configured = maybeLoadAgentRoomConfigSync(cwd) ?? configured;
+    return c.json({
+      path: agentRoomConfigPath(cwd),
+      config: configured,
+    });
+  });
+
+  app.get("/v1/protocol", async (c) => {
+    await ensureAgentRoomProtocol(cwd);
+    return c.json(await readAgentRoomProtocol(cwd));
+  });
+
+  app.patch("/v1/config/setup", async (c) => {
+    const patch = parseConfigSetupPatch(await c.req.json());
+    configured = maybeLoadAgentRoomConfigSync(cwd) ?? configured;
+    configured = applyConfigSetupPatch(configured, patch);
+    await writeAgentRoomConfig(cwd, configured);
+    return c.json({
+      ok: true,
+      path: agentRoomConfigPath(cwd),
+      config: configured,
+      restartRequired: patch.runtimeDefault !== undefined,
     });
   });
 
@@ -548,7 +584,13 @@ export function createAppWithLifecycle(
         : {}),
       ...(body.cwd !== undefined ? { cwd: body.cwd } : {}),
       ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
-      ...(body.env !== undefined ? { env: body.env } : {}),
+      env: {
+        ...(body.env ?? {}),
+        ...agentRoomProtocolEnv(configured, {
+          agentId: body.agentId,
+          role: role.data,
+        }, cwd),
+      },
     });
 
     await service.bindRuntime({
@@ -660,6 +702,224 @@ export function createAppWithLifecycle(
       await chatRegistry.stop();
     },
   };
+}
+
+interface ConfigSetupPatch {
+  runtimeDefault?: string;
+  workTracker?: ConfigSetupWorkTrackerPatch;
+  clanky?: ConfigSetupClankyPatch;
+}
+
+interface ConfigSetupWorkTrackerPatch {
+  type: WorkTrackerProviderKind;
+  id?: string;
+  teamId?: string;
+  projectId?: string;
+  baseUrl?: string;
+}
+
+interface ConfigSetupClankyPatch {
+  home?: string;
+  profile?: string;
+  chatGatewayOwner?: ClankyChatGatewayOwner;
+}
+
+function parseConfigSetupPatch(input: unknown): ConfigSetupPatch {
+  const body = asRecord(input, "config setup patch");
+  const patch: ConfigSetupPatch = {};
+  const runtimeDefault =
+    optionalString(body.runtimeDefault) ?? optionalString(body.defaultRuntime);
+  if (runtimeDefault !== undefined) patch.runtimeDefault = runtimeDefault;
+
+  const workTrackerInput = optionalRecord(body.workTracker, "workTracker");
+  if (workTrackerInput !== undefined) {
+    patch.workTracker = parseWorkTrackerSetupPatch(workTrackerInput);
+  }
+
+  const clankyInput = optionalRecord(body.clanky, "clanky");
+  if (clankyInput !== undefined) {
+    patch.clanky = parseClankySetupPatch(clankyInput);
+  }
+
+  if (
+    patch.runtimeDefault === undefined &&
+    patch.workTracker === undefined &&
+    patch.clanky === undefined
+  ) {
+    throw new Error(
+      "Config setup patch must include runtimeDefault, workTracker, or clanky",
+    );
+  }
+  return patch;
+}
+
+function parseWorkTrackerSetupPatch(
+  input: Record<string, unknown>,
+): ConfigSetupWorkTrackerPatch {
+  const typeRaw =
+    optionalString(input.type) ??
+    optionalString(input.providerKind) ??
+    optionalString(input.trackerKind);
+  const providerId = optionalString(input.id) ?? optionalString(input.provider);
+  const type = parseWorkTrackerProviderKind(typeRaw ?? providerId);
+  if (type === undefined) {
+    throw new Error(
+      "workTracker.type must be native, linear, github-issues, jira, or custom",
+    );
+  }
+  return {
+    type,
+    ...(providerId !== undefined ? { id: providerId } : {}),
+    ...optionalStringProp(input, "teamId"),
+    ...optionalStringProp(input, "projectId"),
+    ...optionalStringProp(input, "baseUrl"),
+  };
+}
+
+function parseClankySetupPatch(
+  input: Record<string, unknown>,
+): ConfigSetupClankyPatch {
+  const owner = parseClankyChatGatewayOwner(
+    optionalString(input.chatGatewayOwner) ?? optionalString(input.owner),
+  );
+  return {
+    ...optionalStringProp(input, "home"),
+    ...optionalStringProp(input, "profile"),
+    ...(owner !== undefined ? { chatGatewayOwner: owner } : {}),
+  };
+}
+
+function applyConfigSetupPatch(
+  config: AgentRoomConfig,
+  patch: ConfigSetupPatch,
+): AgentRoomConfig {
+  let next = config;
+  if (patch.runtimeDefault !== undefined) {
+    next = withDefaultRuntime(next, patch.runtimeDefault);
+  }
+  if (patch.workTracker !== undefined) {
+    next = withSetupWorkTracker(next, patch.workTracker);
+  }
+  if (patch.clanky !== undefined) {
+    next = withSetupClanky(next, patch.clanky);
+  }
+  return next;
+}
+
+function withSetupWorkTracker(
+  config: AgentRoomConfig,
+  patch: ConfigSetupWorkTrackerPatch,
+): AgentRoomConfig {
+  const providerId = patch.id ?? defaultWorkTrackerProviderId(patch.type);
+  const existing = config.workTracker?.providers ?? {};
+  return {
+    ...config,
+    workTracker: {
+      default: providerId,
+      providers: {
+        ...existing,
+        [providerId]: setupWorkTrackerProvider(patch),
+      },
+    },
+  };
+}
+
+function setupWorkTrackerProvider(
+  patch: ConfigSetupWorkTrackerPatch,
+): WorkTrackerProviderConfig {
+  if (patch.type === "native") return { type: "native" };
+  const provider: WorkTrackerProviderConfig = { type: patch.type };
+  if (patch.teamId !== undefined) provider.teamId = patch.teamId;
+  if (patch.projectId !== undefined) provider.projectId = patch.projectId;
+  if (patch.baseUrl !== undefined) provider.baseUrl = patch.baseUrl;
+  return provider;
+}
+
+function withSetupClanky(
+  config: AgentRoomConfig,
+  patch: ConfigSetupClankyPatch,
+): AgentRoomConfig {
+  const home = patch.home ?? config.clanky?.home ?? ".clanky-room";
+  const profile = patch.profile ?? config.clanky?.profile ?? "lead";
+  const chatGatewayOwner =
+    patch.chatGatewayOwner ?? config.clanky?.chatGatewayOwner ?? "agent";
+  return {
+    ...config,
+    clanky: { home, profile, chatGatewayOwner },
+    operator: {
+      ...(config.operator ?? {}),
+      agentId: config.operator?.agentId ?? "clanky",
+      displayName: config.operator?.displayName ?? "Clanky",
+      kind: "clanky",
+      command: `clanky --home ${home} --profile ${profile}`,
+      cwd: config.operator?.cwd ?? ".",
+      sessionDir: `${home}/profiles/${profile}/sessions`,
+      env: {
+        ...(config.operator?.env ?? {}),
+        CLANKY_HOME: home,
+        CLANKY_PROFILE: profile,
+        CLANKY_CHAT_GATEWAY_OWNER: chatGatewayOwner,
+      },
+    },
+  };
+}
+
+function defaultWorkTrackerProviderId(type: WorkTrackerProviderKind): string {
+  return type;
+}
+
+function parseWorkTrackerProviderKind(
+  value: string | undefined,
+): WorkTrackerProviderKind | undefined {
+  if (
+    value === "native" ||
+    value === "linear" ||
+    value === "github-issues" ||
+    value === "jira" ||
+    value === "custom"
+  ) {
+    return value;
+  }
+  if (value === "github") return "github-issues";
+  return undefined;
+}
+
+function parseClankyChatGatewayOwner(
+  value: string | undefined,
+): ClankyChatGatewayOwner | undefined {
+  if (value === "agent" || value === "room" || value === "off") return value;
+  return undefined;
+}
+
+function optionalStringProp<T extends string>(
+  input: Record<string, unknown>,
+  key: T,
+): { [K in T]?: string } {
+  const value = optionalString(input[key]);
+  return value === undefined
+    ? {}
+    : ({ [key]: value } as { [K in T]?: string });
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function optionalRecord(
+  value: unknown,
+  name: string,
+): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  return asRecord(value, name);
+}
+
+function asRecord(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function startHerdrObservers(input: {
@@ -776,6 +1036,41 @@ function bindingIdFor(
   binding?: RuntimeBinding,
 ): string | undefined {
   return binding?.providerId === provider.id ? binding.bindingId : undefined;
+}
+
+function agentRoomProtocolEnv(
+  config: AgentRoomConfig,
+  input: { agentId: string; role: StartAgentRequest["role"] },
+  cwd: string,
+): Record<string, string> {
+  return {
+    AGENTROOM: "1",
+    AGENTROOM_AGENT_ID: input.agentId,
+    AGENTROOM_ROOM_ID: config.room.id,
+    AGENTROOM_ROLE: input.role,
+    AGENTROOM_PROTOCOL_FILE: agentRoomProtocolPath(cwd),
+    ...workTrackerProtocolEnv(config),
+  };
+}
+
+function workTrackerProtocolEnv(config: AgentRoomConfig): Record<string, string> {
+  const trackerId = config.workTracker?.default;
+  if (trackerId === undefined) return {};
+  const provider = config.workTracker?.providers[trackerId];
+  if (provider === undefined) return { AGENTROOM_WORK_TRACKER: trackerId };
+  return {
+    AGENTROOM_WORK_TRACKER: trackerId,
+    AGENTROOM_WORK_TRACKER_PROVIDER_KIND: provider.type,
+    ...(provider.teamId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_TEAM_ID: provider.teamId }
+      : {}),
+    ...(provider.projectId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_PROJECT_ID: provider.projectId }
+      : {}),
+    ...(provider.baseUrl !== undefined
+      ? { AGENTROOM_WORK_TRACKER_BASE_URL: provider.baseUrl }
+      : {}),
+  };
 }
 
 function stopTargetFor(

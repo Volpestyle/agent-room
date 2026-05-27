@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readAgentRoomProtocolSync } from "@agentroom/config";
 
 const DEFAULT_MAX_SKILL_CHARS = 14_000;
 const OPERATOR_SKILL_RELATIVE_PATH = join(
@@ -20,13 +21,56 @@ export function loadDashboardOperatorSkillPrompt(
   options: OperatorSkillLoadOptions = {},
 ): string | undefined {
   const env = options.env ?? process.env;
-  if (isDisabled(env.AGENTROOM_TUI_OPERATOR_SKILL)) return undefined;
+  const sections: string[] = [];
 
-  const skillPath =
-    explicitSkillPath(env.AGENTROOM_TUI_OPERATOR_SKILL_PATH) ??
-    findOperatorSkill(roomCwd, options.moduleDir);
-  if (!skillPath) return undefined;
+  const protocolPrompt = loadRoomProtocolPrompt(roomCwd, options);
+  if (protocolPrompt) sections.push(protocolPrompt);
 
+  if (!isDisabled(env.AGENTROOM_TUI_OPERATOR_SKILL)) {
+    const skillPath =
+      explicitSkillPath(env.AGENTROOM_TUI_OPERATOR_SKILL_PATH) ??
+      findOperatorSkill(roomCwd, options.moduleDir);
+    if (skillPath) {
+      const operatorPrompt = loadOperatorSkillPrompt(skillPath, options);
+      if (operatorPrompt) sections.push(operatorPrompt);
+    }
+  }
+
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
+function loadRoomProtocolPrompt(
+  roomCwd: string,
+  options: OperatorSkillLoadOptions,
+): string | undefined {
+  const env = options.env ?? process.env;
+  if (isDisabled(env.AGENTROOM_TUI_ROOM_PROTOCOL)) return undefined;
+
+  let protocol: { path: string; content: string };
+  try {
+    protocol = readAgentRoomProtocolSync(roomCwd);
+  } catch {
+    return undefined;
+  }
+
+  const body = truncateSkill(protocol.content.trim(), options.maxChars);
+  if (!body) return undefined;
+
+  return [
+    "Embedded AgentRoom room protocol:",
+    `Source: ${protocol.path}`,
+    "This is the editable room protocol for this room. Follow it where applicable; it describes room behavior and policy, while config.yaml describes topology.",
+    "",
+    "<agentroom_room_protocol>",
+    body,
+    "</agentroom_room_protocol>",
+  ].join("\n");
+}
+
+function loadOperatorSkillPrompt(
+  skillPath: string,
+  options: OperatorSkillLoadOptions,
+): string | undefined {
   let raw: string;
   try {
     raw = readFileSync(skillPath, "utf8");
@@ -35,7 +79,6 @@ export function loadDashboardOperatorSkillPrompt(
   }
   const body = truncateSkill(stripFrontmatter(raw).trim(), options.maxChars);
   if (!body) return undefined;
-
   return [
     "Embedded AgentRoom operator skill:",
     `Source: ${skillPath}`,

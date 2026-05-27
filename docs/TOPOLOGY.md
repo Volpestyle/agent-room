@@ -1,8 +1,8 @@
 # Room Topology
 
 AgentRoom is a singleton local room by default. The room id is `agent-room`,
-durable state lives in `$AGENTROOM_HOME` or `~/.agentroom`, and the default
-visible runtime is:
+durable state lives in the nearest `.agentroom/` directory unless
+`AGENTROOM_HOME` is explicitly set, and the default visible runtime is:
 
 ```bash
 herdr --session agent-room
@@ -66,7 +66,7 @@ operator which cwd/workspace to use.
 Use the singleton room for the local product path. Create separate rooms only
 when you intentionally need isolation, for example a test fixture, another user
 profile, or a hosted/multi-host deployment. Prefer changing `AGENTROOM_HOME` or
-daemon port explicitly over deriving rooms from cwd.
+daemon port explicitly over accidental room discovery from an unrelated cwd.
 
 ## tmux Mapping
 

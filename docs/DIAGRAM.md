@@ -60,7 +60,7 @@ flowchart TB
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
   connectors["Connector ports<br/>work tracker, code host, design, chat"]
-  local["~/.agentroom/<br/>config.yaml<br/>events.jsonl<br/>SQLite planned"]
+  local[".agentroom/<br/>config.yaml<br/>AGENTS.md<br/>events.jsonl<br/>SQLite planned"]
   runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
   adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
 
@@ -76,9 +76,12 @@ flowchart TB
 
 ## Read The Boundaries
 
-- `$AGENTROOM_HOME/config.yaml` owns durable room topology: runtime providers,
-  room-owned gateways and routes, dashboard operator defaults, and storage
-  settings.
+- `.agentroom/config.yaml` owns durable room topology: runtime providers,
+  room-owned gateways and routes, dashboard operator defaults, work tracker
+  selection, and storage settings. `AGENTROOM_HOME` can explicitly point to a
+  singleton room home when discovery is not desired.
+- `.agentroom/AGENTS.md` owns editable room protocol for dashboard-agent and
+  worker behavior.
 - The event log owns room state and audit history: messages, local task shadows,
   runtime bindings, chat ingress/egress, and terminal input/output observations.
 - Runtime providers own process placement and terminal control. AgentRoom uses

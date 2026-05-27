@@ -52,7 +52,7 @@ herdr --session agent-room status
 
 Inside the AgentRoom TUI, use `/runtime` or `/runtime herdr`. The Overview view also shows the runtime session namespace, socket path, workspace label, workspace ids, and join command when the daemon exposes provider metadata.
 
-The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` in `$AGENTROOM_HOME/config.yaml` or point it at the built binary or at a real wrapper script on `PATH`:
+The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` in `.agentroom/config.yaml` or point it at the built binary or at a real wrapper script on `PATH`:
 
 ```bash
 agent-room init --runtime herdr --runtime-cli herdr-dev

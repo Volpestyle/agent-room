@@ -16,9 +16,9 @@ Choose one durable work tracker for planned work:
 - durable implementation notes
 - review comments that should survive outside the room
 
-Agents should use the selected tracker through that tracker's MCP server, CLI, skill, or AgentRoom provider bridge. AgentRoom should not reimplement an issue database or workflow engine.
+Agents should use the selected tracker through that tracker's MCP server, CLI, or skill. AgentRoom should not reimplement an issue database or workflow engine.
 
-The current concrete bridge is Linear (`@agentroom/worktracker-linear` and `linear-issue` refs). Other trackers should be integrated through their own provider or represented as explicit refs until a bridge exists.
+AgentRoom stores provider-neutral `tracker-issue` refs that point local task shadows at durable external issues.
 
 ## AgentRoom Is The Room
 
@@ -61,11 +61,11 @@ If a room message becomes important to the durable work record, post a concise t
 
 AgentRoom can keep local task shadows so agents can attach runtime state and room messages to a piece of work. These local tasks should normally link to the selected tracker when a durable issue exists.
 
-Linear example:
+Tracker ref example:
 
 ```bash
-agent-room task create "Implement runtime audit" --linear ENG-123
-agent-room task link-linear task_implement_runtime_audit_xxx ENG-123
+agent-room task create "Implement runtime audit" --tracker-issue ENG-123 --tracker-kind linear --tracker-provider linear
+agent-room task link-tracker task_implement_runtime_audit_xxx ENG-123 --kind linear --provider linear
 ```
 
 New local task IDs include a creation-time title slug plus a UUID suffix, for example `task_implement_runtime_audit_<uuid>`, so logs and commands stay readable without losing uniqueness.

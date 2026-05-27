@@ -32,7 +32,7 @@ describe("agent-room init", () => {
           "fake",
           "--work-tracker",
           "linear",
-          "--linear-team",
+          "--tracker-team",
           "team_123",
           "--clanky",
           "--clanky-profile",
@@ -51,6 +51,9 @@ describe("agent-room init", () => {
       expect(config).toContain("profile: lead");
       expect(config).toContain("chatGatewayOwner: room");
       expect(config).toContain("kind: clanky");
+
+      const protocol = await readFile(protocolPathFor(cwd), "utf8");
+      expect(protocol).toContain("# AgentRoom Protocol");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -451,7 +454,17 @@ describe("agent-room enroll", () => {
     try {
       await execAgentRoom(
         cwd,
-        ["init", "--room", "cli-enroll-shell", "--runtime", "fake"],
+        [
+          "init",
+          "--room",
+          "cli-enroll-shell",
+          "--runtime",
+          "fake",
+          "--work-tracker",
+          "linear",
+          "--tracker-team",
+          "team_123",
+        ],
         env,
       );
       const { stdout } = await execAgentRoom(cwd, ["enroll", "--shell"], env);
@@ -461,6 +474,16 @@ describe("agent-room enroll", () => {
       );
       expect(stdout).toContain("export AGENTROOM_ROOM_ID='cli-enroll-shell'");
       expect(stdout).toContain("export AGENTROOM_ROLE='implementer'");
+      expect(stdout).toContain(
+        `export AGENTROOM_PROTOCOL_FILE='${protocolPathFor(cwd)}'`,
+      );
+      expect(stdout).toContain("export AGENTROOM_WORK_TRACKER='linear'");
+      expect(stdout).toContain(
+        "export AGENTROOM_WORK_TRACKER_PROVIDER_KIND='linear'",
+      );
+      expect(stdout).toContain(
+        "export AGENTROOM_WORK_TRACKER_TEAM_ID='team_123'",
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -793,6 +816,10 @@ function testHomeFor(cwd: string): string {
 
 function configPathFor(cwd: string): string {
   return join(testHomeFor(cwd), "config.yaml");
+}
+
+function protocolPathFor(cwd: string): string {
+  return join(testHomeFor(cwd), "AGENTS.md");
 }
 
 async function expectAgentRoomFailure(

@@ -18,7 +18,8 @@ tools.
 
 | Command                   | Purpose                                                        |
 | ------------------------- | -------------------------------------------------------------- |
-| `agent-room init`         | Write room config into `$AGENTROOM_HOME` or `~/.agentroom`.    |
+| `agent-room init`         | Write `.agentroom/config.yaml` and `.agentroom/AGENTS.md`.     |
+| `agent-room protocol`     | Show the active editable room protocol.                        |
 | `agent-room dev-new-user` | Create a temporary home for first-run TUI testing.             |
 | `agent-room doctor`       | Check local prerequisites and configured runtime availability. |
 | `agent-room whoami`       | Print current AgentRoom enrollment environment.                |
@@ -155,12 +156,13 @@ state changes and `done` / `block` for the common paths.
 
 | Variable              | Purpose                                                       |
 | --------------------- | ------------------------------------------------------------- |
-| `AGENTROOM_HOME`      | Room config and local state home. Defaults to `~/.agentroom`. |
+| `AGENTROOM_HOME`      | Explicit room config/state home; otherwise nearest `.agentroom` is used. |
 | `AGENTROOM_DAEMON`    | Daemon base URL for clients and enrolled agents.              |
 | `AGENTROOM_API_TOKEN` | Bearer token for tailnet or remote daemon access.             |
 | `AGENTROOM_AGENT_ID`  | Current enrolled agent id.                                    |
 | `AGENTROOM_ROOM_ID`   | Current room id.                                              |
 | `AGENTROOM_ROLE`      | Current enrolled role.                                        |
+| `AGENTROOM_PROTOCOL_FILE` | Editable room protocol path for enrolled agents.          |
 
 When AgentRoom launches an agent, runtime providers set the enrollment variables
 so the agent can identify itself and coordinate through the room.

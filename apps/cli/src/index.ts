@@ -39,12 +39,15 @@ import {
   DEFAULT_ROOM_ID,
   agentRoomDir,
   agentRoomConfigPath,
+  agentRoomProtocolPath,
   builtInRuntimeConfig,
   createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
+  ensureAgentRoomProtocol,
   ensureRuntimeConfig,
   loadAgentRoomConfig,
   maybeLoadAgentRoomConfig,
+  readAgentRoomProtocol,
   resolveStoragePath,
   runtimeNameFor,
   withDefaultRuntime,
@@ -62,7 +65,6 @@ import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
 import { HerdrRuntimeProvider } from "@agentroom/runtime-herdr";
 import { TmuxRuntimeProvider } from "@agentroom/runtime-tmux";
-import { LinearWorkTrackerProvider } from "@agentroom/worktracker-linear";
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -212,7 +214,7 @@ program
 
 program
   .command("init")
-  .description("Write singleton AgentRoom config into AGENTROOM_HOME")
+  .description("Write AgentRoom config into .agentroom or AGENTROOM_HOME")
   .option("--room <id>", "room id; defaults to agent-room")
   .option("--name <name>", "human-readable room name")
   .option(
@@ -233,7 +235,7 @@ program
     "portable work tracker selection: native|linear|github-issues|jira|custom",
     "native",
   )
-  .option("--linear-team <teamId>", "default Linear team id for created issues")
+  .option("--tracker-team <teamId>", "default tracker team id")
   .option("--clanky", "write Clanky-compatible defaults into config.yaml")
   .option(
     "--clanky-home <path>",
@@ -258,7 +260,7 @@ program
       runtimeSession?: string;
       runtimeCli?: string;
       workTracker: string;
-      linearTeam?: string;
+      trackerTeam?: string;
       clanky?: boolean;
       clankyHome: string;
       clankyProfile: string;
@@ -283,8 +285,8 @@ program
       applyRuntimeCliOverride(appConfig, options.runtime, options.runtimeCli);
       appConfig.workTracker = createWorkTrackerConfig({
         tracker: options.workTracker,
-        ...(options.linearTeam !== undefined
-          ? { linearTeam: options.linearTeam }
+        ...(options.trackerTeam !== undefined
+          ? { teamId: options.trackerTeam }
           : {}),
       });
       if (options.clanky === true) {
@@ -317,8 +319,10 @@ program
       }
 
       await writeAgentRoomConfig(process.cwd(), appConfig);
+      const protocolPath = await ensureAgentRoomProtocol(process.cwd());
 
       console.log(`Configured AgentRoom room '${roomId}' in ${dir}`);
+      console.log(`Configured room protocol: ${protocolPath}`);
       console.log(`Configured runtime: ${appConfig.runtime.default}`);
       console.log(`Configured work tracker: ${appConfig.workTracker.default}`);
       if (appConfig.clanky !== undefined) {
@@ -629,16 +633,18 @@ const task = program.command("task").description("Task commands");
 task
   .command("create")
   .description(
-    "Create a local task shadow, optionally linked to a Linear issue",
+    "Create a local task shadow, optionally linked to an external tracker issue",
   )
   .argument("<title>", "task title")
   .option("-d, --description <description>", "task description")
   .option("-a, --assignee <agentId>", "agent id")
   .option(
-    "--linear <issueId>",
-    "existing Linear issue id or key to use as the tracker source",
+    "--tracker-issue <issueId>",
+    "existing external tracker issue id or key",
   )
-  .option("--linear-url <url>", "Linear issue URL")
+  .option("--tracker-kind <kind>", "tracker provider kind")
+  .option("--tracker-provider <id>", "tracker provider id from config")
+  .option("--tracker-url <url>", "tracker issue URL")
   .option("--json", "print JSON")
   .action(
     async (
@@ -646,14 +652,18 @@ task
       options: {
         description?: string;
         assignee?: string;
-        linear?: string;
-        linearUrl?: string;
+        trackerIssue?: string;
+        trackerKind?: string;
+        trackerProvider?: string;
+        trackerUrl?: string;
         json?: boolean;
       },
     ) => {
       const service = await serviceForCwd();
-      const refs = options.linear
-        ? [linearRef(options.linear, options.linearUrl)]
+      const refs = options.trackerIssue
+        ? [
+            trackerRef(options.trackerIssue, trackerRefOptions(options)),
+          ]
         : [];
       const created = await service.createTask({
         title,
@@ -693,22 +703,29 @@ task
   });
 
 task
-  .command("link-linear")
-  .description("Link a local task shadow to a Linear issue")
+  .command("link-tracker")
+  .description("Link a local task shadow to an external tracker issue")
   .argument("<taskId>", "local task id")
-  .argument("<issueId>", "Linear issue id or key")
-  .option("--url <url>", "Linear issue URL")
+  .argument("<issueId>", "tracker issue id or key")
+  .option("--kind <kind>", "tracker provider kind")
+  .option("--provider <id>", "tracker provider id from config")
+  .option("--url <url>", "tracker issue URL")
   .option("--json", "print JSON")
   .action(
     async (
       taskId: string,
       issueId: string,
-      options: { url?: string; json?: boolean },
+      options: {
+        kind?: string;
+        provider?: string;
+        url?: string;
+        json?: boolean;
+      },
     ) => {
       const service = await serviceForCwd();
       const task = await service.linkTaskRef({
         taskId,
-        ref: linearRef(issueId, options.url),
+        ref: trackerRef(issueId, trackerRefOptions(options)),
       });
       output(task, options.json);
     },
@@ -716,7 +733,7 @@ task
 
 task
   .command("comment")
-  .description("Comment on the Linear issue linked to a local task")
+  .description("Post a local AgentRoom comment on a task shadow")
   .argument("<taskId>", "local task id")
   .argument("<body>", "comment body")
   .option("--json", "print JSON")
@@ -724,10 +741,14 @@ task
     const service = await serviceForCwd();
     const task = await service.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
-    const issueId = linearIssueIdForTask(task);
-    if (!issueId) throw new Error(`Task has no Linear issue ref: ${taskId}`);
-    const result = await commentOnLinearIssue(issueId, body, taskId, service);
-    output(result, options.json);
+    const message = await service.postMessage({
+      body,
+      channelId: "implementation",
+      threadId: taskId,
+      sender: await currentActor(),
+      kind: "status",
+    });
+    output(message, options.json);
   });
 
 task
@@ -873,45 +894,22 @@ const tracker = program
 
 tracker
   .command("health")
-  .description("Check the configured external work tracker bridge")
+  .description("Show configured external work tracker protocol")
   .option("--json", "print JSON")
   .action(async (options: { json?: boolean }) => {
     const config = await maybeLoadAgentRoomConfig();
-    output(await workTrackerHealth(config), options.json);
+    output(workTrackerHealth(config), options.json);
   });
 
-tracker
-  .command("comment")
-  .description("Comment on a Linear issue through the configured bridge")
-  .argument("<issueId>", "Linear issue id or key")
-  .argument("<body>", "comment body")
+program
+  .command("protocol")
+  .description("Show the active editable AgentRoom protocol")
   .option("--json", "print JSON")
-  .action(
-    async (issueId: string, body: string, options: { json?: boolean }) => {
-      const service = await maybeServiceForCwd();
-      const result = await commentOnLinearIssue(
-        issueId,
-        body,
-        undefined,
-        service,
-      );
-      output(result, options.json);
-    },
-  );
-
-tracker
-  .command("status")
-  .description("Update a Linear issue status through the configured bridge")
-  .argument("<issueId>", "Linear issue id or key")
-  .argument("<status>", "tracker status name")
-  .option("--json", "print JSON")
-  .action(
-    async (issueId: string, status: string, options: { json?: boolean }) => {
-      const service = await maybeServiceForCwd();
-      const result = await updateLinearIssueStatus(issueId, status, service);
-      output(result, options.json);
-    },
-  );
+  .action(async (options: { json?: boolean }) => {
+    await ensureAgentRoomProtocol();
+    const protocol = await readAgentRoomProtocol();
+    output(protocol, options.json);
+  });
 
 program
   .command("events")
@@ -1135,7 +1133,7 @@ program
         json?: boolean;
       },
     ) => {
-      const { store, config } = await storeForCwd();
+      const { store, config, appConfig } = await storeForCwd();
       const service = new AgentRoomService(store, { roomId: config.roomId });
       const role = parseAgentRole(options.role);
       const cwd = resolve(options.cwd ?? process.cwd());
@@ -1170,6 +1168,7 @@ program
         harness,
         cwd,
         workspace,
+        env: agentRoomProtocolEnv(config, { agentId, role }, appConfig),
       });
       await service.bindRuntime({
         agentId,
@@ -1225,7 +1224,7 @@ program
       const agentId =
         options.agentId ?? `herdr:${session ?? "default"}:${paneId}`;
 
-      const { store, config } = await storeForCwd();
+      const { store, config, appConfig } = await storeForCwd();
       const service = new AgentRoomService(store, { roomId: config.roomId });
       const role = parseAgentRole(options.role);
 
@@ -1265,10 +1264,7 @@ program
       }
 
       const env: Record<string, string> = {
-        AGENTROOM: "1",
-        AGENTROOM_AGENT_ID: agentId,
-        AGENTROOM_ROOM_ID: config.roomId,
-        AGENTROOM_ROLE: role,
+        ...agentRoomProtocolEnv(config, { agentId, role }, appConfig),
       };
 
       if (options.shell) {
@@ -2680,6 +2676,45 @@ async function currentActor(): Promise<ActorRef> {
   return { kind: "human" as const, id: process.env.USER ?? "local" };
 }
 
+function agentRoomProtocolEnv(
+  config: RoomConfig,
+  input: { agentId: string; role: AgentRole },
+  appConfig?: AgentRoomConfig,
+): Record<string, string> {
+  return {
+    AGENTROOM: "1",
+    AGENTROOM_AGENT_ID: input.agentId,
+    AGENTROOM_ROOM_ID: config.roomId,
+    AGENTROOM_ROLE: input.role,
+    ...(appConfig !== undefined
+      ? { AGENTROOM_PROTOCOL_FILE: agentRoomProtocolPath() }
+      : {}),
+    ...workTrackerProtocolEnv(appConfig),
+  };
+}
+
+function workTrackerProtocolEnv(
+  config: AgentRoomConfig | undefined,
+): Record<string, string> {
+  const trackerId = config?.workTracker?.default;
+  if (trackerId === undefined) return {};
+  const provider = config?.workTracker?.providers[trackerId];
+  if (provider === undefined) return { AGENTROOM_WORK_TRACKER: trackerId };
+  return {
+    AGENTROOM_WORK_TRACKER: trackerId,
+    AGENTROOM_WORK_TRACKER_PROVIDER_KIND: provider.type,
+    ...(provider.teamId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_TEAM_ID: provider.teamId }
+      : {}),
+    ...(provider.projectId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_PROJECT_ID: provider.projectId }
+      : {}),
+    ...(provider.baseUrl !== undefined
+      ? { AGENTROOM_WORK_TRACKER_BASE_URL: provider.baseUrl }
+      : {}),
+  };
+}
+
 async function resolveAgentByPane(): Promise<string | undefined> {
   const paneId = process.env.HERDR_PANE_ID;
   if (!paneId) return undefined;
@@ -2898,33 +2933,65 @@ function parseAgentRecipients(value: string): ActorRef[] {
   return recipients;
 }
 
-function linearRef(issueId: string, url?: string): Ref {
+function trackerRef(
+  issueId: string,
+  options: {
+    providerKind?: string;
+    providerId?: string;
+    url?: string;
+  } = {},
+): Ref {
+  const providerKind = options.providerKind ?? "custom";
+  const metadata: Record<string, unknown> = { providerKind };
+  if (options.providerId !== undefined) metadata.providerId = options.providerId;
   return {
-    kind: "linear-issue",
+    kind: "tracker-issue",
     id: issueId,
     label: issueId,
+    ...(options.url !== undefined ? { url: options.url } : {}),
+    metadata,
+  };
+}
+
+function trackerRefOptions(input: {
+  trackerKind?: string | undefined;
+  trackerProvider?: string | undefined;
+  trackerUrl?: string | undefined;
+  kind?: string | undefined;
+  provider?: string | undefined;
+  url?: string | undefined;
+}): {
+  providerKind?: string;
+  providerId?: string;
+  url?: string;
+} {
+  const providerKind = input.trackerKind ?? input.kind;
+  const providerId = input.trackerProvider ?? input.provider;
+  const url = input.trackerUrl ?? input.url;
+  return {
+    ...(providerKind !== undefined ? { providerKind } : {}),
+    ...(providerId !== undefined ? { providerId } : {}),
     ...(url !== undefined ? { url } : {}),
   };
 }
 
-function linearIssueIdForTask(task: { refs?: Ref[] }): string | undefined {
-  return task.refs?.find((ref) => ref.kind === "linear-issue")?.id;
-}
-
-async function workTrackerHealth(
+function workTrackerHealth(
   config: AgentRoomConfig | undefined,
-): Promise<{ ok: boolean; tracker: string; kind: string; message?: string }> {
+): {
+  ok: boolean;
+  tracker: string;
+  kind: string;
+  message: string;
+  provider?: WorkTrackerProviderConfig;
+} {
   const tracker = config?.workTracker;
   if (tracker === undefined) {
-    const provider = new LinearWorkTrackerProvider();
-    const health = await provider.health();
     return {
-      ...health,
-      tracker: "linear",
-      kind: "linear",
+      ok: true,
+      tracker: "native",
+      kind: "native",
       message:
-        health.message ??
-        "No workTracker block configured; using legacy Linear bridge defaults.",
+        "No workTracker block configured; using AgentRoom local task shadows only.",
     };
   }
 
@@ -2945,26 +3012,17 @@ async function workTrackerHealth(
       tracker: providerId,
       kind: providerConfig.type,
       message:
-        "Using AgentRoom native local task shadows; no external tracker bridge configured.",
+        "Using AgentRoom native local task shadows; no external tracker configured.",
     };
   }
 
-  if (providerConfig.type === "linear") {
-    const commandEnv = providerConfig.commandEnv ?? "AGENTROOM_LINEAR_COMMAND";
-    const command = process.env[commandEnv];
-    const provider = new LinearWorkTrackerProvider({
-      id: providerId,
-      ...(command !== undefined ? { command } : {}),
-    });
-    const health = await provider.health();
-    return { ...health, tracker: providerId, kind: providerConfig.type };
-  }
-
   return {
-    ok: false,
+    ok: true,
     tracker: providerId,
     kind: providerConfig.type,
-    message: `tracker_update_skipped: no ${providerConfig.type} bridge is implemented yet`,
+    provider: providerConfig,
+    message:
+      "External tracker is selected. Agents should use the configured tracker MCP, CLI, or skill for provider-specific work and link refs with task link-tracker.",
   };
 }
 
@@ -3048,85 +3106,6 @@ function stopTargetFor(
   return agentId;
 }
 
-async function commentOnLinearIssue(
-  issueId: string,
-  body: string,
-  taskId: string | undefined,
-  service: AgentRoomService | undefined,
-): Promise<{
-  ok: boolean;
-  issueId: string;
-  action: string;
-  code?: string;
-  reason?: string;
-}> {
-  const provider = new LinearWorkTrackerProvider();
-  try {
-    await provider.comment(issueId, body, await currentActor());
-    await service?.recordLinearIssueEvent({
-      issueId,
-      action: "commented",
-      body,
-      ...(taskId !== undefined ? { taskId } : {}),
-    });
-    return { ok: true, issueId, action: "commented" };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    await service?.recordLinearIssueEvent({
-      issueId,
-      action: "tracker_update_skipped",
-      body,
-      reason,
-      ...(taskId !== undefined ? { taskId } : {}),
-    });
-    return {
-      ok: false,
-      issueId,
-      action: "commented",
-      code: "tracker_update_skipped",
-      reason,
-    };
-  }
-}
-
-async function updateLinearIssueStatus(
-  issueId: string,
-  status: string,
-  service: AgentRoomService | undefined,
-): Promise<{
-  ok: boolean;
-  issueId: string;
-  action: string;
-  code?: string;
-  reason?: string;
-}> {
-  const provider = new LinearWorkTrackerProvider();
-  try {
-    await provider.updateIssueStatus(issueId, status);
-    await service?.recordLinearIssueEvent({
-      issueId,
-      action: "status_updated",
-      status,
-    });
-    return { ok: true, issueId, action: "status_updated" };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    await service?.recordLinearIssueEvent({
-      issueId,
-      action: "tracker_update_skipped",
-      status,
-      reason,
-    });
-    return {
-      ok: false,
-      issueId,
-      action: "status_updated",
-      code: "tracker_update_skipped",
-      reason,
-    };
-  }
-}
-
 function bindingFor(
   provider: RuntimeProvider,
   bindingId: string,
@@ -3183,17 +3162,14 @@ function applyRuntimeCliOverride(
 
 function createWorkTrackerConfig(options: {
   tracker: string;
-  linearTeam?: string;
+  teamId?: string;
 }): WorkTrackerConfig {
   const providerKind = parseWorkTrackerProviderKind(options.tracker);
   const defaultProvider =
     providerKind === "github-issues" ? "github" : providerKind;
   const provider: WorkTrackerProviderConfig = {
     type: providerKind,
-    ...defaultWorkTrackerProviderFields(providerKind),
-    ...(providerKind === "linear" && options.linearTeam !== undefined
-      ? { teamId: options.linearTeam }
-      : {}),
+    ...(options.teamId !== undefined ? { teamId: options.teamId } : {}),
   };
   return {
     default: defaultProvider,
@@ -3201,25 +3177,6 @@ function createWorkTrackerConfig(options: {
       [defaultProvider]: provider,
     },
   };
-}
-
-function defaultWorkTrackerProviderFields(
-  providerKind: WorkTrackerProviderKind,
-): Omit<WorkTrackerProviderConfig, "type"> {
-  switch (providerKind) {
-    case "linear":
-      return {
-        tokenEnv: "LINEAR_API_KEY",
-        commandEnv: "AGENTROOM_LINEAR_COMMAND",
-      };
-    case "github-issues":
-      return { tokenEnv: "GITHUB_TOKEN" };
-    case "jira":
-      return { tokenEnv: "JIRA_API_TOKEN" };
-    case "native":
-    case "custom":
-      return {};
-  }
 }
 
 function parseWorkTrackerProviderKind(value: string): WorkTrackerProviderKind {

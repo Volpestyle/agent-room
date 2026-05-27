@@ -1,9 +1,19 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  agentRoomConfigPath,
+  agentRoomDir,
+  agentRoomProtocolPath,
+  agentRoomRootDir,
   createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
+  ensureAgentRoomProtocol,
   formatAgentRoomConfig,
   parseAgentRoomConfig,
+  readAgentRoomProtocol,
+  resolveStoragePath,
   withDefaultRuntime,
 } from "./index.js";
 
@@ -87,7 +97,7 @@ runtimes:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl
 `);
 
     expect(parsed.runtimes.herdr).toEqual({
@@ -136,7 +146,7 @@ chat:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl
 `);
 
     expect(parsed.chat).toEqual({
@@ -188,7 +198,7 @@ runtimes:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl
 `);
 
     expect(parsed.operator).toEqual({
@@ -217,8 +227,6 @@ workTracker:
   providers:
     linear:
       type: linear
-      tokenEnv: LINEAR_API_KEY
-      commandEnv: AGENTROOM_LINEAR_COMMAND
       teamId: team_123
 
 clanky:
@@ -232,7 +240,7 @@ runtimes:
 
 storage:
   driver: jsonl
-  path: .agentroom/events.jsonl
+  path: events.jsonl
 `);
 
     expect(parsed.workTracker).toEqual({
@@ -240,8 +248,6 @@ storage:
       providers: {
         linear: {
           type: "linear",
-          tokenEnv: "LINEAR_API_KEY",
-          commandEnv: "AGENTROOM_LINEAR_COMMAND",
           teamId: "team_123",
         },
       },
@@ -252,5 +258,79 @@ storage:
       chatGatewayOwner: "room",
     });
     expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
+  });
+
+  it("discovers the nearest project config from subdirectories", async () => {
+    const previousHome = process.env.AGENTROOM_HOME;
+    delete process.env.AGENTROOM_HOME;
+    const root = await mkdtemp(join(tmpdir(), "agentroom-config-root-"));
+    try {
+      const nested = join(root, "packages", "app");
+      await mkdir(join(root, ".agentroom"), { recursive: true });
+      await mkdir(nested, { recursive: true });
+      const config = createDefaultAgentRoomConfig({
+        roomId: "shared-room",
+        defaultRuntime: "fake",
+      });
+      await writeFile(
+        join(root, ".agentroom", "config.yaml"),
+        `${formatAgentRoomConfig(config)}\n`,
+        "utf8",
+      );
+
+      expect(agentRoomDir(nested)).toBe(join(root, ".agentroom"));
+      expect(agentRoomRootDir(nested)).toBe(root);
+      expect(agentRoomConfigPath(nested)).toBe(
+        join(root, ".agentroom", "config.yaml"),
+      );
+      expect(agentRoomProtocolPath(nested)).toBe(
+        join(root, ".agentroom", "AGENTS.md"),
+      );
+      expect(resolveStoragePath(config, nested)).toBe(
+        join(root, ".agentroom", "events.jsonl"),
+      );
+
+      const protocolPath = await ensureAgentRoomProtocol(nested);
+      expect(protocolPath).toBe(join(root, ".agentroom", "AGENTS.md"));
+      const protocol = await readAgentRoomProtocol(nested);
+      expect(protocol.content).toContain("# AgentRoom Protocol");
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.AGENTROOM_HOME;
+      } else {
+        process.env.AGENTROOM_HOME = previousHome;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lets AGENTROOM_HOME override project config discovery", async () => {
+    const previousHome = process.env.AGENTROOM_HOME;
+    const root = await mkdtemp(join(tmpdir(), "agentroom-config-home-"));
+    try {
+      const home = join(root, "home");
+      const nested = join(root, "repo", "src");
+      process.env.AGENTROOM_HOME = home;
+      await mkdir(join(root, "repo", ".agentroom"), { recursive: true });
+      await mkdir(nested, { recursive: true });
+      await writeFile(
+        join(root, "repo", ".agentroom", "config.yaml"),
+        `${formatAgentRoomConfig(
+          createDefaultAgentRoomConfig({ roomId: "project-room" }),
+        )}\n`,
+        "utf8",
+      );
+
+      expect(agentRoomDir(nested)).toBe(home);
+      expect(agentRoomRootDir(nested)).toBe(home);
+      expect(agentRoomConfigPath(nested)).toBe(join(home, "config.yaml"));
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.AGENTROOM_HOME;
+      } else {
+        process.env.AGENTROOM_HOME = previousHome;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

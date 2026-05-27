@@ -54,7 +54,7 @@ AgentRoom talks to the world through ports:
 - `NotificationProvider`
 - `ChatGatewayProvider`
 
-Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; tracker operations themselves happen through the configured MCP server, CLI, or skill.
+Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; `.agentroom/AGENTS.md` records the room policy. Tracker operations themselves happen through the configured MCP server, CLI, connector, or skill in each agent runtime.
 
 `NotificationProvider` is fire-and-forget alerting (one-way, no inbound). `ChatGatewayProvider` is a bidirectional chat surface that can attach a Discord/Telegram/SMS/etc. conversation to a room channel, a directed room message, or a runtime-backed agent's input. See `docs/ADR/0003-chat-gateway-port.md`.
 
@@ -73,9 +73,9 @@ Adapters implement ports:
 
 ## Configuration Model
 
-AgentRoom's durable topology lives in `$AGENTROOM_HOME/config.yaml`, defaulting to `~/.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+AgentRoom's durable topology lives in the nearest `.agentroom/config.yaml`, or `$AGENTROOM_HOME/config.yaml` when `AGENTROOM_HOME` is explicitly set: runtime providers, dashboard operator defaults, room-owned gateways/routes, work tracker selection, and storage settings. The config schema and formatter live in `@agentroom/config`.
 
-The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
+Room behavior is intentionally Markdown. `.agentroom/AGENTS.md` is the editable room protocol for dashboard and worker behavior; config stays small and machine-readable. The TUI is the intended full editor/status/control surface for topology, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; daemon-owned gateways can store env var names such as `tokenEnv`, while work tracker auth remains in each agent's MCP connector, CLI, skill, or auth store. See `docs/CONFIGURATION.md`.
 
 ## Chat gateways
 

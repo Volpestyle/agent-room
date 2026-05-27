@@ -96,7 +96,7 @@ export interface Ref {
     | "message"
     | "github-pr"
     | "github-issue"
-    | "linear-issue"
+    | "tracker-issue"
     | "figma-node"
     | "runtime-output"
     | "url"

@@ -65,7 +65,7 @@ const taskActionSchema = z.enum([
   "claim",
   "status",
   "comment",
-  "link-linear",
+  "link-tracker",
 ]);
 
 interface RoomContext {
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     },
     {
       instructions:
-        "AgentRoom coordination tools for room messages, DMs, task shadows, waits, and audit context. Prefer bounded reads and use Linear as the durable tracker when a task links to Linear.",
+        "AgentRoom coordination tools for room messages, DMs, task shadows, waits, and audit context. Prefer bounded reads. Use the configured work tracker MCP, CLI, or skill as the durable tracker, then link external issue refs with agentroom_task action=link-tracker.",
     },
   );
 
@@ -268,7 +268,7 @@ function registerTools(server: McpServer): void {
     "agentroom_task",
     {
       description:
-        "Create, list, show, claim, update, comment on, or Linear-link an AgentRoom task shadow.",
+        "Create, list, show, claim, update, comment on, or tracker-link an AgentRoom task shadow.",
       inputSchema: {
         action: taskActionSchema,
         taskId: z.string().optional(),
@@ -280,6 +280,8 @@ function registerTools(server: McpServer): void {
         summary: z.string().optional(),
         comment: z.string().optional(),
         issueId: z.string().optional(),
+        providerKind: z.string().optional(),
+        providerId: z.string().optional(),
         url: z.string().optional(),
         limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
       },
@@ -322,6 +324,8 @@ async function runTaskTool(input: {
   summary?: string | undefined;
   comment?: string | undefined;
   issueId?: string | undefined;
+  providerKind?: string | undefined;
+  providerId?: string | undefined;
   url?: string | undefined;
   limit?: number | undefined;
 }): Promise<unknown> {
@@ -343,7 +347,11 @@ async function runTaskTool(input: {
           ? { assignee: { kind: "agent", id: input.assignee } }
           : {}),
         ...(input.issueId !== undefined
-          ? { refs: [linearRef(input.issueId, input.url)] }
+          ? {
+              refs: [
+                trackerRef(input.issueId, trackerRefOptions(input)),
+              ],
+            }
           : {}),
       });
     case "list":
@@ -384,13 +392,13 @@ async function runTaskTool(input: {
         threadId: requireTaskId(input.taskId),
       });
     }
-    case "link-linear":
+    case "link-tracker":
       if (input.issueId === undefined || input.issueId.trim().length === 0) {
-        throw new Error("agentroom_task action=link-linear requires issueId.");
+        throw new Error("agentroom_task action=link-tracker requires issueId.");
       }
       return await ctx.service.linkTaskRef({
         taskId: requireTaskId(input.taskId),
-        ref: linearRef(input.issueId, input.url),
+        ref: trackerRef(input.issueId, trackerRefOptions(input)),
       });
   }
 }
@@ -607,11 +615,41 @@ function requireTaskId(taskId: string | undefined): Id {
   return taskId.trim();
 }
 
-function linearRef(issueId: string, url?: string) {
+function trackerRef(
+  issueId: string,
+  options: {
+    providerKind?: string;
+    providerId?: string;
+    url?: string;
+  } = {},
+) {
+  const metadata: Record<string, unknown> = {
+    providerKind: options.providerKind ?? "custom",
+  };
+  if (options.providerId !== undefined) metadata.providerId = options.providerId;
   return {
-    kind: "linear-issue" as const,
+    kind: "tracker-issue" as const,
     id: issueId,
-    ...(url !== undefined ? { url } : {}),
+    ...(options.url !== undefined ? { url: options.url } : {}),
+    metadata,
+  };
+}
+
+function trackerRefOptions(input: {
+  providerKind?: string | undefined;
+  providerId?: string | undefined;
+  url?: string | undefined;
+}): {
+  providerKind?: string;
+  providerId?: string;
+  url?: string;
+} {
+  return {
+    ...(input.providerKind !== undefined
+      ? { providerKind: input.providerKind }
+      : {}),
+    ...(input.providerId !== undefined ? { providerId: input.providerId } : {}),
+    ...(input.url !== undefined ? { url: input.url } : {}),
   };
 }
 

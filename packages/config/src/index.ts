@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type {
   ChatConversationKind,
   ChatCredentialKind,
@@ -11,10 +10,39 @@ import type {
 
 export const AGENTROOM_DIR = ".agentroom";
 export const AGENTROOM_CONFIG_FILE = "config.yaml";
+export const AGENTROOM_PROTOCOL_FILE = "AGENTS.md";
 export const DEFAULT_EVENT_LOG_PATH = "events.jsonl";
 export const DEFAULT_ROOM_ID = "agent-room";
 export const DEFAULT_HERDR_SESSION = DEFAULT_ROOM_ID;
 export const DEFAULT_TMUX_SESSION_PREFIX = DEFAULT_ROOM_ID;
+export const DEFAULT_AGENTROOM_PROTOCOL = `# AgentRoom Protocol
+
+This file is the editable room protocol. Keep machine topology in config.yaml;
+keep agent behavior, room norms, and work-tracker policy here.
+
+## Core Rules
+
+- The configured external work tracker is canonical for durable project work.
+- AgentRoom tasks are local execution shadows and audit context.
+- Use AgentRoom messages and DMs for active coordination inside the room.
+- Use the configured tracker MCP, connector, CLI, or skill for tracker actions.
+- Link external tracker issues back to local task shadows with tracker refs.
+- If tracker tools are unavailable, report tracker_update_skipped with the reason.
+- Secrets and auth stay in each agent runtime, MCP connector, env, or auth store.
+
+## Worker Behavior
+
+- Post a short status before meaningful work.
+- Claim or confirm the relevant task before editing.
+- Use room-native waits, questions, blockers, and done updates.
+- Keep comments concise: what changed, what was verified, and remaining risk.
+
+## Operator Behavior
+
+- Prefer AgentRoom launch/read/send/stop so runtime actions are audited.
+- Verify runtime health before launching new workers.
+- Do not bypass the room unless it is manual recovery.
+`;
 
 export function defaultRoomIdFromEnv(
   env: Record<string, string | undefined> = process.env,
@@ -104,8 +132,6 @@ export interface WorkTrackerConfig {
 
 export interface WorkTrackerProviderConfig {
   type: WorkTrackerProviderKind;
-  tokenEnv?: string;
-  commandEnv?: string;
   teamId?: string;
   projectId?: string;
   baseUrl?: string;
@@ -163,11 +189,15 @@ export interface CreateDefaultConfigOptions {
 
 export function agentRoomDir(cwd = process.cwd()): string {
   const home = process.env.AGENTROOM_HOME?.trim();
-  return home ? resolve(home) : join(homedir(), AGENTROOM_DIR);
+  return home ? resolve(home) : nearestAgentRoomDir(cwd) ?? projectAgentRoomDir(cwd);
 }
 
 export function agentRoomConfigPath(cwd = process.cwd()): string {
   return join(agentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
+}
+
+export function agentRoomProtocolPath(cwd = process.cwd()): string {
+  return join(agentRoomDir(cwd), AGENTROOM_PROTOCOL_FILE);
 }
 
 export function projectAgentRoomDir(cwd = process.cwd()): string {
@@ -176,6 +206,13 @@ export function projectAgentRoomDir(cwd = process.cwd()): string {
 
 export function projectAgentRoomConfigPath(cwd = process.cwd()): string {
   return join(projectAgentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
+}
+
+export function agentRoomRootDir(cwd = process.cwd()): string {
+  const home = process.env.AGENTROOM_HOME?.trim();
+  if (home) return resolve(home);
+  const roomDir = nearestAgentRoomDir(cwd);
+  return roomDir === undefined ? resolve(cwd) : dirname(roomDir);
 }
 
 export function createDefaultAgentRoomConfig(
@@ -266,11 +303,45 @@ export async function writeAgentRoomConfig(
   );
 }
 
+export async function ensureAgentRoomProtocol(cwd = process.cwd()): Promise<string> {
+  const path = agentRoomProtocolPath(cwd);
+  if (!existsSync(path)) {
+    await mkdir(agentRoomDir(cwd), { recursive: true });
+    await writeFile(path, DEFAULT_AGENTROOM_PROTOCOL, "utf8");
+  }
+  return path;
+}
+
+export async function readAgentRoomProtocol(
+  cwd = process.cwd(),
+): Promise<{ path: string; content: string }> {
+  const path = agentRoomProtocolPath(cwd);
+  return { path, content: await readFile(path, "utf8") };
+}
+
+export function readAgentRoomProtocolSync(
+  cwd = process.cwd(),
+): { path: string; content: string } {
+  const path = agentRoomProtocolPath(cwd);
+  return { path, content: readFileSync(path, "utf8") };
+}
+
 export function resolveStoragePath(
   config: AgentRoomConfig,
-  cwd = agentRoomDir(),
+  cwd = process.cwd(),
 ): string {
-  return resolve(cwd, config.storage.path);
+  return resolve(agentRoomDir(cwd), config.storage.path);
+}
+
+function nearestAgentRoomDir(cwd: string): string | undefined {
+  let current = resolve(cwd);
+  while (true) {
+    const candidate = join(current, AGENTROOM_DIR);
+    if (existsSync(join(candidate, AGENTROOM_CONFIG_FILE))) return candidate;
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
 }
 
 export function ensureRuntimeConfig(
@@ -442,12 +513,6 @@ function formatWorkTrackerProvider(
   return [
     `    ${id}:`,
     `      type: ${yamlScalar(provider.type)}`,
-    ...(provider.tokenEnv !== undefined
-      ? [`      tokenEnv: ${yamlScalar(provider.tokenEnv)}`]
-      : []),
-    ...(provider.commandEnv !== undefined
-      ? [`      commandEnv: ${yamlScalar(provider.commandEnv)}`]
-      : []),
     ...(provider.teamId !== undefined
       ? [`      teamId: ${yamlScalar(provider.teamId)}`]
       : []),
@@ -679,16 +744,12 @@ function parseWorkTrackerProviders(
       );
     }
 
-    const tokenEnv = stringAt(provider, "tokenEnv");
-    const commandEnv = stringAt(provider, "commandEnv");
     const teamId = stringAt(provider, "teamId");
     const projectId = stringAt(provider, "projectId");
     const baseUrl = stringAt(provider, "baseUrl");
 
     providers[id] = {
       type,
-      ...(tokenEnv !== undefined ? { tokenEnv } : {}),
-      ...(commandEnv !== undefined ? { commandEnv } : {}),
       ...(teamId !== undefined ? { teamId } : {}),
       ...(projectId !== undefined ? { projectId } : {}),
       ...(baseUrl !== undefined ? { baseUrl } : {}),

@@ -41,9 +41,6 @@
       "@agentroom/tui": [
         "apps/tui/src/index.ts"
       ],
-      "@agentroom/worktracker-linear": [
-        "packages/integrations/worktracker-linear/src/index.ts"
-      ],
       "@agentroom/codehost-github": [
         "packages/integrations/codehost-github/src/index.ts"
       ],

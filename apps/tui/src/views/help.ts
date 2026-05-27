@@ -39,6 +39,16 @@ class HelpPanel extends PanelBase {
     );
     lines.push("  " + palette.muted("Built-in slash commands:"));
     lines.push("    " + palette.accent("/help") + palette.muted("           this screen"));
+    lines.push(
+      "    " +
+        palette.accent("/setup") +
+        palette.muted("          guided room setup and config status"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/config") +
+        palette.muted("         current AgentRoom config summary"),
+    );
     lines.push("    " + palette.accent("/refresh") + palette.muted("        force a poll"));
     lines.push("    " + palette.accent("/clear") + palette.muted("          clear the chat transcript"));
     lines.push(

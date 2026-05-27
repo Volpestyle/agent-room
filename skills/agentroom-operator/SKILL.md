@@ -13,6 +13,7 @@ Verify the project room and runtime before launching agents:
 
 ```bash
 test -f .agentroom/config.yaml
+agent-room protocol --json
 agent-room runtime providers
 agent-room runtime doctor
 ```
@@ -24,6 +25,8 @@ agent-room init --room "$(basename "$PWD")" --runtime RUNTIME
 ```
 
 If runtime health reports a provider-specific problem, fix it through AgentRoom configuration or the relevant adapter docs. Do not bypass AgentRoom for normal launch, read, send, or stop flows.
+
+`.agentroom/config.yaml` is topology. `.agentroom/AGENTS.md` is the editable room protocol for dashboard-agent and worker behavior. Change the protocol file for room norms, work tracker expectations, and agent instructions; reserve config edits for machine-readable room setup.
 
 ## Mobile pairing
 

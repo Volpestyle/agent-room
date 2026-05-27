@@ -178,11 +178,17 @@ export class AgentRoomService {
         now,
       ),
     );
-    if (input.ref.kind === "linear-issue") {
+    if (input.ref.kind === "tracker-issue") {
       await this.events.append(
         this.event(
-          "linear.issue_event",
-          { issueId: input.ref.id, taskId: input.taskId, action: "linked" },
+          "tracker.ref_event",
+          {
+            issueId: input.ref.id,
+            taskId: input.taskId,
+            action: "linked",
+            providerKind: trackerProviderKind(input.ref),
+            ...trackerProviderId(input.ref),
+          },
           now,
         ),
       );
@@ -597,25 +603,21 @@ export class AgentRoomService {
     );
   }
 
-  async recordLinearIssueEvent(input: {
+  async recordTrackerRefEvent(input: {
     issueId: Id;
-    action:
-      | "linked"
-      | "commented"
-      | "status_updated"
-      | "tracker_update_skipped";
+    providerKind: string;
+    providerId?: string;
+    action: "linked" | "tracker_update_skipped";
     taskId?: Id;
-    body?: string;
-    status?: string;
     reason?: string;
   }): Promise<void> {
     await this.events.append(
-      this.event("linear.issue_event", {
+      this.event("tracker.ref_event", {
         issueId: input.issueId,
+        providerKind: input.providerKind,
+        ...(input.providerId !== undefined ? { providerId: input.providerId } : {}),
         action: input.action,
         ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-        ...(input.body !== undefined ? { body: input.body } : {}),
-        ...(input.status !== undefined ? { status: input.status } : {}),
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
       }),
     );
@@ -861,6 +863,18 @@ function mergeRefs(existing: Ref[], next: Ref): Ref[] {
     (ref) => ref.kind !== next.kind || ref.id !== next.id,
   );
   return [...withoutDuplicate, next];
+}
+
+function trackerProviderKind(ref: Ref): string {
+  const value = ref.metadata?.providerKind;
+  return typeof value === "string" && value.length > 0 ? value : "custom";
+}
+
+function trackerProviderId(ref: Ref): { providerId?: string } {
+  const value = ref.metadata?.providerId;
+  return typeof value === "string" && value.length > 0
+    ? { providerId: value }
+    : {};
 }
 
 function sameActor(left: ActorRef, right: ActorRef): boolean {

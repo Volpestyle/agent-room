@@ -160,10 +160,13 @@ agent-room send impl "Use AgentRoom, claim your task, and post status before edi
 agent-room read impl --lines 40
 ```
 
-AgentRoom state lives in `$AGENTROOM_HOME` or `~/.agentroom` by default. The room
-id and Herdr session default to `agent-room`; cwd is workspace context, not room
-identity. `launch`, `send`, `read`, and `stop` require an AgentRoom binding by
-default so terminal input and output stay in the room event log.
+AgentRoom state lives in the nearest `.agentroom/` directory; set
+`AGENTROOM_HOME` only when you want an explicit singleton home. The room id and
+Herdr session default to `agent-room`; cwd is workspace context, not room
+identity. `.agentroom/config.yaml` is topology, and `.agentroom/AGENTS.md` is
+the editable room protocol. `launch`, `send`, `read`, and `stop` require an
+AgentRoom binding by default so terminal input and output stay in the room event
+log.
 
 ## TUI, MCP, And Mobile
 
@@ -206,9 +209,9 @@ replaceable:
 
 - `RuntimeProvider`: Herdr, tmux, fake today; Docker, SSH, ECS, Kubernetes, or
   custom adapters later.
-- Work tracker config: provider-neutral room protocol. Agents use the selected
-  tracker's MCP server, CLI, or skill and link external refs back to local task
-  shadows.
+- Work tracker config: provider-neutral selection plus room protocol. Agents
+  use the selected tracker's MCP server, connector, CLI, or skill and link
+  external refs back to local task shadows.
 - `ChatGatewayProvider`: communication gateway routing primitives. Discord is
   the first adapter; other chat surfaces should follow the same owner/routing
   model.

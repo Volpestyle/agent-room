@@ -97,7 +97,7 @@ export const refSchema = z
       "message",
       "github-pr",
       "github-issue",
-      "linear-issue",
+      "tracker-issue",
       "figma-node",
       "runtime-output",
       "url",

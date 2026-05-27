@@ -367,10 +367,13 @@ agent-room send impl "Use AgentRoom, claim your task, and post status before edi
 agent-room read impl --lines 40
 ```
 
-AgentRoom state lives in `$AGENTROOM_HOME` or `~/.agentroom` by default. The room
-id and Herdr session default to `agent-room`; cwd is workspace context, not room
-identity. `launch`, `send`, `read`, and `stop` require an AgentRoom binding by
-default so terminal input and output stay in the room event log.
+AgentRoom state lives in the nearest `.agentroom/` directory; set
+`AGENTROOM_HOME` only when you want an explicit singleton home. The room id and
+Herdr session default to `agent-room`; cwd is workspace context, not room
+identity. `.agentroom/config.yaml` is topology, and `.agentroom/AGENTS.md` is
+the editable room protocol. `launch`, `send`, `read`, and `stop` require an
+AgentRoom binding by default so terminal input and output stay in the room event
+log.
 
 ## TUI, MCP, And Mobile
 
@@ -413,9 +416,9 @@ replaceable:
 
 - `RuntimeProvider`: Herdr, tmux, fake today; Docker, SSH, ECS, Kubernetes, or
   custom adapters later.
-- Work tracker config: provider-neutral room protocol. Agents use the selected
-  tracker's MCP server, CLI, or skill and link external refs back to local task
-  shadows.
+- Work tracker config: provider-neutral selection plus room protocol. Agents
+  use the selected tracker's MCP server, connector, CLI, or skill and link
+  external refs back to local task shadows.
 - `ChatGatewayProvider`: communication gateway routing primitives. Discord is
   the first adapter; other chat surfaces should follow the same owner/routing
   model.
@@ -553,6 +556,29 @@ Use the views when you want to inspect state directly:
 
 `Ctrl+G` and `Ctrl+L` cycle views. `Esc` opens the view picker. `?` opens Help.
 
+## Setup
+
+Run `/setup` from Chat on first start or whenever the room feels misconfigured.
+It shows the active config file, runtime, work tracker, Clanky room defaults,
+dashboard auth, and chat gateway status.
+
+Useful setup commands:
+
+```text
+/setup
+/setup runtime herdr
+/setup tracker linear team_123
+/setup clanky agent .clanky-room lead
+/config
+/protocol
+```
+
+Setup commands write the same `.agentroom/config.yaml` model as the CLI.
+`/protocol` shows `.agentroom/AGENTS.md`, the editable room protocol used by the
+dashboard agent and launched workers. Secrets stay in environment variables,
+MCP/connector auth, or auth stores; the config file stores portable non-secret
+defaults.
+
 ## Mental Model
 
 ```mermaid
@@ -633,11 +659,14 @@ pnpm build
 pnpm test
 ```
 
-## 2. Start The Singleton Room
+## 2. Start The Shared Room
 
-AgentRoom defaults to one local room named `agent-room`. Its durable state lives
-in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
-`herdr --session agent-room`.
+AgentRoom defaults to one local room named `agent-room`. Its durable room config
+lives in the nearest `.agentroom/config.yaml`, found by walking upward from the
+current directory. The editable room protocol lives beside it at
+`.agentroom/AGENTS.md`. `AGENTROOM_HOME` is an explicit override for singleton
+or operator deployments. The default visible runtime is `herdr --session
+agent-room`.
 
 Start with the human surface:
 
@@ -649,8 +678,8 @@ The dashboard opens in operator chat. Ask it what is running, which agents are
 active, or what needs attention. The CLI remains available for exact automation,
 but the TUI should be the first interface a human learns.
 
-- The room is global for this workstation.
-- A cwd is workspace context, not room identity.
+- The room config is shared by every process launched inside that project tree.
+- A cwd is workspace context inside the room, not a separate room identity.
 - Herdr workspaces/tabs/panes are the visible layout under the same session.
 
 See `docs/TOPOLOGY.md` for the tradeoffs.
@@ -810,8 +839,10 @@ surfaces.
 
 ## Source Of Truth
 
-`$AGENTROOM_HOME/config.yaml` is the durable source of truth for local room
-topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
+The nearest `.agentroom/config.yaml`, found by walking upward from the current
+working directory, is the durable source of truth for room topology. If
+`AGENTROOM_HOME` is explicitly set, AgentRoom uses `$AGENTROOM_HOME/config.yaml`
+instead:
 
 - room id and name
 - default runtime provider and runtime adapter settings
@@ -821,20 +852,26 @@ topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
 - room-owned chat gateways and routes
 - event-store location
 
+Room behavior and policy live next to it in `.agentroom/AGENTS.md`. That file
+is the editable room protocol: the place to tune how the dashboard agent and
+launched workers should treat the work tracker, coordination, status updates,
+and local room norms.
+
 The file is parsed, validated, and formatted by `@agentroom/config`. Hand edits,
 CLI commands, daemon APIs, and future TUI settings screens should all round-trip
 through that same package.
 
-The event log is not static configuration. `events.jsonl` in the AgentRoom home
-records runtime bindings, workspace registrations, messages, task shadows, chat
+The event log is not static configuration. `events.jsonl` next to the AgentRoom
+config records runtime bindings, workspace registrations, messages, task shadows, chat
 ingress/egress, and audit events. It can rebuild room views, but it should not
 become the place where topology is configured.
 
-Secrets do not belong in `config.yaml`. Store references such as
-`tokenEnv: AGENTROOM_DISCORD_TOKEN`, then supply the secret through the launch
-environment or a dedicated auth store. The TUI's model credentials live in
-`~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
-room topology.
+Secrets do not belong in `config.yaml`. Daemon-owned gateways may store env var
+references such as `tokenEnv: AGENTROOM_DISCORD_TOKEN`, then read the secret
+from the daemon environment. Work tracker auth is different: each agent
+authenticates with its own MCP connector, CLI, skill, or auth store. The TUI's
+model credentials live in `~/.agentroom/auth.json`; those credentials configure
+the dashboard agent, not room topology.
 
 The portable cross-product subset is intentionally non-secret:
 
@@ -844,7 +881,6 @@ workTracker:
   providers:
     linear:
       type: linear
-      tokenEnv: LINEAR_API_KEY
       teamId: team_123
 
 clanky:
@@ -862,19 +898,21 @@ credentials, memory, sessions, and agent-owned connector state.
 The intended product model is:
 
 ```text
-~/.agentroom/config.yaml durable, reviewable, headless
+.agentroom/config.yaml durable, reviewable, headless
 AgentRoom TUI           human-friendly editor, status, and lifecycle controls
 CLI / daemon API        scriptable operations over the same config model
 ```
 
-The TUI should be able to configure all durable AgentRoom settings over time,
-but it must not create a second hidden topology store. A TUI config editor should
-load the YAML through `@agentroom/config`, show the effective value and source,
-write back with `writeAgentRoomConfig`, and ask the daemon to reload or restart
-affected providers.
+The TUI exposes `/setup` and `/config` for first-run setup and common durable
+settings. Those commands read and write the YAML through the daemon and
+`@agentroom/config`; they do not create a second hidden topology store.
+The TUI also exposes `/protocol`, which shows the editable
+`.agentroom/AGENTS.md` room protocol.
 
-Until a TUI editor exists for a setting, hand-edit the AgentRoom home config or
-use the existing CLI command that writes it.
+The initial TUI setup surface covers the default runtime, portable work tracker
+defaults, and Clanky room defaults. For settings that are not in the setup
+surface yet, hand-edit the AgentRoom config or use the existing CLI command that
+writes it.
 
 ## Environment Overrides
 
@@ -938,8 +976,8 @@ Source: `docs/TOPOLOGY.md` - https://volpestyle.github.io/docs/agent-room/?doc=t
 # Room Topology
 
 AgentRoom is a singleton local room by default. The room id is `agent-room`,
-durable state lives in `$AGENTROOM_HOME` or `~/.agentroom`, and the default
-visible runtime is:
+durable state lives in the nearest `.agentroom/` directory unless
+`AGENTROOM_HOME` is explicitly set, and the default visible runtime is:
 
 ```bash
 herdr --session agent-room
@@ -1003,7 +1041,7 @@ operator which cwd/workspace to use.
 Use the singleton room for the local product path. Create separate rooms only
 when you intentionally need isolation, for example a test fixture, another user
 profile, or a hosted/multi-host deployment. Prefer changing `AGENTROOM_HOME` or
-daemon port explicitly over deriving rooms from cwd.
+daemon port explicitly over accidental room discovery from an unrelated cwd.
 
 ## tmux Mapping
 
@@ -1159,7 +1197,7 @@ herdr --session agent-room status
 
 Inside the AgentRoom TUI, use `/runtime` or `/runtime herdr`. The Overview view also shows the runtime session namespace, socket path, workspace label, workspace ids, and join command when the daemon exposes provider metadata.
 
-The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` in `$AGENTROOM_HOME/config.yaml` or point it at the built binary or at a real wrapper script on `PATH`:
+The Herdr `cli` setting must be an executable name or path that `execFile` can run directly. Shell aliases such as `herdr-dev='...'` are not expanded. To use a local Herdr checkout while developing AgentRoom, set `cli` in `.agentroom/config.yaml` or point it at the built binary or at a real wrapper script on `PATH`:
 
 ```bash
 agent-room init --runtime herdr --runtime-cli herdr-dev
@@ -1229,6 +1267,7 @@ procedure when they need it.
 | Surface | Owns |
 | --- | --- |
 | Public docs | Product mental model, topology, protocol concepts, safety boundaries, and links to canonical references. |
+| `.agentroom/AGENTS.md` | Editable per-room protocol for dashboard-agent and worker behavior. |
 | Skills | Step-by-step behavior for agents and operators inside a live room. |
 | CLI Reference | Complete command map for humans, scripts, and agents that need exact syntax. |
 | MCP server | Tool surface for MCP-capable agents to inspect and coordinate through the room. |
@@ -1236,6 +1275,20 @@ procedure when they need it.
 
 This split keeps the docs concise while still making the behind-the-scenes
 contract visible.
+
+## Room Protocol File
+
+Each room may have `.agentroom/AGENTS.md` next to its `config.yaml`. Config owns
+topology; this Markdown file owns room behavior and policy. It is the right
+place to tune work tracker expectations, status cadence, coordination norms,
+review flow, and any room-specific conventions that should be visible to humans
+and agents.
+
+`agent-room init` creates the default protocol file. Existing rooms can inspect
+it with `agent-room protocol --json` or the TUI `/protocol` command. Launched
+and enrolled agents receive `AGENTROOM_PROTOCOL_FILE` when AgentRoom can resolve
+the room config, so generic skills can read the room protocol without hardcoding
+a tracker or vendor.
 
 ## AgentRoom Skills
 
@@ -1327,6 +1380,7 @@ AGENTROOM=1
 AGENTROOM_AGENT_ID=api-impl
 AGENTROOM_ROOM_ID=my-project
 AGENTROOM_ROLE=implementer
+AGENTROOM_PROTOCOL_FILE=/repo/.agentroom/AGENTS.md
 AGENTROOM_DAEMON=http://127.0.0.1:4317
 AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
 ```
@@ -1334,6 +1388,16 @@ AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
 The local identity check resolves `AGENTROOM_AGENT_ID` first. If that is not
 set, AgentRoom can resolve a runtime pane that has already been adopted by the
 daemon or explicitly enrolled.
+
+## Editable Room Protocol
+
+The room protocol lives at `.agentroom/AGENTS.md` next to
+`.agentroom/config.yaml`. Config is for topology; this Markdown file is for
+behavior and policy. Agents should read `AGENTROOM_PROTOCOL_FILE` when present
+and follow it alongside their installed skills.
+
+Use `agent-room protocol --json` or TUI `/protocol` to inspect the active room
+protocol.
 
 ## Room-Native Actions
 
@@ -1353,8 +1417,8 @@ lead-agent playbook is `skills/agentroom-operator/SKILL.md`.
 
 ## Tracker Refs
 
-Use the selected external tracker MCP, CLI, or skill as the canonical work
-tracker. AgentRoom task IDs are local execution shadows unless explicitly
+Use the selected external tracker MCP, connector, CLI, or skill as the
+canonical work tracker. AgentRoom task IDs are local execution shadows unless explicitly
 linked to an external tracker ref.
 
 If tracker tools are unavailable when a tracker update is required, agents must
@@ -1405,7 +1469,8 @@ tools.
 
 | Command                   | Purpose                                                        |
 | ------------------------- | -------------------------------------------------------------- |
-| `agent-room init`         | Write room config into `$AGENTROOM_HOME` or `~/.agentroom`.    |
+| `agent-room init`         | Write `.agentroom/config.yaml` and `.agentroom/AGENTS.md`.     |
+| `agent-room protocol`     | Show the active editable room protocol.                        |
 | `agent-room dev-new-user` | Create a temporary home for first-run TUI testing.             |
 | `agent-room doctor`       | Check local prerequisites and configured runtime availability. |
 | `agent-room whoami`       | Print current AgentRoom enrollment environment.                |
@@ -1542,12 +1607,13 @@ state changes and `done` / `block` for the common paths.
 
 | Variable              | Purpose                                                       |
 | --------------------- | ------------------------------------------------------------- |
-| `AGENTROOM_HOME`      | Room config and local state home. Defaults to `~/.agentroom`. |
+| `AGENTROOM_HOME`      | Explicit room config/state home; otherwise nearest `.agentroom` is used. |
 | `AGENTROOM_DAEMON`    | Daemon base URL for clients and enrolled agents.              |
 | `AGENTROOM_API_TOKEN` | Bearer token for tailnet or remote daemon access.             |
 | `AGENTROOM_AGENT_ID`  | Current enrolled agent id.                                    |
 | `AGENTROOM_ROOM_ID`   | Current room id.                                              |
 | `AGENTROOM_ROLE`      | Current enrolled role.                                        |
+| `AGENTROOM_PROTOCOL_FILE` | Editable room protocol path for enrolled agents.          |
 
 When AgentRoom launches an agent, runtime providers set the enrollment variables
 so the agent can identify itself and coordinate through the room.
@@ -1652,7 +1718,7 @@ AgentRoom talks to the world through ports:
 - `NotificationProvider`
 - `ChatGatewayProvider`
 
-Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; tracker operations themselves happen through the configured MCP server, CLI, or skill.
+Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; `.agentroom/AGENTS.md` records the room policy. Tracker operations themselves happen through the configured MCP server, CLI, connector, or skill in each agent runtime.
 
 `NotificationProvider` is fire-and-forget alerting (one-way, no inbound). `ChatGatewayProvider` is a bidirectional chat surface that can attach a Discord/Telegram/SMS/etc. conversation to a room channel, a directed room message, or a runtime-backed agent's input. See `docs/ADR/0003-chat-gateway-port.md`.
 
@@ -1671,9 +1737,9 @@ Adapters implement ports:
 
 ## Configuration Model
 
-AgentRoom's durable topology lives in `$AGENTROOM_HOME/config.yaml`, defaulting to `~/.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+AgentRoom's durable topology lives in the nearest `.agentroom/config.yaml`, or `$AGENTROOM_HOME/config.yaml` when `AGENTROOM_HOME` is explicitly set: runtime providers, dashboard operator defaults, room-owned gateways/routes, work tracker selection, and storage settings. The config schema and formatter live in `@agentroom/config`.
 
-The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
+Room behavior is intentionally Markdown. `.agentroom/AGENTS.md` is the editable room protocol for dashboard and worker behavior; config stays small and machine-readable. The TUI is the intended full editor/status/control surface for topology, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; daemon-owned gateways can store env var names such as `tokenEnv`, while work tracker auth remains in each agent's MCP connector, CLI, skill, or auth store. See `docs/CONFIGURATION.md`.
 
 ## Chat gateways
 
@@ -1786,7 +1852,7 @@ flowchart TB
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
   connectors["Connector ports<br/>work tracker, code host, design, chat"]
-  local["~/.agentroom/<br/>config.yaml<br/>events.jsonl<br/>SQLite planned"]
+  local[".agentroom/<br/>config.yaml<br/>AGENTS.md<br/>events.jsonl<br/>SQLite planned"]
   runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
   adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
 
@@ -1802,9 +1868,12 @@ flowchart TB
 
 ## Read The Boundaries
 
-- `$AGENTROOM_HOME/config.yaml` owns durable room topology: runtime providers,
-  room-owned gateways and routes, dashboard operator defaults, and storage
-  settings.
+- `.agentroom/config.yaml` owns durable room topology: runtime providers,
+  room-owned gateways and routes, dashboard operator defaults, work tracker
+  selection, and storage settings. `AGENTROOM_HOME` can explicitly point to a
+  singleton room home when discovery is not desired.
+- `.agentroom/AGENTS.md` owns editable room protocol for dashboard-agent and
+  worker behavior.
 - The event log owns room state and audit history: messages, local task shadows,
   runtime bindings, chat ingress/egress, and terminal input/output observations.
 - Runtime providers own process placement and terminal control. AgentRoom uses

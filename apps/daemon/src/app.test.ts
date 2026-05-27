@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,6 +84,7 @@ describe("agentroom daemon app", () => {
     await expect(response.json()).resolves.toEqual({
       roomId: "test-room",
       cwd: options.cwd,
+      protocolPath: join(options.cwd, "home", "AGENTS.md"),
       defaultRuntime: "fake",
       operator: {
         agentId: "operator",
@@ -104,6 +105,58 @@ describe("agentroom daemon app", () => {
         }),
       ],
     });
+  });
+
+  it("serves and creates the editable room protocol", async () => {
+    const options = await appOptions();
+    const app = createApp(options);
+
+    const response = await app.request("/v1/protocol");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      path: join(options.cwd, "home", "AGENTS.md"),
+      content: expect.stringContaining("# AgentRoom Protocol"),
+    });
+  });
+
+  it("updates first-run setup config through the daemon", async () => {
+    const options = await appOptions();
+    const app = createApp(options);
+
+    const response = await app.request("/v1/config/setup", {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        runtimeDefault: "tmux",
+        workTracker: { type: "linear", teamId: "team_123" },
+        clanky: {
+          chatGatewayOwner: "room",
+          home: ".clanky-room",
+          profile: "lead",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      path: string;
+      config: {
+        runtime: { default: string };
+        workTracker: { default: string };
+        clanky: { chatGatewayOwner: string };
+        operator: { kind: string; env: Record<string, string> };
+      };
+    };
+    expect(body.config.runtime.default).toBe("tmux");
+    expect(body.config.workTracker.default).toBe("linear");
+    expect(body.config.clanky.chatGatewayOwner).toBe("room");
+    expect(body.config.operator.kind).toBe("clanky");
+    expect(body.config.operator.env.CLANKY_CHAT_GATEWAY_OWNER).toBe("room");
+
+    const written = await readFile(body.path, "utf8");
+    expect(written).toContain("default: tmux");
+    expect(written).toContain("teamId: team_123");
+    expect(written).toContain("chatGatewayOwner: room");
   });
 
   it("exposes daemon cwd in health checks", async () => {
@@ -242,7 +295,14 @@ describe("agentroom daemon app", () => {
       body: JSON.stringify({
         title: "Ship MVP",
         assigneeId: "impl",
-        refs: [{ kind: "linear-issue", id: "ENG-123", label: "ENG-123" }],
+        refs: [
+          {
+            kind: "tracker-issue",
+            id: "ENG-123",
+            label: "ENG-123",
+            metadata: { providerKind: "linear" },
+          },
+        ],
       }),
     });
     expect(createResponse.status).toBe(201);
@@ -303,7 +363,14 @@ describe("agentroom daemon app", () => {
         description: "Include task editing in the TUI",
         status: "done",
         assignee: { kind: "agent", id: "impl" },
-        refs: [{ kind: "linear-issue", id: "ENG-123", label: "ENG-123" }],
+        refs: [
+          {
+            kind: "tracker-issue",
+            id: "ENG-123",
+            label: "ENG-123",
+            metadata: { providerKind: "linear" },
+          },
+        ],
       }),
     ]);
   });

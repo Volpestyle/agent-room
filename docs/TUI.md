@@ -50,6 +50,29 @@ Use the views when you want to inspect state directly:
 
 `Ctrl+G` and `Ctrl+L` cycle views. `Esc` opens the view picker. `?` opens Help.
 
+## Setup
+
+Run `/setup` from Chat on first start or whenever the room feels misconfigured.
+It shows the active config file, runtime, work tracker, Clanky room defaults,
+dashboard auth, and chat gateway status.
+
+Useful setup commands:
+
+```text
+/setup
+/setup runtime herdr
+/setup tracker linear team_123
+/setup clanky agent .clanky-room lead
+/config
+/protocol
+```
+
+Setup commands write the same `.agentroom/config.yaml` model as the CLI.
+`/protocol` shows `.agentroom/AGENTS.md`, the editable room protocol used by the
+dashboard agent and launched workers. Secrets stay in environment variables,
+MCP/connector auth, or auth stores; the config file stores portable non-secret
+defaults.
+
 ## Mental Model
 
 ```mermaid

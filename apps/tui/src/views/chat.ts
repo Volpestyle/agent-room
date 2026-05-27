@@ -31,11 +31,14 @@ import {
   summarizeAgentAliases,
 } from "../runtime-agent-labels.js";
 import type { DashboardState, DashboardStore } from "../state.js";
-import type { RuntimeAgent } from "../types.js";
+import type { AgentRoomConfigResponse, RuntimeAgent } from "../types.js";
 import type { View } from "./types.js";
 
 const SLASH_COMMANDS = [
   { name: "help", description: "Show help view" },
+  { name: "setup", description: "Show guided AgentRoom setup" },
+  { name: "config", description: "Show AgentRoom configuration summary" },
+  { name: "protocol", description: "Show editable room protocol" },
   { name: "clear", description: "Clear the chat transcript" },
   { name: "refresh", description: "Force a dashboard refresh" },
   {
@@ -47,12 +50,25 @@ const SLASH_COMMANDS = [
   { name: "effort", description: "Show or set model effort level" },
   { name: "trace", description: "Show or set transcript trace mode" },
   { name: "runtime", description: "Show runtime session/socket status" },
+  { name: "setup runtime", description: "Set the default runtime" },
+  { name: "setup tracker", description: "Set the work tracker defaults" },
+  { name: "setup clanky", description: "Set Clanky room defaults" },
   { name: "quit", description: "Exit the dashboard" },
 ];
 
 const OPENAI_LOGIN_PROVIDER = "openai-codex";
 const TRACE_MODES = ["off", "tools", "full"] as const;
 type TraceMode = (typeof TRACE_MODES)[number];
+const SETUP_TRACKER_KINDS = [
+  "native",
+  "linear",
+  "github-issues",
+  "jira",
+  "custom",
+] as const;
+type SetupTrackerKind = (typeof SETUP_TRACKER_KINDS)[number];
+const CLANKY_CHAT_OWNERS = ["agent", "room", "off"] as const;
+type ClankyChatOwner = (typeof CLANKY_CHAT_OWNERS)[number];
 
 class TextLine implements Component {
   constructor(public text: string) {}
@@ -249,7 +265,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       banner.addChild(
         new Text(
           palette.muted(
-            "Talk to it in plain language. /help · /clear · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
+            "Talk to it in plain language. /setup · /protocol · /help · /clear · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
           ),
           1,
           0,
@@ -457,6 +473,138 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     }
   }
 
+  async function runSetup(args: string[]): Promise<void> {
+    const section = args[0]?.toLowerCase();
+    if (
+      section === undefined ||
+      section === "" ||
+      section === "status" ||
+      section === "summary"
+    ) {
+      await showSetupSummary();
+      return;
+    }
+    if (section === "help") {
+      addLine(new Markdown(setupHelpMarkdown(), 1, 0, markdownTheme));
+      return;
+    }
+    if (section === "runtime") {
+      await setupRuntime(args[1]);
+      return;
+    }
+    if (section === "tracker" || section === "work-tracker") {
+      await setupWorkTracker(args.slice(1));
+      return;
+    }
+    if (section === "clanky") {
+      await setupClanky(args.slice(1));
+      return;
+    }
+    addErrorNote(`unknown setup section: ${section}. Try /setup help.`);
+  }
+
+  async function showSetupSummary(): Promise<void> {
+    try {
+      const [configResponse, health] = await Promise.all([
+        api.config(),
+        api.health(),
+      ]);
+      addLine(
+        new Markdown(
+          setupSummaryMarkdown(configResponse, health, auth.list()),
+          1,
+          0,
+          markdownTheme,
+        ),
+      );
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  async function showProtocol(): Promise<void> {
+    try {
+      const protocol = await api.protocol();
+      addLine(
+        new Markdown(
+          [`## AgentRoom protocol`, "", `Source: \`${protocol.path}\``, "", protocol.content].join(
+            "\n",
+          ),
+          1,
+          0,
+          markdownTheme,
+        ),
+      );
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  async function setupRuntime(runtimeName: string | undefined): Promise<void> {
+    if (runtimeName === undefined || runtimeName.trim().length === 0) {
+      addErrorNote("usage: /setup runtime herdr|tmux|fake");
+      return;
+    }
+    try {
+      const result = await api.updateSetupConfig({
+        runtimeDefault: runtimeName.trim(),
+      });
+      addSystemNote(
+        `default runtime set to ${result.config.runtime.default} in ${result.path}; restart daemon if provider settings changed.`,
+      );
+      await poller.tick();
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  async function setupWorkTracker(args: string[]): Promise<void> {
+    const kind = parseSetupTrackerKind(args[0]);
+    if (kind === undefined) {
+      addErrorNote(
+        `usage: /setup tracker ${SETUP_TRACKER_KINDS.join("|")} [teamId]`,
+      );
+      return;
+    }
+    const teamId = optionalArg(args[1]);
+    try {
+      const result = await api.updateSetupConfig({
+        workTracker: {
+          type: kind,
+          ...(teamId !== undefined ? { teamId } : {}),
+        },
+      });
+      const tracker = result.config.workTracker;
+      addSystemNote(
+        `work tracker set to ${tracker?.default ?? kind} in ${result.path}.`,
+      );
+      await poller.tick();
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  async function setupClanky(args: string[]): Promise<void> {
+    const owner = parseClankyChatOwner(args[0]) ?? "agent";
+    const home = optionalArg(args[1]) ?? ".clanky-room";
+    const profile = optionalArg(args[2]) ?? "lead";
+    try {
+      const result = await api.updateSetupConfig({
+        clanky: {
+          chatGatewayOwner: owner,
+          home,
+          profile,
+        },
+      });
+      addSystemNote(
+        `Clanky defaults set to ${home} profile ${profile} (${owner} chat owner) in ${result.path}.`,
+      );
+      await poller.tick();
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
   function runEffort(levelArg: string | undefined): void {
     if (!levelArg) {
       if ("reason" in currentAgent) {
@@ -592,6 +740,14 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       runTrace(rest[0]?.toLowerCase());
       return true;
     }
+    if (cmd === "setup" || cmd === "config") {
+      await runSetup(cmd === "config" && rest.length === 0 ? ["status"] : rest);
+      return true;
+    }
+    if (cmd === "protocol") {
+      await showProtocol();
+      return true;
+    }
     if (cmd === "runtime" || cmd === "runtimes") {
       await runRuntime(rest[0]);
       return true;
@@ -623,6 +779,97 @@ function normalizeLoginProvider(value: string): string | undefined {
     return OPENAI_LOGIN_PROVIDER;
   }
   return undefined;
+}
+
+function setupSummaryMarkdown(
+  configResponse: AgentRoomConfigResponse,
+  health: {
+    auth?: { apiTokenRequired?: boolean };
+    chatGateways?: Array<{
+      id: string;
+      kind: string;
+      health: { ok: boolean; message?: string };
+      startupError?: string;
+    }>;
+  },
+  authProviders: string[],
+): string {
+  const config = configResponse.config;
+  const trackerId = config.workTracker?.default;
+  const tracker =
+    trackerId === undefined ? undefined : config.workTracker?.providers[trackerId];
+  const clanky = config.clanky;
+  const chatGateways = Object.keys(config.chat?.gateways ?? {});
+  const chatRoutes = Object.keys(config.chat?.routes ?? {});
+  const liveGatewayLines = (health.chatGateways ?? []).map((gateway) => {
+    const state = gateway.health.ok ? "ok" : "needs attention";
+    const detail = gateway.startupError ?? gateway.health.message;
+    return `- ${gateway.id}: ${gateway.kind}, ${state}${detail ? ` (${detail})` : ""}`;
+  });
+  const lines = [
+    "## AgentRoom setup",
+    "",
+    `Config: \`${configResponse.path}\``,
+    `Room: \`${config.room.id}\`${config.room.name ? ` (${config.room.name})` : ""}`,
+    `Default runtime: \`${config.runtime.default}\``,
+    `Dashboard auth: ${authProviders.length > 0 ? authProviders.join(", ") : "not signed in"}`,
+    `API token: ${health.auth?.apiTokenRequired ? "required" : "not required locally"}`,
+    "",
+    "### Work tracker",
+    trackerId === undefined
+      ? "Native task shadows only."
+      : `\`${trackerId}\` (${tracker?.type ?? "unknown"})${tracker?.teamId ? `, team ${tracker.teamId}` : ""}`,
+    "",
+    "### Clanky",
+    clanky === undefined
+      ? "No Clanky room defaults configured."
+      : `home \`${clanky.home ?? "(default)"}\`, profile \`${clanky.profile ?? "(default)"}\`, chat owner \`${clanky.chatGatewayOwner ?? "agent"}\``,
+    "",
+    "### Chat gateways",
+    chatGateways.length === 0
+      ? "No room-owned gateways configured."
+      : `${chatGateways.length} configured, ${chatRoutes.length} routes.`,
+    ...liveGatewayLines.map((line) => `  ${line}`),
+    "",
+    "### Commands",
+    "- `/login openai` - sign in the dashboard agent",
+    "- `/setup runtime herdr` - choose the default runtime",
+    "- `/setup tracker linear team_123` - select Linear defaults",
+    "- `/setup clanky agent .clanky-room lead` - set Clanky room defaults",
+    "- `/protocol` - show the editable room protocol",
+    "- `/runtime` - inspect runtime health and sessions",
+  ];
+  return lines.join("\n");
+}
+
+function setupHelpMarkdown(): string {
+  return [
+    "## AgentRoom setup commands",
+    "",
+    "- `/setup` or `/config` - show current setup and next steps",
+    "- `/protocol` - show `.agentroom/AGENTS.md`, the editable room protocol",
+    "- `/setup runtime herdr|tmux|fake` - set the default runtime",
+    "- `/setup tracker native|linear|github-issues|jira|custom [teamId]` - set work tracker defaults",
+    "- `/setup clanky agent|room|off [home] [profile]` - set Clanky defaults for this room",
+    "",
+    "Secrets stay out of `config.yaml`. Each agent authenticates with its own MCP, connector, CLI, or auth store.",
+  ].join("\n");
+}
+
+function parseSetupTrackerKind(value: string | undefined): SetupTrackerKind | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "github") return "github-issues";
+  return SETUP_TRACKER_KINDS.find((kind) => kind === normalized);
+}
+
+function parseClankyChatOwner(value: string | undefined): ClankyChatOwner | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return CLANKY_CHAT_OWNERS.find((owner) => owner === normalized);
+}
+
+function optionalArg(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function promptWithDashboardContext(
@@ -721,6 +968,9 @@ export function dashboardContext(state: DashboardState): string {
     "AgentRoom dashboard context (current daemon/TUI state; not a user request):",
     `- roomId: ${roomId}`,
     `- cwd: ${cwd}`,
+    ...(state.config?.protocolPath
+      ? [`- protocolPath: ${state.config.protocolPath}`]
+      : []),
     `- defaultRuntime: ${defaultRuntime}`,
     `- runtimes: ${runtimes}`,
     `- roomAgents: ${roomAgents}`,

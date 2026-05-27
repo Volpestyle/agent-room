@@ -4,6 +4,10 @@ import type {
   AgentRole,
   AgentState,
   AgentOutput,
+  AgentRoomConfigResponse,
+  AgentRoomProtocolResponse,
+  AgentRoomSetupPatch,
+  AgentRoomSetupResponse,
   DashboardConfig,
   DaemonHealth,
   HarnessSpec,
@@ -134,6 +138,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
     base,
     health: () => apiRequest<DaemonHealth>("/health"),
     dashboardConfig: () => apiRequest<DashboardConfig>("/v1/dashboard/config"),
+    config: () => apiRequest<AgentRoomConfigResponse>("/v1/config"),
+    protocol: () => apiRequest<AgentRoomProtocolResponse>("/v1/protocol"),
+    updateSetupConfig: (input: AgentRoomSetupPatch) =>
+      apiRequest<AgentRoomSetupResponse>("/v1/config/setup", {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
     listEvents: (limit = 80) =>
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,

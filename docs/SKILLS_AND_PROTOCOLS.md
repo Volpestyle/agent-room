@@ -10,6 +10,7 @@ procedure when they need it.
 | Surface | Owns |
 | --- | --- |
 | Public docs | Product mental model, topology, protocol concepts, safety boundaries, and links to canonical references. |
+| `.agentroom/AGENTS.md` | Editable per-room protocol for dashboard-agent and worker behavior. |
 | Skills | Step-by-step behavior for agents and operators inside a live room. |
 | CLI Reference | Complete command map for humans, scripts, and agents that need exact syntax. |
 | MCP server | Tool surface for MCP-capable agents to inspect and coordinate through the room. |
@@ -17,6 +18,20 @@ procedure when they need it.
 
 This split keeps the docs concise while still making the behind-the-scenes
 contract visible.
+
+## Room Protocol File
+
+Each room may have `.agentroom/AGENTS.md` next to its `config.yaml`. Config owns
+topology; this Markdown file owns room behavior and policy. It is the right
+place to tune work tracker expectations, status cadence, coordination norms,
+review flow, and any room-specific conventions that should be visible to humans
+and agents.
+
+`agent-room init` creates the default protocol file. Existing rooms can inspect
+it with `agent-room protocol --json` or the TUI `/protocol` command. Launched
+and enrolled agents receive `AGENTROOM_PROTOCOL_FILE` when AgentRoom can resolve
+the room config, so generic skills can read the room protocol without hardcoding
+a tracker or vendor.
 
 ## AgentRoom Skills
 

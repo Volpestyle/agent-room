@@ -18,6 +18,27 @@ describe("dashboard operator skill loading", () => {
   it("embeds the maintained operator skill with dashboard-specific caveats", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentroom-tui-skill-"));
     tempDirs.push(root);
+    const roomDir = join(root, "room", ".agentroom");
+    await mkdir(roomDir, { recursive: true });
+    await writeFile(
+      join(roomDir, "config.yaml"),
+      [
+        "room:",
+        "  id: test-room",
+        "runtime:",
+        "  default: fake",
+        "runtimes:",
+        "  fake:",
+        "    type: fake",
+        "storage:",
+        "  driver: jsonl",
+        "  path: events.jsonl",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(roomDir, "AGENTS.md"),
+      "# AgentRoom Protocol\n\nUse the room work tracker.",
+    );
     const skillDir = join(root, "skills", "agentroom-operator");
     await mkdir(skillDir, { recursive: true });
     await writeFile(
@@ -37,6 +58,9 @@ describe("dashboard operator skill loading", () => {
       moduleDir: join(root, "apps", "tui", "dist"),
     });
 
+    expect(prompt).toContain("Embedded AgentRoom room protocol");
+    expect(prompt).toContain("# AgentRoom Protocol");
+    expect(prompt).toContain("Use the room work tracker.");
     expect(prompt).toContain("Embedded AgentRoom operator skill");
     expect(prompt).toContain("do not have direct shell or filesystem access");
     expect(prompt).toContain("# AgentRoom Operator");
@@ -47,7 +71,10 @@ describe("dashboard operator skill loading", () => {
   it("can be disabled for tests or constrained deployments", () => {
     expect(
       loadDashboardOperatorSkillPrompt(process.cwd(), {
-        env: { AGENTROOM_TUI_OPERATOR_SKILL: "off" },
+        env: {
+          AGENTROOM_TUI_OPERATOR_SKILL: "off",
+          AGENTROOM_TUI_ROOM_PROTOCOL: "off",
+        },
       }),
     ).toBeUndefined();
   });

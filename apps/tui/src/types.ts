@@ -18,7 +18,7 @@ import type {
   TaskStatus,
   Workspace,
 } from "@agentroom/core";
-import type { DashboardOperatorConfig } from "@agentroom/config";
+import type { AgentRoomConfig, DashboardOperatorConfig } from "@agentroom/config";
 
 export type {
   ActorRef,
@@ -85,8 +85,40 @@ export interface DaemonHealth {
 export interface DashboardConfig {
   roomId: string;
   cwd: string;
+  protocolPath?: string;
   defaultRuntime?: string | null;
   operator?: DashboardOperatorConfig | null;
+}
+
+export interface AgentRoomConfigResponse {
+  path: string;
+  config: AgentRoomConfig;
+}
+
+export interface AgentRoomProtocolResponse {
+  path: string;
+  content: string;
+}
+
+export interface AgentRoomSetupPatch {
+  runtimeDefault?: string;
+  workTracker?: {
+    type: "native" | "linear" | "github-issues" | "jira" | "custom";
+    id?: string;
+    teamId?: string;
+    projectId?: string;
+    baseUrl?: string;
+  };
+  clanky?: {
+    home?: string;
+    profile?: string;
+    chatGatewayOwner?: "agent" | "room" | "off";
+  };
+}
+
+export interface AgentRoomSetupResponse extends AgentRoomConfigResponse {
+  ok: true;
+  restartRequired: boolean;
 }
 
 export interface RuntimeAgentLaunchInput {
