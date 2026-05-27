@@ -1,4 +1,9 @@
-import type { DocGroup, DocMeta, DocsSiteInfo } from "@volpestyle/night-compiler";
+import {
+  createAgentWorkspaceSiteLinks,
+  type DocGroup,
+  type DocMeta,
+  type DocsSiteInfo,
+} from "@volpestyle/night-compiler";
 
 export const site: DocsSiteInfo = {
   id: "agent-room-docs",
@@ -18,29 +23,7 @@ export const site: DocsSiteInfo = {
       "AgentRoom is the local-first control room for launching, steering, auditing, and coordinating long-running coding agents, with provider ports for runtimes, trackers, chat gateways, design, code hosts, and local room state.",
     excludeGroupsFromFull: ["Maintainer"],
   },
-  siteLinks: [
-    {
-      id: "clanky-docs",
-      label: "Clanky",
-      href: "https://volpestyle.github.io/clanky/",
-      description: "Personal agent docs, setup, operations, and Clanky's AgentRoom integration.",
-    },
-    {
-      id: "agent-room-docs",
-      label: "AgentRoom",
-      href: "https://volpestyle.github.io/agent-room/",
-      description: "Coordination plane docs for rooms, runtimes, gateways, and protocols.",
-    },
-    {
-      id: "clankvox-docs",
-      label: "ClankVox",
-      href: "https://volpestyle.github.io/clankvox/",
-      description: "Rust media-plane submodule docs for Clanky's Discord voice and Go Live transport.",
-      parentId: "clanky-docs",
-      relationLabel: "voice/media module",
-      metaLabel: "Clanky submodule",
-    },
-  ],
+  siteLinks: createAgentWorkspaceSiteLinks(),
 };
 
 export const groups: DocGroup[] = [

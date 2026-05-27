@@ -11,70 +11,17 @@ on:
       - "docs/**"
       - "README.md"
       - "package.json"
+      - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.base.json"
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: "docs-pages"
-  cancel-in-progress: false
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  docs-pages:
     permissions:
       contents: read
       pages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Checkout shared docs framework
-        run: git clone --depth 1 https://github.com/Volpestyle/docs.git ../docs
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.0.0 --activate
-
-      - name: Install shared docs dependencies
-        run: pnpm --dir ../docs install --no-frozen-lockfile
-
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Build docs
-        run: pnpm docs:build
-        env:
-          DOCS_BASE_PATH: /agent-room/
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: apps/docs/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    permissions:
-      pages: write
       id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    uses: Volpestyle/docs/.github/workflows/docs-pages.yml@main
+    with:
+      docs-base-path: /agent-room/
