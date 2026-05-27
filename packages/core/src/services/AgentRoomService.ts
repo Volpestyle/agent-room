@@ -395,6 +395,39 @@ export class AgentRoomService {
     return agent;
   }
 
+  async listAgents(): Promise<Agent[]> {
+    return [...(await this.agentProjection()).values()].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+  }
+
+  async getAgent(agentId: Id): Promise<Agent | undefined> {
+    return (await this.agentProjection()).get(agentId);
+  }
+
+  async recordAgentHeartbeat(input: {
+    agentId: Id;
+    state: Agent["state"];
+    status?: string;
+  }): Promise<void> {
+    await this.events.append(
+      this.event("agent.heartbeat", {
+        agentId: input.agentId,
+        state: input.state,
+        ...(input.status !== undefined ? { status: input.status } : {}),
+      }),
+    );
+  }
+
+  async leaveAgent(input: { agentId: Id; reason?: string }): Promise<void> {
+    await this.events.append(
+      this.event("agent.left", {
+        agentId: input.agentId,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      }),
+    );
+  }
+
   async bindRuntime(input: {
     agentId: Id;
     runtime: RuntimeBinding;
@@ -636,6 +669,87 @@ export class AgentRoomService {
     }
 
     return tasks;
+  }
+
+  private async agentProjection(): Promise<Map<Id, Agent>> {
+    const agents = new Map<Id, Agent>();
+    const events = await this.events.list({ roomId: this.roomId });
+
+    for (const event of events) {
+      switch (event.type) {
+        case "agent.joined":
+          agents.set(event.payload.agent.id, event.payload.agent);
+          break;
+        case "runtime.bound": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              runtime: event.payload.runtime,
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "agent.heartbeat": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: event.payload.state,
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "runtime.state_observed": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: event.payload.state,
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "agent.blocked": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: "blocked",
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "agent.done": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: "done",
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+        case "agent.left": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: "stopped",
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    return agents;
   }
 }
 

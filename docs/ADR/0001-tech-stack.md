@@ -8,7 +8,7 @@ Use TypeScript + Node.js for the first implementation of AgentRoom.
 
 ## Rationale
 
-AgentRoom is mostly glue, orchestration, local APIs, schema validation, provider adapters, and future web/mobile-facing interfaces. TypeScript keeps the domain model, network contracts, CLI code, provider contracts, and future UI code in one language.
+AgentRoom is mostly glue, orchestration, local APIs, schema validation, provider adapters, MCP tools, TUI code, and mobile-facing interfaces. TypeScript keeps the domain model, network contracts, CLI code, provider contracts, and UI/client code in one language.
 
 Use Node.js 24 LTS as the default runtime. Node's release policy says production applications should use Active LTS or Maintenance LTS releases, and the release table currently lists v24 as LTS. This gives us a modern runtime without betting on a non-LTS current release.
 
@@ -26,7 +26,7 @@ Use MCP as an optional interface, not a hard dependency of the core. MCP's offic
 
 Good:
 
-- One language for the core, CLI, daemon, MCP server, web, and future custom app API contracts.
+- One language for the core, CLI, daemon, MCP server, TUI, mobile client, and future custom app API contracts.
 - Easy integration with Linear, GitHub, Figma, Telegram, Discord, and MCP SDKs.
 - Provider interfaces are lightweight and easy to implement.
 - Local MVP can run without Docker or cloud services.

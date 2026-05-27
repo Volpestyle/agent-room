@@ -17,7 +17,7 @@ runtimes:
     type: fake
   herdr:
     type: herdr
-    session: agentroom
+    session: agent-room
     cli: /Users/jamesvolpe/web/herdr/target/debug/herdr
     layout:
       mode: pane-grid

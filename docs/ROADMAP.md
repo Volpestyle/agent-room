@@ -1,51 +1,24 @@
 # Roadmap
 
-## MVP 0: local skeleton
+## Built
 
-- Runtime provider port
-- Fake runtime provider
-- JSONL event store
-- Native channel/DM messages
-- Local task shadows with external tracker refs
-- CLI `init`, `post`, `dm`, `messages`, `task create`, `task link-linear`, `task comment`, `events`
-- Hono daemon `/health`, `/v1/events`, `/v1/messages`, `/v1/tasks`
+- Runtime provider port with fake, tmux, and Herdr adapters.
+- JSONL event store and in-memory test store.
+- Native channel/DM messages, wait/event streaming, human escalations, and local task shadows with external refs.
+- CLI for init, daemon lifecycle, mobile pairing, TUI launch, messages, tasks, tracker commands, runtime selection, launch/enroll/read/send/stop, and audit events.
+- Hono daemon with health, dashboard config, events, messages, tasks, runtime providers/agents/input/output, chat gateway route inspection, and bearer-token protection for `/v1/*` when configured.
+- Interactive TUI dashboard with chat, overview, agents, tasks, messages, events, slash-command templates, and optional operator bootstrap.
+- Expo/React Native mobile client for health, tasks, messages, events, runtime providers/agents, room posting, and runtime input.
+- MCP stdio server for room context, messages, events, posts, DMs, task shadows, and waits.
+- Chat gateway port, Discord adapter, inbound router, outbound dispatcher, webhook-mode attribution, and daemon config loading.
+- Herdr pane adoption for daemon-observed panes and one-off `agent-room enroll`.
 
-## MVP 1: Runtime-backed local orchestration
+## Next
 
-- Complete real runtime provider contract tests
-- Launch/read/send/list agents through selected local runtimes
-- Detect runtime health and adapter-specific setup problems
-- Skill-installed opted-in agent behavior
-
-## MVP 2: External work tracking
-
-- Work tracker setup guidance
-- Tracker comments/status updates delegated to the selected MCP/CLI/skill/provider
-- Explicit `tracker_update_skipped` events when tracker tools are unavailable
-- Local task projections that stay secondary to linked external issues
-
-## MVP 3: human escalation
-
-- `ask-human`
-- approvals
-- phone gateway skeleton
-- digest command
-
-## MVP 4: tool integrations
-
-- GitHub PR sync
-- Figma design refs
-- notification gateways
-
-## MVP 5: custom app
-
-- Web UI first
-- iOS/React Native or native Swift later
-- Push notification gateway
-
-## MVP 6: remote/hosted runtime
-
-- Single remote host
-- SSH provider
-- Docker provider
-- ECS/Kubernetes provider prototypes
+- Add SQLite as the durable local event store while preserving event replay.
+- Harden tmux/Herdr provider contract tests against real runtime sessions.
+- Add operator CLI and TUI support for editing `.agentroom/config.yaml` through `@agentroom/config`, starting with chat gateway route inspection and mutation.
+- Improve Linear and future tracker bridge ergonomics, including clearer skipped-update reporting.
+- Add richer approval enforcement beyond local policy files.
+- Expand mobile/TUI controls for task editing, launch forms, config editing, and chat gateway status.
+- Prototype SSH, Docker, and hosted/cloud runtime providers.

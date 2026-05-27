@@ -1,5 +1,6 @@
 import type {
   ActorRef,
+  Agent,
   AgentRole,
   AgentState,
   HarnessSpec,
@@ -12,6 +13,7 @@ import type {
   RuntimeBinding,
   RuntimeCapabilities,
   RuntimeHealth,
+  RuntimeSession,
   Task,
   TaskStatus,
 } from "@agentroom/core";
@@ -19,6 +21,7 @@ import type { DashboardOperatorConfig } from "@agentroom/config";
 
 export type {
   ActorRef,
+  Agent,
   AgentRole,
   AgentState,
   HarnessSpec,
@@ -31,6 +34,7 @@ export type {
   RuntimeBinding,
   RuntimeCapabilities,
   RuntimeHealth,
+  RuntimeSession,
   Task,
   TaskStatus,
 };
@@ -39,6 +43,7 @@ export type { DashboardOperatorConfig };
 export interface RuntimeProviderSummary {
   id: string;
   kind: string;
+  default?: boolean;
   capabilities: RuntimeCapabilities;
   health?: RuntimeHealth;
 }
@@ -77,6 +82,7 @@ export interface DaemonHealth {
 export interface DashboardConfig {
   roomId: string;
   cwd: string;
+  defaultRuntime?: string | null;
   operator?: DashboardOperatorConfig | null;
 }
 

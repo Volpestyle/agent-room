@@ -3,16 +3,23 @@ import {
   Key,
   matchesKey,
   SelectList,
-  Spacer,
   TruncatedText,
   TUI,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { Component, OverlayHandle, Terminal } from "@earendil-works/pi-tui";
+import type {
+  Component,
+  OverlayHandle,
+  Terminal,
+} from "@earendil-works/pi-tui";
 import { PanelBase } from "./components/panel.js";
 import type { AuthStorage } from "./auth/storage.js";
-import type { DashboardAgent, DashboardAgentError } from "./agent/index.js";
+import type {
+  DashboardAgent,
+  DashboardAgentError,
+  DashboardThinkingLevel,
+} from "./agent/index.js";
 import type { ApiClient } from "./api.js";
 import type { Poller } from "./poller.js";
 import { selectListTheme, palette } from "./theme.js";
@@ -27,6 +34,13 @@ import { createOverviewView } from "./views/overview.js";
 import { createTasksView } from "./views/tasks.js";
 import type { View } from "./views/types.js";
 
+const DASHBOARD_AGENT_CAPABILITIES = [
+  "dashboard",
+  "control-plane",
+  "local-agent",
+  "agentroom-operator",
+] as const;
+
 export interface DashboardOptions {
   terminal: Terminal;
   api: ApiClient;
@@ -34,7 +48,9 @@ export interface DashboardOptions {
   store: DashboardStore;
   agent: DashboardAgent | DashboardAgentError;
   auth: AuthStorage;
-  rebuildAgent(): DashboardAgent | DashboardAgentError;
+  rebuildAgent(
+    thinkingLevel?: DashboardThinkingLevel,
+  ): DashboardAgent | DashboardAgentError;
   baseUrl: string;
 }
 
@@ -77,6 +93,43 @@ class FooterBar extends PanelBase {
   }
 }
 
+class DashboardLayout extends PanelBase {
+  constructor(
+    private readonly header: Component,
+    private readonly body: Component,
+    private readonly footer: Component,
+    private readonly terminal: Terminal,
+  ) {
+    super();
+  }
+
+  render(width: number): string[] {
+    const height = Math.max(1, this.terminal.rows);
+    const headerLines = this.header.render(width);
+    const footerLines = this.footer.render(width);
+    const spacerRows = height > headerLines.length + footerLines.length ? 2 : 0;
+    const bodyRows = Math.max(
+      0,
+      height - headerLines.length - footerLines.length - spacerRows,
+    );
+    const bodyLines = this.body.render(width);
+    const visibleBody =
+      bodyRows > 0
+        ? bodyLines.slice(Math.max(0, bodyLines.length - bodyRows))
+        : [];
+
+    const lines = [
+      ...headerLines,
+      ...Array(spacerRows > 0 ? 1 : 0).fill(""),
+      ...visibleBody,
+      ...Array(spacerRows > 1 ? 1 : 0).fill(""),
+      ...footerLines,
+    ];
+
+    return lines.slice(0, height);
+  }
+}
+
 function renderStatusLine(
   state: { lastError: string | undefined; lastRefreshAt: string | undefined },
   width: number,
@@ -84,7 +137,9 @@ function renderStatusLine(
   const refreshed = state.lastRefreshAt
     ? `refreshed ${new Date(state.lastRefreshAt).toLocaleTimeString()}`
     : "refreshing…";
-  const error = state.lastError ? palette.bad(" · error: " + state.lastError) : "";
+  const error = state.lastError
+    ? palette.bad(" · error: " + state.lastError)
+    : "";
   return fit(palette.muted(refreshed) + error, width);
 }
 
@@ -109,9 +164,10 @@ export class Dashboard {
       tui: this.tui,
       api: options.api,
       poller: options.poller,
+      store: options.store,
       auth: options.auth,
       agent: options.agent,
-      rebuildAgent: () => {
+      rebuildAgent: (thinkingLevel) => {
         if (!("reason" in this.currentAgent)) {
           try {
             this.currentAgent.abort();
@@ -119,10 +175,12 @@ export class Dashboard {
             // ignore — agent may already be settled
           }
         }
-        const next = options.rebuildAgent();
+        const next = options.rebuildAgent(thinkingLevel);
         this.currentAgent = next;
         if (!("reason" in next)) {
           void this.announceJoin(next);
+        } else {
+          void this.announceLeave("dashboard agent disabled");
         }
         return next;
       },
@@ -158,19 +216,21 @@ export class Dashboard {
       () =>
         "reason" in this.currentAgent
           ? "disabled"
-          : `${this.currentAgent.agentId}@${this.currentAgent.resolvedModel.provider}`,
+          : `${this.currentAgent.agentId}@${this.currentAgent.resolvedModel.provider} effort=${this.currentAgent.thinkingLevel}`,
     );
     const footer = new FooterBar(() => this.hotkeyHint());
+    const layout = new DashboardLayout(
+      header,
+      this.currentViewContainer,
+      footer,
+      options.terminal,
+    );
 
-    this.tui.addChild(header);
-    this.tui.addChild(new Spacer(1));
-    this.tui.addChild(this.currentViewContainer);
-    this.tui.addChild(new Spacer(1));
-    this.tui.addChild(footer);
+    this.tui.addChild(layout);
 
     this.tui.addInputListener((data) => this.onGlobalInput(data));
 
-    this.activateView(0);
+    this.activateView(0, false);
   }
 
   hotkeyHint(): string {
@@ -193,15 +253,34 @@ export class Dashboard {
 
   private async announceJoin(agent: DashboardAgent): Promise<void> {
     try {
+      await this.options.api.registerRoomAgent({
+        agentId: dashboardActor().id,
+        displayName: "Dashboard",
+        role: "lead",
+        capabilities: [...DASHBOARD_AGENT_CAPABILITIES],
+      });
+      await this.options.api.agentHeartbeat(dashboardActor().id, {
+        state: "idle",
+        status: `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId}`,
+      });
       await this.options.api.postMessage({
         body:
           `📊 Dashboard agent **${dashboardActor().id}** is online — using model ` +
-          `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId}.`,
+          `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId} ` +
+          `with effort ${agent.thinkingLevel}.`,
         sender: dashboardActor(),
         kind: "announcement",
       });
     } catch {
       // ignore — the daemon may be unreachable at boot
+    }
+  }
+
+  private async announceLeave(reason: string): Promise<void> {
+    try {
+      await this.options.api.leaveRoomAgent(dashboardActor().id, { reason });
+    } catch {
+      // ignore
     }
   }
 
@@ -219,12 +298,13 @@ export class Dashboard {
       } catch {
         // ignore
       }
+      await this.announceLeave("dashboard shutdown");
     }
     this.tui.stop();
     process.exit(0);
   }
 
-  private activateView(index: number): void {
+  private activateView(index: number, forceFullRender = true): void {
     const previous = this.views[this.activeIndex];
     previous?.onDeactivate?.();
     this.activeIndex = index;
@@ -237,7 +317,7 @@ export class Dashboard {
     if (!next.onActivate) {
       this.tui.setFocus(null);
     }
-    this.tui.requestRender();
+    this.tui.requestRender(forceFullRender);
   }
 
   private switchToId(id: string): void {
@@ -247,7 +327,8 @@ export class Dashboard {
   }
 
   private cycleView(delta: number): void {
-    const next = (this.activeIndex + delta + this.views.length) % this.views.length;
+    const next =
+      (this.activeIndex + delta + this.views.length) % this.views.length;
     this.activateView(next);
   }
 

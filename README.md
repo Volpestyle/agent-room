@@ -4,21 +4,21 @@ AgentRoom is a local-first, runtime-agnostic coordination plane for long-running
 
 The core is built around replaceable provider ports so the same room/task/message/approval system can run on Herdr, tmux, Docker, SSH, ECS, Kubernetes, or a custom runtime without changing core room behavior.
 
-## What is in this scaffold
+## What is in this repo
 
 ```text
 apps/
   cli/             agent-room CLI
   daemon/          local HTTP API daemon
-  mcp-server/      MCP server placeholder
-  web/             future web/mobile-control shell notes
-  mobile/          future native app notes
+  mcp-server/      stdio MCP server for room messages, tasks, waits, and audit context
+  tui/             interactive terminal dashboard
+  mobile/          Expo/React Native client for daemon API access
 packages/
   core/            domain model, events, service layer, provider ports
-  storage-jsonl/   append-only JSONL event store for local MVP
+  storage-jsonl/   append-only JSONL event store for local rooms
   storage-memory/  in-memory event store for tests and demos
   runtime-fake/    fake runtime provider used by tests
-  runtime-herdr/   Herdr runtime provider adapter shell
+  runtime-herdr/   Herdr runtime provider adapter
   runtime-tmux/    working minimal tmux runtime provider
   integrations/    connector ports and bridge adapters for GitHub/Linear/Figma/Discord/etc.
                    includes chat-discord (ChatGatewayProvider, bot or user token)
@@ -34,14 +34,16 @@ examples/
 
 ## Tech stack
 
-- TypeScript across core, CLI, daemon, provider adapters, SDK, web, and future mobile-facing code.
+- TypeScript across core, CLI, daemon, TUI, MCP server, provider adapters, and the mobile client.
 - Node.js 24 LTS target for the local daemon and CLI.
 - pnpm workspaces for the monorepo.
 - Hono for the daemon HTTP API.
+- MCP SDK for the stdio AgentRoom server.
+- Expo/React Native for the mobile client.
 - Vitest for contract and unit tests.
 - Zod for schemas at process and network boundaries.
 - Work tracker, design, code host, notification, and chat integrations live behind provider ports; AgentRoom keeps local room/audit state.
-- SQLite should be added as the durable local event store after the JSONL event log MVP is validated.
+- SQLite is still planned as the durable local event store; JSONL is the current event store.
 
 See `docs/ADR/0001-tech-stack.md` for the rationale.
 
@@ -69,7 +71,7 @@ agent-room task create "Implement auth callback" --assignee api-impl
 agent-room events --limit 20
 ```
 
-`init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, and the local event log path.
+`init` writes `.agentroom/config.yaml`. That file selects the default runtime provider, runtime-specific settings, room-owned gateways/routes, and the local event log path. The TUI should act as a human-friendly editor and control plane over the same typed config model, not as a separate hidden topology store; see `docs/CONFIGURATION.md`.
 
 For room layout choices, including one room per project versus one room coordinating agents across many repositories, see `docs/TOPOLOGY.md`.
 
@@ -149,7 +151,9 @@ Open the dashboard:
 agent-room tui
 ```
 
-The TUI starts in a chat view and can launch a lead agent named `operator` when `operator.command` or `AGENTROOM_OPERATOR_COMMAND` is configured. Type normally to ask what is happening or request room actions; use `/commands` to browse manual slash-command templates, `Esc` to browse dashboard views, and `Tab` to move through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
+The TUI starts in a chat view and can launch a lead agent named `operator` when `operator.command` or `AGENTROOM_OPERATOR_COMMAND` is configured. Type normally to ask what is happening or request room actions; use `/help` for slash commands, `/effort [level]` to show or set model effort (`off|minimal|low|medium|high|xhigh`), `Esc` to browse dashboard views, and `Ctrl+G` / `Ctrl+L` to cycle through chat, overview, agents, tasks, messages, and events. Set `AGENTROOM_TUI_OPERATOR_ID` to use a different operator agent id.
+
+Use `/runtime` or `/runtime herdr` in the TUI to show the configured runtime session namespace, socket path, workspace label, workspace ids, join command, and bound agent count. For Herdr, pass the session namespace to `herdr --session <name>`; ids like `w652aca9fd72f08` are Herdr workspace ids inside that session, not `--session` names. Use `/trace off|tools|full` to control how much of the dashboard agent stream is shown; `full` shows thinking and tool requests for debugging.
 
 Configure the dashboard operator in `.agentroom/config.yaml` or with env overrides:
 
@@ -215,4 +219,6 @@ storage:
 
 ## Current maturity
 
-This is a scaffold moving toward a local MVP. It includes runnable core pieces, a CLI, daemon API skeleton, provider interfaces, channel/DM messages, local task shadows, runtime audit events, chat gateway routing/dispatch primitives, daemon-level chat gateway config loading, and starter implementations. The next useful build steps are to wire the daemon to a persistent SQLite store, harden real runtime provider contract tests, make external tracker bridges ergonomic, and add operator CLI support for chat route inspection — see `docs/ADR/0003-chat-gateway-port.md`.
+This is a runnable local coordination plane. It includes core room/task/message services, the CLI, daemon HTTP API, TUI, MCP server, Expo mobile client, JSONL event storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/stop flows, Herdr pane adoption, wait/events-follow, local task shadows, Linear bridge commands, chat gateway routing/dispatch primitives, Discord gateway config loading, read-only chat gateway route APIs, and mobile tailnet pairing.
+
+The next useful build steps are to add a durable SQLite event store, harden real runtime provider contract tests, make external tracker bridges more ergonomic, add operator CLI support for chat route inspection/mutation, and prototype hosted or multi-host runtime adapters.

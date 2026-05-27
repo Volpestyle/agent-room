@@ -1,4 +1,8 @@
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
 import { palette, statusColor } from "../theme.js";
 import type { DashboardStore } from "../state.js";
@@ -16,7 +20,12 @@ class AgentsPanel extends PanelBase {
     lines.push("");
     lines.push(palette.label("RUNTIME PROVIDERS"));
     if (state.providers.length === 0) {
-      lines.push("  " + palette.muted("(no providers configured — set up .agentroom/config.yaml)"));
+      lines.push(
+        "  " +
+          palette.muted(
+            "(no providers configured — set up .agentroom/config.yaml)",
+          ),
+      );
     } else {
       for (const provider of state.providers) {
         const caps = [
@@ -35,7 +44,29 @@ class AgentsPanel extends PanelBase {
     }
 
     lines.push("");
-    lines.push(palette.label("AGENTS"));
+    lines.push(palette.label("ROOM AGENTS"));
+    if (state.agents.length === 0) {
+      lines.push("  " + palette.muted("(no room agents registered)"));
+    } else {
+      for (const agent of state.agents) {
+        const stateBadge = statusColor(agent.state)(agent.state.padEnd(10));
+        const runtime = agent.runtime
+          ? `${agent.runtime.providerId}:${agent.runtime.bindingId}`
+          : "local";
+        lines.push(
+          `  ${stateBadge} ${palette.accent(agent.displayName)} ${palette.muted("id=" + agent.id + " role=" + agent.role + " runtime=" + runtime)}`,
+        );
+        if (agent.capabilities && agent.capabilities.length > 0) {
+          lines.push(
+            "    " +
+              palette.muted("capabilities: " + agent.capabilities.join(", ")),
+          );
+        }
+      }
+    }
+
+    lines.push("");
+    lines.push(palette.label("RUNTIME PANES"));
     if (state.runtimeAgents.length === 0) {
       lines.push(
         "  " +

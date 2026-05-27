@@ -24,7 +24,7 @@ class HelpPanel extends PanelBase {
     lines.push(
       "  " +
         palette.muted(
-          "Tab / Shift+Tab cycle views · Esc opens the view menu",
+          "Ctrl+G / Ctrl+L cycle views · Esc opens the view menu",
         ),
     );
 
@@ -50,6 +50,21 @@ class HelpPanel extends PanelBase {
       "    " +
         palette.accent("/logout <provider>") +
         palette.muted(" clear stored credentials"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/effort [level]") +
+        palette.muted(" show or set effort: off|minimal|low|medium|high|xhigh"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/trace [mode]") +
+        palette.muted("  show or set stream trace: off|tools|full"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/runtime [provider]") +
+        palette.muted(" show runtime sessions, sockets, and workspace ids"),
     );
     lines.push(
       "    " +
@@ -85,6 +100,12 @@ class HelpPanel extends PanelBase {
       "  " +
         palette.muted(
           "AGENTROOM_TUI_THINKING_LEVEL off|minimal|low|medium|high|xhigh (default: medium)",
+        ),
+    );
+    lines.push(
+      "  " +
+        palette.muted(
+          "AGENTROOM_TUI_TRACE          off|tools|full (default: full)",
         ),
     );
     lines.push(

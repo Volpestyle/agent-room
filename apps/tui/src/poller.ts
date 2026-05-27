@@ -31,13 +31,16 @@ export class Poller {
     if (this.inflight) return;
     this.inflight = true;
     try {
-      const [health, events, messages, tasks, providers] = await Promise.all([
-        this.api.health(),
-        this.api.listEvents(120),
-        this.api.listMessages({ limit: 120 }),
-        this.api.listTasks(),
-        this.api.listRuntimeProviders(),
-      ]);
+      const [health, events, agents, messages, tasks, providers, config] =
+        await Promise.all([
+          this.api.health(),
+          this.api.listEvents(120),
+          this.api.listAgents(),
+          this.api.listMessages({ limit: 120 }),
+          this.api.listTasks(),
+          this.api.listRuntimeProviders(),
+          this.api.dashboardConfig().catch(() => undefined),
+        ]);
       const runtimeAgents: RuntimeAgentSnapshot[] = [];
       await Promise.all(
         providers.providers.map(async (provider) => {
@@ -55,23 +58,15 @@ export class Poller {
       this.store.set({
         health,
         events: events.events,
+        agents: agents.agents,
         messages: messages.messages,
         tasks: tasks.tasks,
         providers: providers.providers,
         runtimeAgents,
+        ...(config !== undefined ? { config } : {}),
         lastError: undefined,
         lastRefreshAt: new Date().toISOString(),
       });
-
-      // refresh dashboard config opportunistically
-      if (!this.store.get().config) {
-        try {
-          const config = await this.api.dashboardConfig();
-          this.store.set({ config });
-        } catch {
-          // dashboard config is optional
-        }
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.store.set({ lastError: message });

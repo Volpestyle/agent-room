@@ -3,6 +3,7 @@ import {
   access,
   chmod,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   rm,
@@ -10,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -350,6 +352,36 @@ program
   );
 
 program
+  .command("dev-new-user")
+  .description("Create a temporary empty room root for first-run TUI testing")
+  .option("--run", "launch the TUI in the temporary room root")
+  .option("--json", "print JSON")
+  .action(async (options: { run?: boolean; json?: boolean }) => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-new-user-"));
+    const bin = resolve(REPO_ROOT, "bin", "agent-room");
+    const payload = {
+      cwd,
+      command: `${bin} tui`,
+      setupCommand: "/setup",
+    };
+    if (options.json) {
+      output(payload, true);
+    } else {
+      console.log("AgentRoom fresh-user setup sandbox");
+      console.log(`Root: ${cwd}`);
+      console.log("");
+      console.log("Run:");
+      console.log(`  cd ${cwd}`);
+      console.log(`  ${bin} tui`);
+      console.log("");
+      console.log("Inside the TUI, run /setup.");
+    }
+    if (options.run === true) {
+      await runChild(bin, ["tui"], cwd);
+    }
+  });
+
+program
   .command("post")
   .description("Post a message to the local room event log")
   .argument("<body>", "message body")
@@ -370,7 +402,7 @@ program
         body,
         channelId: options.channel,
         kind: parseMessageKind(options.kind),
-        sender: (await currentActor()),
+        sender: await currentActor(),
         ...(options.to !== undefined
           ? { recipients: parseAgentRecipients(options.to) }
           : {}),
@@ -396,7 +428,7 @@ program
       const message = await service.postMessage({
         body,
         channelId: "dm",
-        sender: (await currentActor()),
+        sender: await currentActor(),
         recipients: parseAgentRecipients(agentIds),
         ...(options.thread !== undefined ? { threadId: options.thread } : {}),
       });
@@ -541,7 +573,7 @@ task
         : [];
       const created = await service.createTask({
         title,
-        createdBy: (await currentActor()),
+        createdBy: await currentActor(),
         ...(options.description !== undefined
           ? { description: options.description }
           : {}),
@@ -628,7 +660,7 @@ task
       const service = await serviceForCwd();
       const assignee = options.assignee
         ? { kind: "agent" as const, id: options.assignee }
-        : (await currentActor());
+        : await currentActor();
       const claimed = await service.claimTask({
         taskId,
         assignee,
@@ -655,7 +687,7 @@ task
       const updated = await service.updateTaskStatus({
         taskId,
         status: parseTaskStatus(status),
-        actor: (await currentActor()),
+        actor: await currentActor(),
         ...(options.reason !== undefined ? { reason: options.reason } : {}),
         ...(options.summary !== undefined ? { summary: options.summary } : {}),
       });
@@ -678,7 +710,7 @@ program
       const service = await serviceForCwd();
       const escalation = await service.askHuman({
         question,
-        from: (await currentActor()),
+        from: await currentActor(),
         priority: parseImportance(options.priority),
         ...(options.task !== undefined ? { taskId: options.task } : {}),
       });
@@ -698,7 +730,7 @@ program
       const blocked = await service.blockTask({
         taskId,
         reason: options.reason,
-        actor: (await currentActor()),
+        actor: await currentActor(),
       });
       output(blocked, options.json);
     },
@@ -715,7 +747,7 @@ program
       const service = await serviceForCwd();
       const done = await service.completeTask({
         taskId,
-        actor: (await currentActor()),
+        actor: await currentActor(),
         ...(options.summary !== undefined ? { summary: options.summary } : {}),
       });
       output(done, options.json);
@@ -1044,10 +1076,7 @@ program
     "--agent-id <id>",
     "agent id; defaults to the runtime-derived pane id when available",
   )
-  .option(
-    "--pane-id <id>",
-    "binding id to adopt; defaults to $HERDR_PANE_ID",
-  )
+  .option("--pane-id <id>", "binding id to adopt; defaults to $HERDR_PANE_ID")
   .option(
     "--runtime <runtime>",
     "runtime provider; defaults to .agentroom/config.yaml",
@@ -1227,7 +1256,7 @@ program
         runtimeAccessOptions(options),
       );
       const { provider, service, bindingId } = context;
-      const source = (await currentActor());
+      const source = await currentActor();
       await provider.sendInput({
         agentId,
         ...(bindingId !== undefined ? { bindingId } : {}),
@@ -1305,9 +1334,7 @@ async function runtimeProviderForCwd(
       "No AgentRoom config found. Run 'agent-room init --runtime RUNTIME' or pass --runtime.",
     );
   }
-  const name = config
-    ? runtimeNameFor(config, runtimeName)
-    : runtimeName;
+  const name = config ? runtimeNameFor(config, runtimeName) : runtimeName;
   if (name === undefined) {
     throw new Error("Runtime provider is required.");
   }
@@ -1342,7 +1369,7 @@ function makeRuntimeProvider(
           : {}),
       });
     case "herdr": {
-      const session = process.env.HERDR_SESSION ?? runtime.session;
+      const session = runtime.session ?? process.env.HERDR_SESSION;
       const layout = herdrLayout
         ? { ...(runtime.layout ?? {}), ...herdrLayout }
         : runtime.layout;
@@ -1756,7 +1783,9 @@ function outputMobileConnect(
   if (options.copy === true) {
     lines.push("Copied pairing link to clipboard.");
   } else {
-    lines.push("Tip: run `agent-room mobile-connect --copy` to paste the pairing link on iPhone with Universal Clipboard.");
+    lines.push(
+      "Tip: run `agent-room mobile-connect --copy` to paste the pairing link on iPhone with Universal Clipboard.",
+    );
   }
   lines.push(`Source: ${payload.pidFile}`);
   console.log(lines.join("\n"));
@@ -2398,6 +2427,32 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
   await chmod(path, 0o600);
 }
 
+async function runChild(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: "inherit",
+      env: process.env,
+    });
+    child.on("error", reject);
+    child.on("exit", (code, signal) => {
+      if (signal !== null) {
+        reject(new Error(`${command} exited on signal ${signal}`));
+        return;
+      }
+      if (code && code !== 0) {
+        reject(new Error(`${command} exited with code ${code}`));
+        return;
+      }
+      resolvePromise();
+    });
+  });
+}
+
 function output(value: unknown, json?: boolean): void {
   if (json) {
     console.log(JSON.stringify(value, null, 2));
@@ -2664,7 +2719,7 @@ async function commentOnLinearIssue(
 }> {
   const provider = new LinearWorkTrackerProvider();
   try {
-    await provider.comment(issueId, body, (await currentActor()));
+    await provider.comment(issueId, body, await currentActor());
     await service?.recordLinearIssueEvent({
       issueId,
       action: "commented",

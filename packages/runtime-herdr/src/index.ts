@@ -38,7 +38,10 @@ export interface HerdrRuntimeProviderOptions {
   runner?: HerdrCommandRunner;
 }
 
-export type HerdrLayoutMode = "workspace-per-agent" | "tab-per-agent" | "pane-grid";
+export type HerdrLayoutMode =
+  | "workspace-per-agent"
+  | "tab-per-agent"
+  | "pane-grid";
 export type HerdrSplitStrategy = "largest" | "focused";
 
 export interface HerdrLayoutOptions {
@@ -88,25 +91,34 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
           ok: false,
           status: "offline",
           message: stdout.trim() || "herdr server is not running",
+          metadata: this.statusMetadata(stdout),
         };
       }
       return {
         ok: true,
         status: "ok",
         message: stdout.trim() || "herdr status ok",
+        metadata: this.statusMetadata(stdout),
       };
     } catch (error) {
       return {
         ok: false,
         status: "offline",
         message: error instanceof Error ? error.message : String(error),
+        metadata: this.baseMetadata(),
       };
     }
   }
 
   async listSessions(): Promise<RuntimeSession[]> {
-    // Herdr session enumeration differs by install/context. Keep this conservative for now.
-    return [{ id: this.session ?? "default", name: this.session ?? "default" }];
+    let metadata = this.baseMetadata();
+    try {
+      metadata = this.statusMetadata(await this.run(["status"]));
+    } catch {
+      // Keep session enumeration available even when the server is offline.
+    }
+    const session = this.session ?? "default";
+    return [{ id: session, name: session, metadata }];
   }
 
   async listAgents(): Promise<RuntimeAgent[]> {
@@ -177,7 +189,11 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
       this.layout.workspace || request.roomId,
       cwd,
     );
-    const created = await this.createTab(workspace.workspace_id, cwd, request.agentId);
+    const created = await this.createTab(
+      workspace.workspace_id,
+      cwd,
+      request.agentId,
+    );
     const pane =
       created.rootPane ?? (await this.primaryPaneForTab(created.tab.tab_id));
 
@@ -197,7 +213,9 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     };
   }
 
-  private async startAgentInPaneGrid(request: StartAgentRequest): Promise<RuntimeAgent> {
+  private async startAgentInPaneGrid(
+    request: StartAgentRequest,
+  ): Promise<RuntimeAgent> {
     const cwd = request.cwd ?? request.harness.cwd ?? process.cwd();
     const workspace = await this.ensureWorkspace(
       this.layout.workspace || request.roomId,
@@ -280,7 +298,9 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
   }
 
   async attach(agentId: string): Promise<void> {
-    const pane = await this.getPane(await this.resolvePaneId(agentId));
+    const pane =
+      (await this.tryGetPane(agentId)) ??
+      (await this.getPane(await this.resolvePaneId(agentId)));
     if (pane.workspace_id)
       await this.run(["workspace", "focus", pane.workspace_id]);
   }
@@ -474,8 +494,10 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     const tabs = await this.listTabs(workspaceId);
     const panes = await this.listPanes(workspaceId);
     const tab =
-      tabs.find((candidate) => panesForTab(panes, candidate.tab_id).length < panesPerTab) ??
-      (await this.createTab(workspaceId, cwd, agentId)).tab;
+      tabs.find(
+        (candidate) =>
+          panesForTab(panes, candidate.tab_id).length < panesPerTab,
+      ) ?? (await this.createTab(workspaceId, cwd, agentId)).tab;
 
     const existingPanes = panesForTab(panes, tab.tab_id);
 
@@ -486,7 +508,10 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     if (existingPanes.length === 1 && isDefaultTabLabel(tab.label)) {
       await this.renameTab(tab.tab_id, agentId);
       return { tab, pane: existingPanes[0]! };
-    } else if (existingPanes.length > 0 && !tabLabelContains(tab.label, agentId)) {
+    } else if (
+      existingPanes.length > 0 &&
+      !tabLabelContains(tab.label, agentId)
+    ) {
       await this.renameTab(tab.tab_id, combinedTabLabel(tab.label, agentId));
     }
 
@@ -550,6 +575,25 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     });
     return stdout;
   }
+
+  private baseMetadata(socketPath?: string): Record<string, unknown> {
+    return {
+      session: this.session ?? "default",
+      cli: this.cli,
+      layoutMode: this.layout.mode,
+      panesPerTab: this.layout.panesPerTab,
+      split: this.layout.split,
+      balance: this.layout.balance,
+      ...(this.layout.workspace
+        ? { workspaceLabel: this.layout.workspace }
+        : {}),
+      ...(socketPath ? { socketPath } : {}),
+    };
+  }
+
+  private statusMetadata(statusText: string): Record<string, unknown> {
+    return this.baseMetadata(parseStatusField(statusText, "socket"));
+  }
 }
 
 interface HerdrWorkspaceInfo {
@@ -596,7 +640,9 @@ function parseHerdrResult<T>(
 ): T {
   const parsed = parseJson(text);
   if (parsed && typeof parsed === "object") {
-    const expected = Array.isArray(expectedType) ? expectedType : [expectedType];
+    const expected = Array.isArray(expectedType)
+      ? expectedType
+      : [expectedType];
     const envelope = parsed as {
       result?: unknown;
       error?: { code?: string; message?: string };
@@ -617,6 +663,17 @@ function parseHerdrResult<T>(
   }
 
   throw new Error("Herdr command did not return JSON");
+}
+
+function parseStatusField(text: string, field: string): string | undefined {
+  const prefix = `${field}:`;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim() || undefined;
+    }
+  }
+  return undefined;
 }
 
 function parseJson(text: string): unknown {
@@ -653,7 +710,9 @@ function normalizeTabInfo(input: unknown): HerdrTabInfo {
     tab_id: tabId,
     ...(workspaceId ? { workspace_id: workspaceId } : {}),
     ...(label ? { label } : {}),
-    ...(typeof value.pane_count === "number" ? { pane_count: value.pane_count } : {}),
+    ...(typeof value.pane_count === "number"
+      ? { pane_count: value.pane_count }
+      : {}),
     ...(typeof value.focused === "boolean" ? { focused: value.focused } : {}),
     metadata: value,
   };
@@ -703,13 +762,15 @@ function selectSplitTarget(
 ): HerdrPaneInfo {
   const pane =
     strategy === "focused"
-      ? panes.find((candidate) => candidate.focused) ?? panes[0]
+      ? (panes.find((candidate) => candidate.focused) ?? panes[0])
       : panes[0];
   if (!pane) throw new Error("Cannot split an empty Herdr tab");
   return pane;
 }
 
-function splitDirectionForNextPane(existingPaneCount: number): "right" | "down" {
+function splitDirectionForNextPane(
+  existingPaneCount: number,
+): "right" | "down" {
   return existingPaneCount % 2 === 1 ? "right" : "down";
 }
 

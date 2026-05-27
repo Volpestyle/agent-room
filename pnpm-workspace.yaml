@@ -4,5 +4,6 @@ packages:
   - "packages/integrations/*"
 allowBuilds:
   "@google/genai": true
+  esbuild: set this to true or false
   msgpackr-extract: true
   protobufjs: true

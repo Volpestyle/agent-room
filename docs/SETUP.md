@@ -41,6 +41,8 @@ Pick a room root before initialization. The room root holds `.agentroom/config.y
 
 See `docs/TOPOLOGY.md` for the tradeoffs.
 
+`.agentroom/config.yaml` is the durable source of truth for room topology. The TUI and CLI should edit the same typed config model rather than keeping separate hidden settings. See `docs/CONFIGURATION.md` for source-of-truth, env override, and secret-handling rules.
+
 ## 3. Choose The Runtime Provider
 
 Initialize with an explicit runtime. Do not rely on a generated default:
@@ -138,7 +140,18 @@ AgentRoom has two local skills:
 
 Expose these skills to the agent harnesses you launch using that harness's normal skill mechanism. If a harness does not support skills, include the relevant playbook text in the launch prompt and verify `agent-room whoami --json` before work begins.
 
-## 9. Validate The Room
+## 9. Choose Operator Clients
+
+The daemon can be driven from several local clients:
+
+- CLI: `agent-room ...` commands read and write the same room event log.
+- TUI: `agent-room tui` opens the terminal dashboard against `AGENTROOM_DAEMON` or `--daemon`.
+- MCP: `agentroom-mcp` exposes room context, messages, tasks, waits, and audit reads to MCP-capable agents.
+- Mobile: `apps/mobile` connects to the daemon API. For iPhone access over Tailscale, start with `agent-room daemon start --tailnet`, then run `agent-room mobile-connect --copy` and open the `agentroom://connect?...` link on the phone.
+
+When `AGENTROOM_API_TOKEN` is set, or when the daemon is started with `--tailnet`, `/v1/*` routes require `Authorization: Bearer <token>` or `x-agentroom-api-token`.
+
+## 10. Validate The Room
 
 After choosing the pieces:
 
@@ -146,6 +159,7 @@ After choosing the pieces:
 agent-room runtime doctor
 agent-room daemon start
 agent-room daemon status
+agent-room mobile-connect --json
 agent-room launch smoke --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd .
 agent-room read smoke --lines 40
 agent-room post "room ready" --channel announcements

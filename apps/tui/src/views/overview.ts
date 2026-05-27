@@ -1,4 +1,8 @@
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
 import { palette, statusColor } from "../theme.js";
 import type { DashboardStore } from "../state.js";
@@ -25,7 +29,9 @@ class OverviewPanel extends PanelBase {
     lines.push(palette.muted(`cwd: ${cwd}`));
     lines.push(
       palette.muted(`refreshed: ${refreshedAt}`) +
-        (state.lastError ? "  " + palette.bad(`error: ${state.lastError}`) : ""),
+        (state.lastError
+          ? "  " + palette.bad(`error: ${state.lastError}`)
+          : ""),
     );
 
     lines.push("");
@@ -46,11 +52,16 @@ class OverviewPanel extends PanelBase {
         for (const provider of state.health.runtimes) {
           const ok = provider.health?.ok ?? true;
           const dot = ok ? palette.good("●") : palette.bad("●");
-          const message = provider.health?.message;
           lines.push(
             `    ${dot} ${palette.accent(provider.id)} ${palette.muted("(" + provider.kind + ")")}` +
-              (message ? `  ${palette.muted(message)}` : ""),
+              `  ${palette.muted(provider.health?.status ?? "unknown")}`,
           );
+          for (const detail of runtimeDetailLines(
+            provider,
+            state.runtimeAgents,
+          )) {
+            lines.push("      " + detail);
+          }
         }
       }
       if (state.health.chatGateways.length > 0) {
@@ -69,7 +80,8 @@ class OverviewPanel extends PanelBase {
     lines.push("");
     lines.push(palette.label("SUMMARY"));
     const counts = [
-      ["agents", state.runtimeAgents.length],
+      ["room agents", state.agents.length],
+      ["runtime panes", state.runtimeAgents.length],
       ["tasks", state.tasks.length],
       ["messages", state.messages.length],
       ["events", state.events.length],
@@ -103,6 +115,64 @@ class OverviewPanel extends PanelBase {
 
     return lines.map((line) => fit(line, width));
   }
+}
+
+function runtimeDetailLines(
+  provider: {
+    id: string;
+    kind: string;
+    health?: { message?: string; metadata?: Record<string, unknown> };
+  },
+  runtimeAgents: Array<{
+    providerId: string;
+    agent: { sessionId?: string; metadata?: Record<string, unknown> };
+  }>,
+): string[] {
+  const metadata = provider.health?.metadata ?? {};
+  const lines: string[] = [];
+  const session = stringValue(metadata.session);
+  const socketPath = stringValue(metadata.socketPath);
+  const cli = stringValue(metadata.cli);
+  const workspaceLabel = stringValue(metadata.workspaceLabel);
+  const workspaceIds = unique(
+    runtimeAgents
+      .filter((snapshot) => snapshot.providerId === provider.id)
+      .map(
+        (snapshot) =>
+          snapshot.agent.sessionId ??
+          stringValue(snapshot.agent.metadata?.workspaceId),
+      )
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  if (session) lines.push(`session: ${palette.accent(session)}`);
+  if (socketPath) lines.push(`socket: ${palette.muted(socketPath)}`);
+  if (workspaceLabel) {
+    lines.push(`workspace label: ${palette.accent(workspaceLabel)}`);
+  }
+  if (workspaceIds.length > 0) {
+    lines.push(
+      `workspace id${workspaceIds.length === 1 ? "" : "s"}: ${workspaceIds.map((id) => palette.accent(id)).join(", ")} ${palette.faint("(not --session)")}`,
+    );
+  }
+  if (provider.kind === "herdr" && session) {
+    lines.push(
+      `join: ${palette.accent(`${cli ?? "herdr"} --session ${session}`)}`,
+    );
+  }
+  if (lines.length === 0 && provider.health?.message) {
+    const firstLine = provider.health.message.split(/\r?\n/).find(Boolean);
+    if (firstLine) lines.push(palette.muted(firstLine.trim()));
+  }
+  return lines;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function fit(line: string, width: number): string {

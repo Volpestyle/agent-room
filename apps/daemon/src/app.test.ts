@@ -78,6 +78,7 @@ describe("agentroom daemon app", () => {
     await expect(response.json()).resolves.toEqual({
       roomId: "test-room",
       cwd: options.cwd,
+      defaultRuntime: "fake",
       operator: {
         agentId: "operator",
         displayName: "Clanky Operator",
@@ -85,6 +86,17 @@ describe("agentroom daemon app", () => {
         command: "clanky --profile operator",
         sessionDir: ".agentroom/clanky/profiles/operator/sessions",
       },
+    });
+
+    const providersResponse = await app.request("/v1/runtime/providers");
+    expect(providersResponse.status).toBe(200);
+    await expect(providersResponse.json()).resolves.toMatchObject({
+      providers: [
+        expect.objectContaining({
+          id: "fake",
+          default: true,
+        }),
+      ],
     });
   });
 
@@ -123,6 +135,60 @@ describe("agentroom daemon app", () => {
     expect(messages).toEqual([
       expect.objectContaining({ body: "Ready for review" }),
     ]);
+  });
+
+  it("registers local room agents without runtime bindings", async () => {
+    const app = createApp(await appOptions());
+
+    const registerResponse = await app.request("/v1/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "dashboard",
+        displayName: "Dashboard",
+        role: "lead",
+        capabilities: ["dashboard", "control-plane"],
+      }),
+    });
+    expect(registerResponse.status).toBe(201);
+
+    const heartbeatResponse = await app.request(
+      "/v1/agents/dashboard/heartbeat",
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ state: "idle", status: "ready" }),
+      },
+    );
+    expect(heartbeatResponse.status).toBe(200);
+
+    const agentResponse = await app.request("/v1/agents/dashboard");
+    expect(agentResponse.status).toBe(200);
+    await expect(agentResponse.json()).resolves.toMatchObject({
+      agent: {
+        id: "dashboard",
+        displayName: "Dashboard",
+        role: "lead",
+        state: "idle",
+        capabilities: ["dashboard", "control-plane"],
+      },
+    });
+
+    const leaveResponse = await app.request("/v1/agents/dashboard", {
+      method: "DELETE",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ reason: "tui shutdown" }),
+    });
+    expect(leaveResponse.status).toBe(200);
+
+    const listResponse = await app.request("/v1/agents");
+    const { agents } = (await listResponse.json()) as {
+      agents: Array<{ id: string; state: string; runtime?: unknown }>;
+    };
+    expect(agents).toEqual([
+      expect.objectContaining({ id: "dashboard", state: "stopped" }),
+    ]);
+    expect(agents[0]?.runtime).toBeUndefined();
   });
 
   it("creates, claims, updates, and lists tasks", async () => {
@@ -282,9 +348,12 @@ describe("agentroom daemon app", () => {
     expect(outputResponse.status).toBe(200);
     await outputResponse.json();
 
-    const stopResponse = await app.request("/v1/runtime/fake-local/agents/demo", {
-      method: "DELETE",
-    });
+    const stopResponse = await app.request(
+      "/v1/runtime/fake-local/agents/demo",
+      {
+        method: "DELETE",
+      },
+    );
     expect(stopResponse.status).toBe(200);
     await expect(stopResponse.json()).resolves.toMatchObject({
       ok: true,
@@ -303,6 +372,38 @@ describe("agentroom daemon app", () => {
       "runtime.output_observed",
       "agent.left",
     ]);
+  });
+
+  it("rejects invalid runtime launch role and harness values", async () => {
+    const app = createApp(await appOptions());
+
+    const invalidRole = await app.request("/v1/runtime/fake-local/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "demo",
+        role: "engineer",
+        harness: { kind: "shell", command: "bash" },
+      }),
+    });
+    expect(invalidRole.status).toBe(400);
+    await expect(invalidRole.json()).resolves.toMatchObject({
+      error: "Invalid agent role: engineer",
+    });
+
+    const invalidHarness = await app.request("/v1/runtime/fake-local/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "demo",
+        role: "implementer",
+        harness: { kind: "unknown", command: "bash" },
+      }),
+    });
+    expect(invalidHarness.status).toBe(400);
+    await expect(invalidHarness.json()).resolves.toMatchObject({
+      error: "Invalid harness kind: unknown",
+    });
   });
 
   it("mirrors configured outbound chat routes through registered chat gateways", async () => {

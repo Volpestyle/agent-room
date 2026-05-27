@@ -69,6 +69,12 @@ Adapters implement ports:
 - `notify-discord`
 - `chat-discord` (`ChatGatewayProvider`, bot-token and user-token modes)
 
+## Configuration Model
+
+AgentRoom's durable topology lives in `.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+
+The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
+
 ## Chat gateways
 
 Chat gateways are not the core state store; rooms and the event log remain authoritative. A gateway attaches an external conversation to room state through two pieces:
@@ -91,7 +97,7 @@ One Discord channel/DM should have exactly one owner. Do not attach both an agen
 
 ### Outbound dispatcher
 
-`ChatGatewayRouter` covers inbound only. `ChatGatewayOutboundDispatcher` covers the symmetric outbound primitive (room events -> `provider.sendMessage()`). The daemon loads chat gateway config and dispatches messages posted through its HTTP API; event-log subscription for messages posted by separate CLI processes is still pending.
+`ChatGatewayRouter` covers inbound only. `ChatGatewayOutboundDispatcher` covers the symmetric outbound primitive (room events -> `provider.sendMessage()`). The daemon loads chat gateway config, exposes read-only `/v1/chat/gateways` and `/v1/chat/routes` inspection APIs, and dispatches messages posted through its HTTP API; event-log subscription for messages posted by separate CLI processes is still pending.
 
 ### Multi-agent attribution (Discord-specific)
 
@@ -99,8 +105,8 @@ In a multi-agent room mirrored to Discord, webhook-mode outbound sends use per-m
 
 ### What is built vs planned
 
-Built: port, Discord adapter (bot + user token + webhook-mode posting), inbound router, outbound dispatcher primitive, daemon config loading and gateway instantiation.
-Planned: operator CLI for route inspection, daemon event-log subscription for CLI-originated messages.
+Built: port, Discord adapter (bot + user token + webhook-mode posting), inbound router, outbound dispatcher primitive, daemon config loading and gateway instantiation, and daemon read APIs for gateways/routes.
+Planned: operator CLI for route inspection/mutation and daemon event-log subscription for CLI-originated messages.
 
 ## Runtime capability negotiation
 

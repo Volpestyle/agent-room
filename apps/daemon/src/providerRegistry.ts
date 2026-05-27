@@ -52,7 +52,7 @@ function providerForConfig(
     case "fake":
       return new FakeRuntimeProvider({ id });
     case "herdr": {
-      const session = process.env.HERDR_SESSION ?? runtime.session;
+      const session = runtime.session ?? process.env.HERDR_SESSION;
       return new HerdrRuntimeProvider({
         id,
         ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),

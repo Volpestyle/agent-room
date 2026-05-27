@@ -1,8 +1,12 @@
 import type {
   ActorRef,
+  Agent,
+  AgentRole,
+  AgentState,
   AgentOutput,
   DashboardConfig,
   DaemonHealth,
+  HarnessSpec,
   Importance,
   Message,
   MessageKind,
@@ -12,6 +16,7 @@ import type {
   RuntimeAgent,
   RuntimeAgentLaunchInput,
   RuntimeProviderSummary,
+  RuntimeSession,
   Task,
   TaskStatus,
 } from "./types.js";
@@ -59,6 +64,14 @@ export interface TaskDetailsUpdateInput {
 export interface TaskDeleteInput {
   actor?: ActorRef;
   reason?: string;
+}
+
+export interface RoomAgentRegisterInput {
+  agentId: string;
+  displayName?: string;
+  role: AgentRole;
+  harness?: HarnessSpec;
+  capabilities?: string[];
 }
 
 async function request<T>(
@@ -112,8 +125,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
   return {
     base,
     health: () => apiRequest<DaemonHealth>("/health"),
-    dashboardConfig: () =>
-      apiRequest<DashboardConfig>("/v1/dashboard/config"),
+    dashboardConfig: () => apiRequest<DashboardConfig>("/v1/dashboard/config"),
     listEvents: (limit = 80) =>
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,
@@ -138,6 +150,31 @@ export function createApiClient(options: ApiClientOptions = {}) {
         method: "POST",
         body: JSON.stringify(input),
       }),
+    listAgents: () => apiRequest<{ agents: Agent[] }>("/v1/agents"),
+    registerRoomAgent: (input: RoomAgentRegisterInput) =>
+      apiRequest<{ agent: Agent }>("/v1/agents", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    agentHeartbeat: (
+      agentId: string,
+      input: { state: AgentState; status?: string },
+    ) =>
+      apiRequest<{ ok: true }>(
+        `/v1/agents/${encodeURIComponent(agentId)}/heartbeat`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+    leaveRoomAgent: (agentId: string, input: { reason?: string } = {}) =>
+      apiRequest<{ ok: true; agentId: string }>(
+        `/v1/agents/${encodeURIComponent(agentId)}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify(input),
+        },
+      ),
     listTasks: () => apiRequest<{ tasks: Task[] }>("/v1/tasks"),
     createTask: (input: TaskCreateInput) =>
       apiRequest<{ task: Task }>("/v1/tasks", {
@@ -186,6 +223,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
       apiRequest<{ agents: RuntimeAgent[] }>(
         `/v1/runtime/${encodeURIComponent(providerId)}/agents`,
       ),
+    listRuntimeSessions: (providerId: string) =>
+      apiRequest<{ sessions: RuntimeSession[] }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/sessions`,
+      ),
     getRuntimeBinding: (agentId: string) =>
       apiRequest<{ binding: RuntimeBinding | null }>(
         `/v1/runtime/bindings/${encodeURIComponent(agentId)}`,
@@ -213,6 +254,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
           method: "POST",
           body: JSON.stringify(input),
         },
+      ),
+    attachRuntimeAgent: (providerId: string, agentId: string) =>
+      apiRequest<{ ok: true; agentId: string; runtime: string }>(
+        `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/attach`,
+        { method: "POST" },
       ),
   };
 }

@@ -75,6 +75,23 @@ agent-room launch impl-b --workspace squad-foo --harness HARNESS_KIND --command 
 
 A workspace with `panesPerTab: 2` plus two agents = one tab, two side-by-side panes in Herdr. See `docs/RUNTIMES.md` for provider-specific layout details and cleanup notes.
 
+## Herdr session mental model
+
+Do not confuse Herdr sessions with Herdr workspaces:
+
+- Herdr session namespace: the server/socket namespace and the value for `herdr --session <name>`.
+- Herdr workspace label: AgentRoom's human grouping label inside that session.
+- Herdr workspace id: an internal id like `w652aca9fd72f08`; AgentRoom runtime agents may expose it as `sessionId` because it is where the pane lives, but it is not a Herdr `--session` value.
+- Pane/binding id: the id AgentRoom uses for audited `read`, `send`, and `stop`.
+
+When an operator asks how to join or inspect Herdr, first check structured runtime status:
+
+```bash
+agent-room runtime doctor --json
+```
+
+In the TUI, use `/runtime` or `/runtime herdr`. Answer with the configured Herdr session namespace and socket. Clearly label workspace ids as not `--session` values.
+
 ## Harness quirks
 
 - **Codex** (`--harness codex --command "codex"`): a multi-line prompt sent via `agent-room send <id> "<long text>"` lands in the TUI prompt but is **not auto-submitted**. Follow with `agent-room send <id> ""` (empty submit) to dispatch. Claude Code submits multi-line text on the first send and does not need this.

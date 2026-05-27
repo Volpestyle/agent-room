@@ -13,7 +13,10 @@ import type { AuthStorage } from "../auth/storage.js";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
 import { dashboardAgentId } from "./identity.js";
+import { loadDashboardOperatorSkillPrompt } from "./operator-skill.js";
 import { createDashboardTools } from "./tools.js";
+
+export type DashboardThinkingLevel = ThinkingLevel;
 
 export interface DashboardAgentOptions {
   api: ApiClient;
@@ -21,6 +24,8 @@ export interface DashboardAgentOptions {
   auth: AuthStorage;
   roomId: string;
   cwd: string;
+  thinkingLevel?: ThinkingLevel;
+  operatorSkillPrompt?: string | false;
 }
 
 export interface ResolvedModel {
@@ -32,6 +37,8 @@ export interface ResolvedModel {
 export interface DashboardAgent {
   agent: Agent;
   resolvedModel: ResolvedModel;
+  requestedThinkingLevel: ThinkingLevel;
+  thinkingLevel: ThinkingLevel;
   agentId: string;
   subscribe(listener: (event: AgentEvent) => void | Promise<void>): () => void;
   prompt(text: string): Promise<void>;
@@ -51,7 +58,7 @@ const DEFAULT_PROVIDER_ORDER: KnownProvider[] = [
   "google",
 ];
 
-const VALID_THINKING_LEVELS: readonly ThinkingLevel[] = [
+export const DASHBOARD_THINKING_LEVELS: readonly ThinkingLevel[] = [
   "off",
   "minimal",
   "low",
@@ -60,10 +67,21 @@ const VALID_THINKING_LEVELS: readonly ThinkingLevel[] = [
   "xhigh",
 ] as const;
 
-function resolveThinkingLevel(): ThinkingLevel {
+export function parseDashboardThinkingLevel(
+  value: string,
+): ThinkingLevel | undefined {
+  const normalized = value.trim().toLowerCase();
+  return (DASHBOARD_THINKING_LEVELS as readonly string[]).includes(normalized)
+    ? (normalized as ThinkingLevel)
+    : undefined;
+}
+
+function resolveThinkingLevel(override?: ThinkingLevel): ThinkingLevel {
+  if (override) return override;
   const raw = process.env.AGENTROOM_TUI_THINKING_LEVEL?.trim().toLowerCase();
-  if (raw && (VALID_THINKING_LEVELS as readonly string[]).includes(raw)) {
-    return raw as ThinkingLevel;
+  if (raw) {
+    const parsed = parseDashboardThinkingLevel(raw);
+    if (parsed) return parsed;
   }
   return "medium";
 }
@@ -144,13 +162,39 @@ You live permanently inside the room and have access to the entire AgentRoom HTT
 Be concise. Speak as a teammate to the human operator and to the other agents in the room. Address the human directly in chat replies; when broadcasting to the room, use post_message.
 
 Guidelines:
+- Each user prompt may include "AgentRoom dashboard context"; treat it as current daemon/config/TUI state and use it for dashboard-scoped questions before asking clarifying questions.
 - The operator can see the dashboard panels (overview, agents, tasks, messages, events) — don't dump JSON they can already see; summarize, then act.
 - When asked to coordinate other agents, prefer post_message (channel or DM) over send_runtime_agent_input unless the operator explicitly wants raw terminal input.
+- You do not have direct local filesystem or shell access. Do not claim to inspect dotfiles, aliases, shell functions, or local command behavior unless the operator provides that content or explicitly asks you to use a runtime agent for it.
+- When asked how to join, inspect, or troubleshoot a runtime, call get_runtime_status first.
+- Runtime mental model: a runtime provider has sessions; agents have bindings; output comes from bindings. For Herdr specifically, the Herdr session namespace is the value for "herdr --session <name>", while agent sessionId / metadata.workspaceId values are Herdr workspace ids inside that session. Never tell the operator to pass a workspace id like "w..." as a Herdr --session value.
+- If the operator asks how to join Herdr, answer from get_runtime_status using health.metadata.session or sessions[].id for the --session value, health.metadata.socketPath for the socket, and clearly label workspace ids as "not --session".
+- Launch runtime agents only when the operator explicitly asks you to start/spawn/launch one. Do not launch agents to answer ordinary dashboard questions or to compensate for missing local shell/file access.
+- If the operator asks generically to create/start an agent, call launch_runtime_agent without asking for all fields first. The tool can derive the default runtime, cwd, implementer role, codex harness, and a non-conflicting agent id from the daemon. Ask a follow-up only when the tool reports a real missing default or the operator asks for a non-default custom harness/command.
+- Treat examples you gave as examples only; if the operator replies "go for it" after an example but did not choose concrete non-default values, use daemon defaults instead of copying the example.
+- Valid launch roles are lead, planner, implementer, reviewer, runner, qa, observer, and custom. If the operator says "engineer" or "developer", use implementer.
 - Always honor the project tracker as canonical. AgentRoom tasks are local shadows.
 - If you are blocked, post a question into the room (kind=question, importance=high) instead of guessing.
 
 Room cwd: {{cwd}}
 `;
+
+export function buildDashboardSystemPrompt(input: {
+  agentId: string;
+  roomId: string;
+  cwd: string;
+  operatorSkillPrompt?: string | false;
+}): string {
+  const base = SYSTEM_PROMPT_TEMPLATE.replace("{{agentId}}", input.agentId)
+    .replace("{{roomId}}", input.roomId)
+    .replace("{{cwd}}", input.cwd);
+  const operatorSkillPrompt =
+    input.operatorSkillPrompt === false
+      ? undefined
+      : (input.operatorSkillPrompt ??
+        loadDashboardOperatorSkillPrompt(input.cwd));
+  return operatorSkillPrompt ? `${base}\n\n${operatorSkillPrompt}` : base;
+}
 
 export function createDashboardAgent(
   options: DashboardAgentOptions,
@@ -158,14 +202,22 @@ export function createDashboardAgent(
   const resolved = resolveModelOrError(options.auth);
   if ("reason" in resolved) return resolved;
 
-  const tools = createDashboardTools({ api: options.api, poller: options.poller });
+  const tools = createDashboardTools({
+    api: options.api,
+    poller: options.poller,
+  });
   const agentId = dashboardAgentId();
-  const systemPrompt = SYSTEM_PROMPT_TEMPLATE.replace("{{agentId}}", agentId)
-    .replace("{{roomId}}", options.roomId)
-    .replace("{{cwd}}", options.cwd);
+  const systemPrompt = buildDashboardSystemPrompt({
+    agentId,
+    roomId: options.roomId,
+    cwd: options.cwd,
+    ...(options.operatorSkillPrompt !== undefined
+      ? { operatorSkillPrompt: options.operatorSkillPrompt }
+      : {}),
+  });
 
   const model = getModel(resolved.provider, resolved.modelId as never);
-  const requestedThinking = resolveThinkingLevel();
+  const requestedThinking = resolveThinkingLevel(options.thinkingLevel);
   const thinkingLevel = clampThinkingLevel(model, requestedThinking);
 
   const agent = new Agent({
@@ -181,6 +233,8 @@ export function createDashboardAgent(
   return {
     agent,
     resolvedModel: resolved,
+    requestedThinkingLevel: requestedThinking,
+    thinkingLevel,
     agentId,
     subscribe: (listener) => agent.subscribe(listener),
     prompt: (text) => agent.prompt(text),

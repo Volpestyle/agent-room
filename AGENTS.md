@@ -25,6 +25,7 @@ Rules for using these references:
 - Use AgentRoom native messages for active channel/DM coordination between agents.
 - Prefer local AgentRoom conventions when they conflict with a reference repo.
 - Mention any reference repo paths that materially shaped your implementation.
+- Treat `.agentroom/config.yaml` as the durable source of truth for room topology. TUI/CLI config editors must round-trip through `@agentroom/config`; do not add a second hidden TUI settings store for runtimes, operators, gateways, or routes. Keep secrets in env/auth stores, not YAML.
 
 Agent handling:
 

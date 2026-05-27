@@ -120,6 +120,13 @@ With Herdr, AgentRoom commonly uses one broad Herdr session named `agentroom`
 and one workspace per room or workstream. The generated config can also use a
 shared workspace with a pane grid.
 
+The Herdr session is the `--session` value you attach to. The workspace is a
+visual/runtime grouping inside that session. Workspace ids such as
+`w652aca9fd72f08` may show up as runtime agent `sessionId` values because the
+runtime provider is describing where the pane lives, but those ids are not Herdr
+session namespaces. Use `/runtime herdr` in the TUI or `agent-room runtime
+doctor --json` to see the session namespace and socket before attaching.
+
 For fresh work in a shared Herdr session, pass an explicit workspace label:
 
 ```bash

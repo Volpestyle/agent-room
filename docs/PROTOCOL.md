@@ -11,9 +11,11 @@ AGENTROOM=1
 AGENTROOM_AGENT_ID=api-impl
 AGENTROOM_ROOM_ID=my-project
 AGENTROOM_ROLE=implementer
-AGENTROOM_TOKEN=...
 AGENTROOM_DAEMON=http://127.0.0.1:4317
+AGENTROOM_API_TOKEN=... # only needed when the daemon requires API auth
 ```
+
+`agent-room whoami --json` resolves identity from `AGENTROOM_AGENT_ID` first. If that is not set, it can resolve a Herdr pane that has already been adopted by the daemon or enrolled with `agent-room enroll`.
 
 ## Structured actions
 

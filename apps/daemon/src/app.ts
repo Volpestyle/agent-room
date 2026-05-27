@@ -4,7 +4,10 @@ import {
   AgentRoomService,
   ChatGatewayOutboundDispatcher,
   ChatGatewayRouter,
+  agentRoleSchema,
+  agentStateSchema,
   createId,
+  harnessKindSchema,
   humanEscalationCreateSchema,
   messageCreateSchema,
   nowIso,
@@ -15,9 +18,10 @@ import {
   taskLinkRefSchema,
   taskStatusUpdateSchema,
   type ChatGatewayProvider,
+  type HarnessSpec,
   type RoomEvent,
-  type RuntimeProvider,
   type RuntimeBinding,
+  type RuntimeProvider,
   type StartAgentRequest,
 } from "@agentroom/core";
 import {
@@ -181,6 +185,7 @@ export function createAppWithLifecycle(
     return c.json({
       roomId,
       cwd,
+      defaultRuntime: configured?.runtime.default ?? null,
       operator: configured?.operator ?? null,
     });
   });
@@ -216,6 +221,10 @@ export function createAppWithLifecycle(
 
   app.get("/v1/tasks", async (c) => {
     return c.json({ tasks: await service.listTasks() });
+  });
+
+  app.get("/v1/agents", async (c) => {
+    return c.json({ agents: await service.listAgents() });
   });
 
   app.post("/v1/messages", async (c) => {
@@ -335,11 +344,94 @@ export function createAppWithLifecycle(
     return c.json({ escalation }, 201);
   });
 
+  app.post("/v1/agents", async (c) => {
+    const body = (await c.req.json()) as {
+      agentId?: string;
+      displayName?: string;
+      role?: unknown;
+      harness?: Partial<HarnessSpec>;
+      capabilities?: unknown;
+    };
+    if (!body.agentId) return c.json({ error: "agentId is required" }, 400);
+    if (!body.role) return c.json({ error: "role is required" }, 400);
+    const role = agentRoleSchema.safeParse(body.role);
+    if (!role.success) {
+      return c.json({ error: `Invalid agent role: ${String(body.role)}` }, 400);
+    }
+
+    let harness: HarnessSpec | undefined;
+    if (body.harness !== undefined) {
+      const harnessKind = harnessKindSchema.safeParse(body.harness.kind);
+      if (!harnessKind.success) {
+        return c.json(
+          { error: `Invalid harness kind: ${String(body.harness.kind)}` },
+          400,
+        );
+      }
+      if (!body.harness.command) {
+        return c.json({ error: "harness.command is required" }, 400);
+      }
+      harness = {
+        ...body.harness,
+        kind: harnessKind.data,
+        command: body.harness.command,
+      };
+    }
+
+    const capabilities = Array.isArray(body.capabilities)
+      ? body.capabilities.filter(
+          (capability): capability is string => typeof capability === "string",
+        )
+      : undefined;
+    const agent = await service.registerAgent({
+      id: body.agentId,
+      role: role.data,
+      ...(body.displayName !== undefined
+        ? { displayName: body.displayName }
+        : {}),
+      ...(harness !== undefined ? { harness } : {}),
+      ...(capabilities !== undefined ? { capabilities } : {}),
+    });
+    return c.json({ agent }, 201);
+  });
+
+  app.post("/v1/agents/:agentId/heartbeat", async (c) => {
+    const body = (await c.req.json()) as { state?: unknown; status?: string };
+    const state = agentStateSchema.safeParse(body.state);
+    if (!state.success) {
+      return c.json(
+        { error: `Invalid agent state: ${String(body.state)}` },
+        400,
+      );
+    }
+    await service.recordAgentHeartbeat({
+      agentId: c.req.param("agentId"),
+      state: state.data,
+      ...(body.status !== undefined ? { status: body.status } : {}),
+    });
+    return c.json({ ok: true });
+  });
+
+  app.delete("/v1/agents/:agentId", async (c) => {
+    let body: { reason?: string } = {};
+    try {
+      body = (await c.req.json()) as { reason?: string };
+    } catch {
+      // request body is optional
+    }
+    await service.leaveAgent({
+      agentId: c.req.param("agentId"),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    });
+    return c.json({ ok: true, agentId: c.req.param("agentId") });
+  });
+
   app.get("/v1/runtime/providers", (c) => {
     return c.json({
       providers: registry.listRuntimes().map((provider) => ({
         id: provider.id,
         kind: provider.kind,
+        default: provider.id === configured?.runtime.default,
         capabilities: provider.capabilities,
       })),
     });
@@ -348,6 +440,11 @@ export function createAppWithLifecycle(
   app.get("/v1/runtime/:providerId/agents", async (c) => {
     const provider = registry.runtime(c.req.param("providerId"));
     return c.json({ agents: await provider.listAgents() });
+  });
+
+  app.get("/v1/runtime/:providerId/sessions", async (c) => {
+    const provider = registry.runtime(c.req.param("providerId"));
+    return c.json({ sessions: await provider.listSessions() });
   });
 
   app.get("/v1/runtime/bindings/:agentId", async (c) => {
@@ -360,6 +457,12 @@ export function createAppWithLifecycle(
     return c.json({ agentId: agentId ?? null });
   });
 
+  app.get("/v1/agents/:agentId", async (c) => {
+    const agent = await service.getAgent(c.req.param("agentId"));
+    if (!agent) return c.json({ error: "agent not found" }, 404);
+    return c.json({ agent });
+  });
+
   app.post("/v1/runtime/:providerId/agents", async (c) => {
     const provider = registry.runtime(c.req.param("providerId"));
     const body = (await c.req.json()) as Partial<StartAgentRequest> & {
@@ -368,11 +471,26 @@ export function createAppWithLifecycle(
     if (!body.agentId) return c.json({ error: "agentId is required" }, 400);
     if (!body.role) return c.json({ error: "role is required" }, 400);
     if (!body.harness) return c.json({ error: "harness is required" }, 400);
+    const role = agentRoleSchema.safeParse(body.role);
+    if (!role.success) {
+      return c.json({ error: `Invalid agent role: ${String(body.role)}` }, 400);
+    }
+    const harnessKind = harnessKindSchema.safeParse(body.harness.kind);
+    if (!harnessKind.success) {
+      return c.json(
+        { error: `Invalid harness kind: ${String(body.harness.kind)}` },
+        400,
+      );
+    }
+    const harness: HarnessSpec = {
+      ...body.harness,
+      kind: harnessKind.data,
+    };
 
     await service.registerAgent({
       id: body.agentId,
-      role: body.role,
-      harness: body.harness,
+      role: role.data,
+      harness,
       ...(body.displayName !== undefined
         ? { displayName: body.displayName }
         : {}),
@@ -381,8 +499,8 @@ export function createAppWithLifecycle(
     const agent = await provider.startAgent({
       agentId: body.agentId,
       roomId,
-      role: body.role,
-      harness: body.harness,
+      role: role.data,
+      harness,
       ...(body.displayName !== undefined
         ? { displayName: body.displayName }
         : {}),
@@ -438,6 +556,20 @@ export function createAppWithLifecycle(
       source: { kind: "human", id: "api" },
     });
     return c.json({ ok: true });
+  });
+
+  app.post("/v1/runtime/:providerId/agents/:agentId/attach", async (c) => {
+    const provider = registry.runtime(c.req.param("providerId"));
+    if (!provider.capabilities.attachInteractive || !provider.attach) {
+      return c.json(
+        { error: `runtime provider cannot attach agents: ${provider.id}` },
+        501,
+      );
+    }
+    const agentId = c.req.param("agentId");
+    const binding = await service.getRuntimeBinding(agentId);
+    await provider.attach(attachTargetFor(provider, agentId, binding));
+    return c.json({ ok: true, agentId, runtime: provider.id });
   });
 
   app.delete("/v1/runtime/:providerId/agents/:agentId", async (c) => {
@@ -497,10 +629,11 @@ function startHerdrObservers(input: {
   const observers: HerdrPaneObserver[] = [];
   for (const [providerId, runtime] of Object.entries(input.config.runtimes)) {
     if (runtime.type !== "herdr") continue;
-    const session = process.env.HERDR_SESSION ?? runtime.session;
+    const session = runtime.session ?? process.env.HERDR_SESSION;
     if (!session) continue;
     const socketPath = resolveHerdrSocketPath({
-      ...(process.env.HERDR_SOCKET_PATH !== undefined
+      ...(runtime.session === undefined &&
+      process.env.HERDR_SOCKET_PATH !== undefined
         ? { envSocketPath: process.env.HERDR_SOCKET_PATH }
         : {}),
       session,
@@ -561,6 +694,17 @@ function bindingIdFor(
 }
 
 function stopTargetFor(
+  provider: RuntimeProvider,
+  agentId: string,
+  binding?: RuntimeBinding,
+): string {
+  if (provider.kind === "herdr" && binding?.providerId === provider.id) {
+    return binding.bindingId;
+  }
+  return agentId;
+}
+
+function attachTargetFor(
   provider: RuntimeProvider,
   agentId: string,
   binding?: RuntimeBinding,

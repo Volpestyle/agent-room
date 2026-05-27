@@ -8,32 +8,44 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { editorTheme, markdownTheme, palette } from "../theme.js";
 import type { AuthStorage } from "../auth/storage.js";
 import { buildLoginCallbacks } from "../auth/login-flow.js";
 import { showLoginOverlay } from "../auth/login-overlay.js";
 import { dashboardActor } from "../agent/identity.js";
-import type {
-  DashboardAgent,
-  DashboardAgentError,
+import {
+  DASHBOARD_THINKING_LEVELS,
+  parseDashboardThinkingLevel,
+  type DashboardAgent,
+  type DashboardAgentError,
+  type DashboardThinkingLevel,
 } from "../agent/index.js";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
+import type { DashboardState, DashboardStore } from "../state.js";
 import type { View } from "./types.js";
 
 const SLASH_COMMANDS = [
   { name: "help", description: "Show help view" },
   { name: "clear", description: "Clear the chat transcript" },
   { name: "refresh", description: "Force a dashboard refresh" },
-  { name: "post", description: "Post raw text to the room as the dashboard agent" },
+  {
+    name: "post",
+    description: "Post raw text to the room as the dashboard agent",
+  },
   { name: "login", description: "Sign in to a provider (default: openai)" },
   { name: "logout", description: "Sign out of a provider" },
+  { name: "effort", description: "Show or set model effort level" },
+  { name: "trace", description: "Show or set transcript trace mode" },
+  { name: "runtime", description: "Show runtime session/socket status" },
   { name: "quit", description: "Exit the dashboard" },
 ];
 
 const OPENAI_LOGIN_PROVIDER = "openai-codex";
+const TRACE_MODES = ["off", "tools", "full"] as const;
+type TraceMode = (typeof TRACE_MODES)[number];
 
 class TextLine implements Component {
   constructor(public text: string) {}
@@ -79,9 +91,12 @@ export interface ChatViewOptions {
   tui: TUI;
   api: ApiClient;
   poller: Poller;
+  store: DashboardStore;
   auth: AuthStorage;
   agent: DashboardAgent | DashboardAgentError;
-  rebuildAgent(): DashboardAgent | DashboardAgentError;
+  rebuildAgent(
+    thinkingLevel?: DashboardThinkingLevel,
+  ): DashboardAgent | DashboardAgentError;
   onCommand(cmd: string): boolean;
 }
 
@@ -90,7 +105,7 @@ interface ChatViewHandle extends View {
 }
 
 export function createChatView(options: ChatViewOptions): ChatViewHandle {
-  const { tui, api, poller, auth, rebuildAgent, onCommand } = options;
+  const { tui, api, poller, store, auth, rebuildAgent, onCommand } = options;
   const transcript = new Container();
   const editor = new Editor(tui, editorTheme);
   const root = new Container();
@@ -112,6 +127,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
   let busy = false;
   let activeAssistant: StreamingMarkdown | undefined;
   let activeLoader: Loader | undefined;
+  let traceMode = parseTraceMode(process.env.AGENTROOM_TUI_TRACE) ?? "full";
 
   function addLine(line: Component): void {
     transcript.addChild(line);
@@ -147,9 +163,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
   }
 
   function addUserBubble(text: string): void {
-    addLine(
-      new Markdown(palette.human("you ▸ ") + text, 1, 0, markdownTheme),
-    );
+    addLine(new Markdown(palette.human("you ▸ ") + text, 1, 0, markdownTheme));
   }
 
   function addSystemNote(text: string): void {
@@ -161,15 +175,35 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
   }
 
   function beginAssistant(): StreamingMarkdown {
-    const md = new StreamingMarkdown(palette.agent("dashboard ▸ "));
+    const md = new StreamingMarkdown(assistantPrefix());
     addLine(md);
     activeAssistant = md;
     return md;
   }
 
+  function assistantPrefix(): string {
+    return palette.agent("dashboard ▸ ");
+  }
+
+  function updateAssistant(message: AgentMessage): void {
+    if (message.role !== "assistant") return;
+    const content = renderAssistantMessage(message, traceMode);
+    if (!content && !activeAssistant) return;
+    stopLoader();
+    const md = activeAssistant ?? beginAssistant();
+    md.setContent(assistantPrefix() + content);
+    tui.requestRender();
+  }
+
+  const banner = new Container();
+
   function renderBanner(agent: DashboardAgent | DashboardAgentError): void {
+    if (!transcript.children.includes(banner)) {
+      transcript.addChild(banner);
+    }
+    banner.clear();
     if ("reason" in agent) {
-      transcript.addChild(
+      banner.addChild(
         new Text(
           palette.warn("Dashboard agent disabled.") +
             " " +
@@ -178,7 +212,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
           1,
         ),
       );
-      transcript.addChild(
+      banner.addChild(
         new Text(
           palette.muted(
             "Run /login openai (ChatGPT Plus/Pro), or /post <text> to broadcast directly.",
@@ -188,7 +222,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
         ),
       );
     } else {
-      transcript.addChild(
+      banner.addChild(
         new Text(
           palette.muted("Dashboard agent: ") +
             palette.accentBold(agent.agentId) +
@@ -196,15 +230,19 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
             palette.accent(
               `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId}`,
             ) +
+            palette.muted(" · effort ") +
+            palette.accent(effortLabel(agent)) +
+            palette.muted(" · trace ") +
+            palette.accent(traceMode) +
             palette.muted(` · auth ${agent.resolvedModel.source}`),
           1,
           1,
         ),
       );
-      transcript.addChild(
+      banner.addChild(
         new Text(
           palette.muted(
-            "Talk to it in plain language. /help · /clear · /refresh · /post · /login · /logout · /quit",
+            "Talk to it in plain language. /help · /clear · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
           ),
           1,
           0,
@@ -224,24 +262,26 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       activeAssistant = undefined;
     } else if (event.type === "message_start") {
       if (event.message.role === "assistant") {
-        stopLoader();
-        beginAssistant();
+        updateAssistant(event.message);
       }
-    } else if (
-      event.type === "message_update" &&
-      event.assistantMessageEvent.type === "text_delta"
-    ) {
-      if (!activeAssistant) beginAssistant();
-      activeAssistant!.append(event.assistantMessageEvent.delta);
-      tui.requestRender();
+    } else if (event.type === "message_update") {
+      updateAssistant(event.message);
+    } else if (event.type === "message_end") {
+      if (event.message.role === "assistant") {
+        updateAssistant(event.message);
+        activeAssistant = undefined;
+      }
     } else if (event.type === "tool_execution_start") {
-      addSystemNote(`tool ${event.toolName} …`);
+      stopLoader();
+      if (traceMode !== "off") {
+        addSystemNote(`tool ${event.toolName} …`);
+      }
     } else if (event.type === "tool_execution_end") {
+      if (traceMode === "off") {
+        return;
+      }
       if (event.isError) {
-        const detail =
-          event.result && typeof event.result === "object"
-            ? (event.result as { errorMessage?: string }).errorMessage
-            : undefined;
+        const detail = toolFailureDetail(event.result);
         addErrorNote(
           `tool ${event.toolName} failed${detail ? ": " + detail : ""}`,
         );
@@ -293,9 +333,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       attachAgent(rebuilt);
       renderBanner(rebuilt);
     } catch (error) {
-      overlay.setError(
-        error instanceof Error ? error.message : String(error),
-      );
+      overlay.setError(error instanceof Error ? error.message : String(error));
       // give the user a beat to read the error, then drop the overlay
       setTimeout(() => {
         overlay.close();
@@ -338,6 +376,117 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     }
   }
 
+  function runTrace(modeArg: string | undefined): void {
+    if (!modeArg) {
+      addSystemNote(
+        `trace ${traceMode}. Set with /trace ${TRACE_MODES.join("|")}`,
+      );
+      return;
+    }
+    const next = parseTraceMode(modeArg);
+    if (!next) {
+      addErrorNote(`unknown trace '${modeArg}'. Use ${TRACE_MODES.join("|")}`);
+      return;
+    }
+    traceMode = next;
+    renderBanner(currentAgent);
+    addSystemNote(`trace set to ${traceMode}.`);
+  }
+
+  async function runRuntime(providerArg: string | undefined): Promise<void> {
+    try {
+      const [{ providers }, health] = await Promise.all([
+        api.listRuntimeProviders(),
+        api.health(),
+      ]);
+      const selected = providerArg
+        ? providers.filter((provider) => provider.id === providerArg)
+        : providers;
+      if (selected.length === 0) {
+        addErrorNote(`unknown runtime provider: ${providerArg}`);
+        return;
+      }
+
+      for (const provider of selected) {
+        const runtimeHealth = health.runtimes.find(
+          (candidate) => candidate.id === provider.id,
+        )?.health;
+        const [sessionsResult, agentsResult] = await Promise.all([
+          api.listRuntimeSessions(provider.id).catch((error) => ({
+            error,
+            sessions: [],
+          })),
+          api.listRuntimeAgents(provider.id).catch((error) => ({
+            error,
+            agents: [],
+          })),
+        ]);
+        addLine(
+          new Markdown(
+            runtimeSummaryMarkdown({
+              provider,
+              health: runtimeHealth,
+              sessions: sessionsResult.sessions,
+              agents: agentsResult.agents,
+            }),
+            1,
+            0,
+            markdownTheme,
+          ),
+        );
+        if ("error" in sessionsResult) {
+          addErrorNote(
+            `runtime ${provider.id} sessions: ${formatError(sessionsResult.error)}`,
+          );
+        }
+        if ("error" in agentsResult) {
+          addErrorNote(
+            `runtime ${provider.id} agents: ${formatError(agentsResult.error)}`,
+          );
+        }
+      }
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  function runEffort(levelArg: string | undefined): void {
+    if (!levelArg) {
+      if ("reason" in currentAgent) {
+        addErrorNote(
+          "Dashboard agent is disabled; effort will apply after credentials are configured.",
+        );
+      } else {
+        addSystemNote(
+          `effort ${effortLabel(currentAgent)}. Set with /effort ${DASHBOARD_THINKING_LEVELS.join("|")}`,
+        );
+      }
+      return;
+    }
+
+    if (busy) {
+      addErrorNote(
+        "cannot change effort while the dashboard agent is responding",
+      );
+      return;
+    }
+
+    const level = parseDashboardThinkingLevel(levelArg);
+    if (!level) {
+      addErrorNote(
+        `unknown effort '${levelArg}'. Use ${DASHBOARD_THINKING_LEVELS.join("|")}`,
+      );
+      return;
+    }
+
+    const rebuilt = rebuildAgent(level);
+    attachAgent(rebuilt);
+    renderBanner(rebuilt);
+    if (!("reason" in rebuilt)) {
+      addSystemNote(`effort set to ${effortLabel(rebuilt)}.`);
+    }
+  }
+
   async function handleSubmit(value: string): Promise<void> {
     const text = value.trim();
     if (!text) return;
@@ -354,10 +503,29 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     addUserBubble(text);
     setBusy(true);
     try {
-      await currentAgent.prompt(text);
+      await poller.tick();
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "working",
+          status: "responding",
+        })
+        .catch(() => undefined);
+      await currentAgent.prompt(promptWithDashboardContext(text, store.get()));
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "idle",
+          status: "ready",
+        })
+        .catch(() => undefined);
     } catch (error) {
       stopLoader();
       setBusy(false);
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "needs-human",
+          status: error instanceof Error ? error.message : String(error),
+        })
+        .catch(() => undefined);
       addErrorNote(error instanceof Error ? error.message : String(error));
     }
   }
@@ -388,7 +556,9 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
           body: remainder,
           sender: dashboardActor(),
         });
-        addSystemNote(`posted as ${dashboardActor().id} (${result.message.id})`);
+        addSystemNote(
+          `posted as ${dashboardActor().id} (${result.message.id})`,
+        );
         void poller.tick();
       } catch (error) {
         addErrorNote(error instanceof Error ? error.message : String(error));
@@ -405,6 +575,18 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     }
     if (cmd === "logout") {
       runLogout(rest[0]?.toLowerCase());
+      return true;
+    }
+    if (cmd === "effort" || cmd === "thinking") {
+      runEffort(rest[0]?.toLowerCase());
+      return true;
+    }
+    if (cmd === "trace") {
+      runTrace(rest[0]?.toLowerCase());
+      return true;
+    }
+    if (cmd === "runtime" || cmd === "runtimes") {
+      await runRuntime(rest[0]);
       return true;
     }
     if (onCommand(cmd)) return true;
@@ -434,6 +616,251 @@ function normalizeLoginProvider(value: string): string | undefined {
     return OPENAI_LOGIN_PROVIDER;
   }
   return undefined;
+}
+
+function promptWithDashboardContext(
+  text: string,
+  state: DashboardState,
+): string {
+  return `${dashboardContext(state)}\n\nUser request:\n${text}`;
+}
+
+function dashboardContext(state: DashboardState): string {
+  const roomId = state.health?.roomId ?? state.config?.roomId ?? "unknown";
+  const cwd = state.config?.cwd ?? "unknown";
+  const defaultRuntime =
+    state.config?.defaultRuntime ??
+    state.providers.find((provider) => provider.default)?.id ??
+    "unknown";
+  const runtimeHealth = new Map(
+    (state.health?.runtimes ?? []).map((runtime) => [
+      runtime.id,
+      runtime.health,
+    ]),
+  );
+  const runtimes = state.providers.length
+    ? state.providers
+        .map((provider) => {
+          const health = runtimeHealth.get(provider.id);
+          const defaultMark = provider.id === defaultRuntime ? " default" : "";
+          const status = health?.status ?? "unknown";
+          return `${provider.id}(${provider.kind}${defaultMark}, ${status})`;
+        })
+        .join(", ")
+    : "none";
+  const agents = state.runtimeAgents.length
+    ? state.runtimeAgents
+        .slice(0, 12)
+        .map(
+          ({ providerId, agent }) =>
+            `${providerId}:${agent.id}[${agent.state}, binding=${agent.bindingId}]`,
+        )
+        .join(", ")
+    : "none";
+  const roomAgents = state.agents.length
+    ? state.agents
+        .slice(0, 12)
+        .map((agent) => {
+          const runtime = agent.runtime
+            ? `${agent.runtime.providerId}:${agent.runtime.bindingId}`
+            : "local";
+          return `${agent.id}[${agent.state}, role=${agent.role}, runtime=${runtime}]`;
+        })
+        .join(", ")
+    : "none";
+  const taskSummary = summarizeTasks(state);
+  const recentMessages = state.messages
+    .slice(-5)
+    .map(
+      (message) =>
+        `${message.sender.id}: ${message.body.replace(/\s+/g, " ").slice(0, 120)}`,
+    )
+    .join(" | ");
+
+  return [
+    "AgentRoom dashboard context (current daemon/TUI state; not a user request):",
+    `- roomId: ${roomId}`,
+    `- cwd: ${cwd}`,
+    `- defaultRuntime: ${defaultRuntime}`,
+    `- runtimes: ${runtimes}`,
+    `- roomAgents: ${roomAgents}`,
+    `- runtimeAgents: ${agents}`,
+    `- tasks: ${taskSummary}`,
+    ...(recentMessages ? [`- recentMessages: ${recentMessages}`] : []),
+    ...(state.lastError ? [`- lastError: ${state.lastError}`] : []),
+    "Use this context for dashboard questions and do not ask for details already present here.",
+  ].join("\n");
+}
+
+function summarizeTasks(state: DashboardState): string {
+  if (state.tasks.length === 0) return "none";
+  const counts = new Map<string, number>();
+  for (const task of state.tasks) {
+    counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([status, count]) => `${status}=${count}`)
+    .join(", ");
+}
+
+function effortLabel(agent: DashboardAgent): string {
+  if (agent.requestedThinkingLevel === agent.thinkingLevel) {
+    return agent.thinkingLevel;
+  }
+  return `${agent.thinkingLevel} (requested ${agent.requestedThinkingLevel})`;
+}
+
+function parseTraceMode(value: string | undefined): TraceMode | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && (TRACE_MODES as readonly string[]).includes(normalized)
+    ? (normalized as TraceMode)
+    : undefined;
+}
+
+function renderAssistantMessage(
+  message: AgentMessage,
+  traceMode: TraceMode,
+): string {
+  if (message.role !== "assistant") return "";
+  const visible: string[] = [];
+  for (const content of message.content) {
+    if (content.type === "text" && content.text.length > 0) {
+      visible.push(content.text);
+    } else if (traceMode === "full" && content.type === "thinking") {
+      if (content.redacted) {
+        visible.push(palette.muted("\n\nthinking ▸ [redacted]"));
+      } else if (content.thinking.trim().length > 0) {
+        visible.push(palette.muted(`\n\nthinking ▸ ${content.thinking}`));
+      }
+    } else if (traceMode !== "off" && content.type === "toolCall") {
+      visible.push(
+        palette.muted(
+          `\n\ntool request ▸ ${content.name} ${formatJsonInline(content.arguments)}`,
+        ),
+      );
+    }
+  }
+  if (message.stopReason === "error") {
+    visible.push(
+      palette.bad(`\n\nError: ${message.errorMessage ?? "Unknown error"}`),
+    );
+  } else if (message.stopReason === "aborted") {
+    visible.push(
+      palette.warn(`\n\n${message.errorMessage ?? "Operation aborted"}`),
+    );
+  }
+  return visible.join("");
+}
+
+function runtimeSummaryMarkdown(input: {
+  provider: { id: string; kind: string };
+  health:
+    | {
+        ok: boolean;
+        status: string;
+        message?: string;
+        metadata?: Record<string, unknown>;
+      }
+    | undefined;
+  sessions: Array<{
+    id: string;
+    name?: string;
+    cwd?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  agents: Array<{
+    id: string;
+    bindingId: string;
+    state: string;
+    sessionId?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+}): string {
+  const { provider, health, sessions, agents } = input;
+  const metadata = health?.metadata ?? {};
+  const session = stringValue(metadata.session) ?? sessions[0]?.id;
+  const socketPath = stringValue(metadata.socketPath);
+  const cli = stringValue(metadata.cli);
+  const workspaceLabel = stringValue(metadata.workspaceLabel);
+  const workspaceIds = unique(
+    agents
+      .map(
+        (agent) => agent.sessionId ?? stringValue(agent.metadata?.workspaceId),
+      )
+      .filter((value): value is string => Boolean(value)),
+  );
+  const status = health?.ok ? "ok" : (health?.status ?? "unknown");
+  const lines = [
+    `${palette.agent("runtime ▸ ")}${palette.accent(provider.id)} ${palette.muted("(" + provider.kind + ")")} ${palette.muted("status ")}${status}`,
+  ];
+  if (session) lines.push(`- session namespace: \`${session}\``);
+  if (socketPath) lines.push(`- socket: \`${socketPath}\``);
+  if (workspaceLabel)
+    lines.push(`- AgentRoom workspace label: \`${workspaceLabel}\``);
+  if (workspaceIds.length > 0) {
+    lines.push(
+      `- workspace id${workspaceIds.length === 1 ? "" : "s"}: ${workspaceIds.map((id) => `\`${id}\``).join(", ")} ${palette.muted("(not a --session value)")}`,
+    );
+  }
+  if (provider.kind === "herdr") {
+    const attach =
+      cli && session
+        ? `${cli} --session ${session}`
+        : session
+          ? `herdr --session ${session}`
+          : undefined;
+    if (attach) lines.push(`- join: \`${attach}\``);
+  }
+  lines.push(`- agents: ${agents.length}`);
+  return lines.join("\n");
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function formatJsonInline(value: unknown): string {
+  const json = JSON.stringify(value);
+  if (!json) return "";
+  return json.length > 500 ? json.slice(0, 497) + "..." : json;
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function toolFailureDetail(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Record<string, unknown>;
+  if (typeof record.errorMessage === "string" && record.errorMessage.trim()) {
+    return trimDetail(record.errorMessage);
+  }
+
+  const content = record.content;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return "";
+      const item = entry as Record<string, unknown>;
+      return item.type === "text" && typeof item.text === "string"
+        ? item.text
+        : "";
+    })
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return text ? trimDetail(text) : undefined;
+}
+
+function trimDetail(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > 500
+    ? normalized.slice(0, 497) + "..."
+    : normalized;
 }
 
 function fit(line: string, width: number): string {

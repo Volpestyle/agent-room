@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 import { ProcessTerminal } from "@earendil-works/pi-tui";
 import { createApiClient } from "./api.js";
-import { createDashboardAgent } from "./agent/index.js";
+import {
+  createDashboardAgent,
+  type DashboardThinkingLevel,
+} from "./agent/index.js";
 import { AuthStorage } from "./auth/storage.js";
 import { Dashboard } from "./dashboard.js";
 import { Poller } from "./poller.js";
@@ -52,14 +55,22 @@ export async function runAgentRoomTui(
   const poller = new Poller(api, store, { intervalMs: refreshMs });
   const auth = AuthStorage.default();
 
-  const buildAgent = () =>
-    createDashboardAgent({
+  let thinkingLevelOverride: DashboardThinkingLevel | undefined;
+  const buildAgent = (thinkingLevel?: DashboardThinkingLevel) => {
+    if (thinkingLevel !== undefined) {
+      thinkingLevelOverride = thinkingLevel;
+    }
+    return createDashboardAgent({
       api,
       poller,
       auth,
       roomId: bootHealth.roomId,
       cwd: bootConfig.cwd,
+      ...(thinkingLevelOverride !== undefined
+        ? { thinkingLevel: thinkingLevelOverride }
+        : {}),
     });
+  };
 
   const agent = buildAgent();
 

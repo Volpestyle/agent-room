@@ -5,7 +5,7 @@ describe("HerdrRuntimeProvider", () => {
   it("reports named Herdr sessions that are not running as offline", async () => {
     const runtime = new HerdrRuntimeProvider({
       runner: runnerFor({
-        "status": "server:\n  status: not running\n",
+        status: "server:\n  status: not running\n",
       }),
     });
 
@@ -229,7 +229,8 @@ describe("HerdrRuntimeProvider", () => {
           });
         }
         if (matches(args, ["tab", "rename", "w1:1", "impl"])) return "";
-        if (matches(args, ["tab", "rename", "w1:1", "impl/reviewer"])) return "";
+        if (matches(args, ["tab", "rename", "w1:1", "impl/reviewer"]))
+          return "";
         if (
           matches(args, [
             "pane",
@@ -365,6 +366,34 @@ describe("HerdrRuntimeProvider", () => {
     ).toBe(false);
   });
 
+  it("focuses the workspace for a direct Herdr pane attach target", async () => {
+    const calls: string[][] = [];
+    const runtime = new HerdrRuntimeProvider({
+      runner: async (args) => {
+        calls.push(args);
+        if (matches(args, ["pane", "get", "w1-2"])) {
+          return envelope({
+            type: "pane_info",
+            pane: {
+              pane_id: "w1-2",
+              workspace_id: "w1",
+              tab_id: "w1:1",
+            },
+          });
+        }
+        if (matches(args, ["workspace", "focus", "w1"])) return "";
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    });
+
+    await runtime.attach("w1-2");
+
+    expect(calls).toEqual([
+      ["pane", "get", "w1-2"],
+      ["workspace", "focus", "w1"],
+    ]);
+  });
+
   it("adopts an existing pane without running any command", async () => {
     const calls: string[][] = [];
     const runtime = new HerdrRuntimeProvider({
@@ -405,9 +434,9 @@ describe("HerdrRuntimeProvider", () => {
         }),
       }),
     );
-    expect(
-      calls.some((args) => args[0] === "pane" && args[1] === "run"),
-    ).toBe(false);
+    expect(calls.some((args) => args[0] === "pane" && args[1] === "run")).toBe(
+      false,
+    );
     expect(runtime.capabilities.adoptAgent).toBe(true);
   });
 });

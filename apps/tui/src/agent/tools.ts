@@ -1,10 +1,13 @@
-import type {
-  AgentTool,
-  AgentToolResult,
-} from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Type, type TSchema } from "@earendil-works/pi-ai";
+import type { AgentRole, HarnessSpec } from "@agentroom/core";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
+import type {
+  DashboardConfig,
+  RuntimeAgent,
+  RuntimeProviderSummary,
+} from "../types.js";
 import { dashboardActor } from "./identity.js";
 
 interface ToolEnv {
@@ -26,13 +29,95 @@ function ok(
   };
 }
 
-function jsonContent(
-  value: unknown,
-): AgentToolResult<Record<string, unknown>> {
+function jsonContent(value: unknown): AgentToolResult<Record<string, unknown>> {
   return {
     content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
     details: {},
   };
+}
+
+function formatToolError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const LAUNCH_ROLE_ALIASES: Record<string, AgentRole> = {
+  dev: "implementer",
+  developer: "implementer",
+  engineer: "implementer",
+  engineering: "implementer",
+  impl: "implementer",
+  implementation: "implementer",
+};
+
+const DEFAULT_LAUNCH_ROLE: AgentRole = "implementer";
+const DEFAULT_HARNESS_KIND: HarnessSpec["kind"] = "codex";
+
+function prepareLaunchArguments(args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return {};
+
+  const prepared = { ...(args as Record<string, unknown>) };
+  if (typeof prepared.role === "string") {
+    const normalized = prepared.role.trim().toLowerCase();
+    prepared.role = LAUNCH_ROLE_ALIASES[normalized] ?? prepared.role;
+  }
+  return prepared;
+}
+
+function defaultCommandForHarness(kind: HarnessSpec["kind"]): string {
+  switch (kind) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "codex";
+    case "gemini-cli":
+      return "gemini";
+    case "pi":
+      return "pi";
+    case "shell":
+      return "bash";
+    case "custom":
+      throw new Error("custom harness requires command");
+  }
+}
+
+function selectLaunchProvider(input: {
+  providerId?: string | undefined;
+  providers: RuntimeProviderSummary[];
+  config: DashboardConfig;
+}): RuntimeProviderSummary {
+  const startable = input.providers.filter(
+    (provider) => provider.capabilities.startAgent,
+  );
+  const selectedId =
+    input.providerId ??
+    input.config.defaultRuntime ??
+    input.providers.find((provider) => provider.default)?.id;
+
+  if (selectedId) {
+    const selected = input.providers.find(
+      (provider) => provider.id === selectedId,
+    );
+    if (!selected) throw new Error(`unknown runtime provider: ${selectedId}`);
+    if (!selected.capabilities.startAgent) {
+      throw new Error(`runtime provider cannot launch agents: ${selectedId}`);
+    }
+    return selected;
+  }
+
+  if (startable.length === 1) return startable[0]!;
+  throw new Error(
+    "No default runtime provider is configured; specify providerId.",
+  );
+}
+
+function nextAgentId(role: AgentRole, agents: RuntimeAgent[]): string {
+  const base = role === "implementer" ? "implementer" : role;
+  const ids = new Set(agents.map((agent) => agent.id));
+  for (let index = 1; index < 1000; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!ids.has(candidate)) return candidate;
+  }
+  throw new Error(`could not allocate agent id for role ${role}`);
 }
 
 export function createDashboardTools(env: ToolEnv): AgentTool[] {
@@ -53,7 +138,9 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     execute: async (_callId, params) => {
       const result = await api.listMessages({
         limit: params.limit ?? 50,
-        ...(params.channelId !== undefined ? { channelId: params.channelId } : {}),
+        ...(params.channelId !== undefined
+          ? { channelId: params.channelId }
+          : {}),
         ...(params.threadId !== undefined ? { threadId: params.threadId } : {}),
       });
       return jsonContent(result);
@@ -108,7 +195,9 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
       const result = await api.postMessage({
         body: params.body,
         sender,
-        ...(params.channelId !== undefined ? { channelId: params.channelId } : {}),
+        ...(params.channelId !== undefined
+          ? { channelId: params.channelId }
+          : {}),
         ...(params.threadId !== undefined ? { threadId: params.threadId } : {}),
         ...(params.kind !== undefined ? { kind: params.kind } : {}),
         ...(params.importance !== undefined
@@ -157,7 +246,9 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
           : {}),
       });
       void poller.tick();
-      return ok(`task created (${created.task.id})`, { taskId: created.task.id });
+      return ok(`task created (${created.task.id})`, {
+        taskId: created.task.id,
+      });
     },
   });
 
@@ -261,59 +352,147 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     },
   });
 
+  const getRuntimeStatus = defineTool({
+    name: "get_runtime_status",
+    label: "Runtime status",
+    description:
+      "Return runtime health, sessions, and agents. Use this for questions about how to join a Herdr session, which socket is active, or what workspace ids mean.",
+    parameters: Type.Object({
+      providerId: Type.Optional(Type.String()),
+    }),
+    execute: async (_callId, params) => {
+      const health = await api.health();
+      const { providers } = await api.listRuntimeProviders();
+      const selected = params.providerId
+        ? providers.filter((provider) => provider.id === params.providerId)
+        : providers;
+      const runtimes = await Promise.all(
+        selected.map(async (provider) => {
+          const [sessions, agents] = await Promise.all([
+            api.listRuntimeSessions(provider.id).then(
+              (result) => result.sessions,
+              (error) => ({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+            api.listRuntimeAgents(provider.id).then(
+              (result) => result.agents,
+              (error) => ({
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
+          ]);
+          return {
+            provider,
+            health: health.runtimes.find(
+              (runtime) => runtime.id === provider.id,
+            )?.health,
+            sessions,
+            agents,
+          };
+        }),
+      );
+      return jsonContent({ roomId: health.roomId, runtimes });
+    },
+  });
+
   const launchAgent = defineTool({
     name: "launch_runtime_agent",
     label: "Launch a runtime agent",
     description:
-      "Start an agent under a runtime provider with a configured harness.",
+      "Start an agent under a runtime provider with a configured harness only when the operator explicitly asks to launch/start/spawn/create one. If arguments are missing, derive provider/cwd from daemon config and use implementer + codex defaults.",
     parameters: Type.Object({
-      providerId: Type.String(),
-      agentId: Type.String(),
-      role: Type.Union([
-        Type.Literal("lead"),
-        Type.Literal("planner"),
-        Type.Literal("implementer"),
-        Type.Literal("reviewer"),
-        Type.Literal("runner"),
-        Type.Literal("qa"),
-        Type.Literal("observer"),
-        Type.Literal("custom"),
-      ]),
-      harnessKind: Type.Union([
-        Type.Literal("claude-code"),
-        Type.Literal("pi"),
-        Type.Literal("codex"),
-        Type.Literal("gemini-cli"),
-        Type.Literal("shell"),
-        Type.Literal("custom"),
-      ]),
-      command: Type.String(),
+      providerId: Type.Optional(Type.String()),
+      agentId: Type.Optional(Type.String()),
+      role: Type.Optional(
+        Type.Union([
+          Type.Literal("lead"),
+          Type.Literal("planner"),
+          Type.Literal("implementer"),
+          Type.Literal("reviewer"),
+          Type.Literal("runner"),
+          Type.Literal("qa"),
+          Type.Literal("observer"),
+          Type.Literal("custom"),
+        ]),
+      ),
+      harnessKind: Type.Optional(
+        Type.Union([
+          Type.Literal("claude-code"),
+          Type.Literal("pi"),
+          Type.Literal("codex"),
+          Type.Literal("gemini-cli"),
+          Type.Literal("shell"),
+          Type.Literal("custom"),
+        ]),
+      ),
+      command: Type.Optional(Type.String()),
       args: Type.Optional(Type.Array(Type.String())),
       cwd: Type.Optional(Type.String()),
       displayName: Type.Optional(Type.String()),
       env: Type.Optional(Type.Record(Type.String(), Type.String())),
     }),
+    prepareArguments: (args) => prepareLaunchArguments(args) as never,
     execute: async (_callId, params) => {
-      const launched = await api.launchRuntimeAgent(params.providerId, {
-        agentId: params.agentId,
-        role: params.role,
+      const [config, providerList] = await Promise.all([
+        api.dashboardConfig(),
+        api.listRuntimeProviders(),
+      ]);
+      const provider = selectLaunchProvider({
+        providerId: params.providerId,
+        providers: providerList.providers,
+        config,
+      });
+      const { agents } = await api.listRuntimeAgents(provider.id);
+      const role = params.role ?? DEFAULT_LAUNCH_ROLE;
+      const harnessKind = params.harnessKind ?? DEFAULT_HARNESS_KIND;
+      const command =
+        params.command ??
+        defaultCommandForHarness(harnessKind as HarnessSpec["kind"]);
+      const agentId = params.agentId ?? nextAgentId(role, agents);
+      const cwd = params.cwd ?? config.cwd;
+
+      const launched = await api.launchRuntimeAgent(provider.id, {
+        agentId,
+        role,
         harness: {
-          kind: params.harnessKind,
-          command: params.command,
+          kind: harnessKind,
+          command,
           ...(params.args !== undefined ? { args: params.args } : {}),
-          ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
+          cwd,
           ...(params.env !== undefined ? { env: params.env } : {}),
         },
         ...(params.displayName !== undefined
           ? { displayName: params.displayName }
           : {}),
-        ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
+        cwd,
         ...(params.env !== undefined ? { env: params.env } : {}),
       });
+      let attached = false;
+      let attachError: string | undefined;
+      if (provider.capabilities.attachInteractive) {
+        try {
+          await api.attachRuntimeAgent(provider.id, agentId);
+          attached = true;
+        } catch (error) {
+          attachError = formatToolError(error);
+        }
+      }
       void poller.tick();
       return ok(
-        `agent ${params.agentId} launched on ${params.providerId} (binding ${launched.agent.bindingId})`,
-        { agent: launched.agent },
+        `agent ${agentId} launched on ${provider.id} (binding ${launched.agent.bindingId})${
+          attached
+            ? " and focused"
+            : attachError
+              ? `; focus failed: ${attachError}`
+              : ""
+        }`,
+        {
+          agent: launched.agent,
+          defaults: { role, harnessKind, command, cwd },
+          attached,
+          ...(attachError !== undefined ? { attachError } : {}),
+        },
       );
     },
   });
@@ -362,7 +541,8 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
   const refresh = defineTool({
     name: "refresh_dashboard",
     label: "Refresh dashboard",
-    description: "Force a refresh of dashboard data (health/messages/tasks/agents).",
+    description:
+      "Force a refresh of dashboard data (health/messages/tasks/agents).",
     parameters: Type.Object({}),
     execute: async () => {
       await poller.tick();
@@ -391,6 +571,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     listEvents,
     listProviders,
     listAgents,
+    getRuntimeStatus,
     launchAgent,
     readAgent,
     sendInput,

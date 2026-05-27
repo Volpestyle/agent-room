@@ -1,4 +1,5 @@
 import type {
+  Agent,
   DaemonHealth,
   DashboardConfig,
   Message,
@@ -17,6 +18,7 @@ export interface DashboardState {
   health: DaemonHealth | undefined;
   config: DashboardConfig | undefined;
   events: RoomEvent[];
+  agents: Agent[];
   messages: Message[];
   tasks: Task[];
   providers: RuntimeProviderSummary[];
@@ -32,6 +34,7 @@ export class DashboardStore {
     health: undefined,
     config: undefined,
     events: [],
+    agents: [],
     messages: [],
     tasks: [],
     providers: [],
