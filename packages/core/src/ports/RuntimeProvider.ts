@@ -1,14 +1,20 @@
-import type { ActorRef, AgentRole, AgentState, HarnessSpec, Id } from '../domain.js';
+import type {
+  ActorRef,
+  AgentRole,
+  AgentState,
+  HarnessSpec,
+  Id,
+} from "../domain.js";
 
 export type RuntimeProviderKind =
-  | 'fake'
-  | 'herdr'
-  | 'tmux'
-  | 'docker'
-  | 'ssh'
-  | 'ecs'
-  | 'kubernetes'
-  | 'custom';
+  | "fake"
+  | "herdr"
+  | "tmux"
+  | "docker"
+  | "ssh"
+  | "ecs"
+  | "kubernetes"
+  | "custom";
 
 export interface RuntimeCapabilities {
   startAgent: boolean;
@@ -27,7 +33,7 @@ export interface RuntimeCapabilities {
 
 export interface RuntimeHealth {
   ok: boolean;
-  status: 'ok' | 'degraded' | 'offline';
+  status: "ok" | "degraded" | "offline";
   message?: string;
   metadata?: Record<string, unknown>;
 }
@@ -55,6 +61,7 @@ export interface StartAgentRequest {
   role: AgentRole;
   harness: HarnessSpec;
   cwd?: string;
+  workspace?: string;
   env?: Record<string, string>;
 }
 
@@ -72,7 +79,7 @@ export interface ReadAgentRequest {
   agentId: Id;
   bindingId?: string;
   lines?: number;
-  source?: 'visible' | 'recent' | 'recent-unwrapped' | 'all';
+  source?: "visible" | "recent" | "recent-unwrapped" | "all";
 }
 
 export interface AgentOutput {
@@ -92,11 +99,35 @@ export interface SendInputRequest {
 }
 
 export type RuntimeEvent =
-  | { type: 'process.started'; bindingId: string; agentId?: Id; at: string }
-  | { type: 'process.exited'; bindingId: string; agentId?: Id; code?: number; at: string }
-  | { type: 'output.appended'; bindingId: string; agentId?: Id; text: string; at: string }
-  | { type: 'state.changed'; bindingId: string; agentId?: Id; state: AgentState; at: string }
-  | { type: 'input.sent'; bindingId: string; agentId?: Id; source?: string; at: string };
+  | { type: "process.started"; bindingId: string; agentId?: Id; at: string }
+  | {
+      type: "process.exited";
+      bindingId: string;
+      agentId?: Id;
+      code?: number;
+      at: string;
+    }
+  | {
+      type: "output.appended";
+      bindingId: string;
+      agentId?: Id;
+      text: string;
+      at: string;
+    }
+  | {
+      type: "state.changed";
+      bindingId: string;
+      agentId?: Id;
+      state: AgentState;
+      at: string;
+    }
+  | {
+      type: "input.sent";
+      bindingId: string;
+      agentId?: Id;
+      source?: string;
+      at: string;
+    };
 
 export type RuntimeEventHandler = (event: RuntimeEvent) => void | Promise<void>;
 
@@ -133,5 +164,5 @@ export const defaultRuntimeCapabilities: RuntimeCapabilities = {
   fileMounts: false,
   worktrees: false,
   remoteExecution: false,
-  adoptAgent: false
+  adoptAgent: false,
 };

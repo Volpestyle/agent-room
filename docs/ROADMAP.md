@@ -20,7 +20,7 @@ moments.
 
 - Add SQLite as the durable local event store while preserving event replay.
 - Harden tmux/Herdr provider contract tests against real runtime sessions.
-- Add operator CLI and TUI support for editing `.agentroom/config.yaml` through `@agentroom/config`, starting with chat gateway route inspection and mutation.
+- Add operator CLI and TUI support for editing AgentRoom home config through `@agentroom/config`, starting with chat gateway route inspection and mutation.
 - Improve Linear and future tracker bridge ergonomics, including clearer skipped-update reporting.
 - Add richer approval enforcement beyond local policy files.
 - Expand mobile/TUI controls for task editing, launch forms, config editing, and chat gateway status.

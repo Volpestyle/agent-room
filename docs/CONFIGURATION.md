@@ -5,7 +5,8 @@ surfaces.
 
 ## Source Of Truth
 
-`.agentroom/config.yaml` is the durable source of truth for room topology:
+`$AGENTROOM_HOME/config.yaml` is the durable source of truth for local room
+topology. If `AGENTROOM_HOME` is unset, AgentRoom uses `~/.agentroom`:
 
 - room id and name
 - default runtime provider and runtime adapter settings
@@ -19,12 +20,12 @@ The file is parsed, validated, and formatted by `@agentroom/config`. Hand edits,
 CLI commands, daemon APIs, and future TUI settings screens should all round-trip
 through that same package.
 
-The event log is not static configuration. `.agentroom/events.jsonl` records
-runtime bindings, messages, task shadows, chat ingress/egress, and audit events.
-It can rebuild room views, but it should not become the place where topology is
-configured.
+The event log is not static configuration. `events.jsonl` in the AgentRoom home
+records runtime bindings, workspace registrations, messages, task shadows, chat
+ingress/egress, and audit events. It can rebuild room views, but it should not
+become the place where topology is configured.
 
-Secrets do not belong in `.agentroom/config.yaml`. Store references such as
+Secrets do not belong in `config.yaml`. Store references such as
 `tokenEnv: AGENTROOM_DISCORD_TOKEN`, then supply the secret through the launch
 environment or a dedicated auth store. The TUI's model credentials live in
 `~/.agentroom/auth.json`; those credentials configure the dashboard agent, not
@@ -57,7 +58,7 @@ credentials, memory, sessions, and agent-owned connector state.
 The intended product model is:
 
 ```text
-.agentroom/config.yaml  durable, reviewable, headless
+~/.agentroom/config.yaml durable, reviewable, headless
 AgentRoom TUI           human-friendly editor, status, and lifecycle controls
 CLI / daemon API        scriptable operations over the same config model
 ```
@@ -68,7 +69,7 @@ load the YAML through `@agentroom/config`, show the effective value and source,
 write back with `writeAgentRoomConfig`, and ask the daemon to reload or restart
 affected providers.
 
-Until a TUI editor exists for a setting, hand-edit `.agentroom/config.yaml` or
+Until a TUI editor exists for a setting, hand-edit the AgentRoom home config or
 use the existing CLI command that writes it.
 
 ## Environment Overrides

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   ChatGatewayProvider,
   ChatInboundHandler,
@@ -12,12 +12,18 @@ import type {
 import { createApp, createAppWithLifecycle } from "./app.js";
 
 let tempDirs: string[] = [];
+let previousAgentRoomHome: string | undefined;
+
+beforeEach(() => {
+  previousAgentRoomHome = process.env.AGENTROOM_HOME;
+});
 
 afterEach(async () => {
   await Promise.all(
     tempDirs.map((dir) => rm(dir, { recursive: true, force: true })),
   );
   tempDirs = [];
+  restoreEnv("AGENTROOM_HOME", previousAgentRoomHome);
 });
 
 describe("agentroom daemon app", () => {
@@ -112,7 +118,7 @@ describe("agentroom daemon app", () => {
     });
   });
 
-  it("uses the Herdr session as the unconfigured daemon room id", async () => {
+  it("uses the singleton default room id without config", async () => {
     const options = await appOptions();
     const previousRoom = process.env.AGENTROOM_ROOM_ID;
     const previousHerdr = process.env.HERDR_SESSION;
@@ -348,7 +354,7 @@ describe("agentroom daemon app", () => {
   it("launches a fake runtime agent and audits input and output events", async () => {
     const app = createApp(await appOptions());
 
-    const launchResponse = await app.request("/v1/runtime/fake-local/agents", {
+    const launchResponse = await app.request("/v1/runtime/fake/agents", {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -363,13 +369,13 @@ describe("agentroom daemon app", () => {
     expect(bindingResponse.status).toBe(200);
     await expect(bindingResponse.json()).resolves.toMatchObject({
       binding: {
-        providerId: "fake-local",
+        providerId: "fake",
         bindingId: "fake:demo",
       },
     });
 
     const inputResponse = await app.request(
-      "/v1/runtime/fake-local/agents/demo/input",
+      "/v1/runtime/fake/agents/demo/input",
       {
         method: "POST",
         headers: jsonHeaders(),
@@ -379,22 +385,19 @@ describe("agentroom daemon app", () => {
     expect(inputResponse.status).toBe(200);
 
     const outputResponse = await app.request(
-      "/v1/runtime/fake-local/agents/demo/output?lines=20",
+      "/v1/runtime/fake/agents/demo/output?lines=20",
     );
     expect(outputResponse.status).toBe(200);
     await outputResponse.json();
 
-    const stopResponse = await app.request(
-      "/v1/runtime/fake-local/agents/demo",
-      {
-        method: "DELETE",
-      },
-    );
+    const stopResponse = await app.request("/v1/runtime/fake/agents/demo", {
+      method: "DELETE",
+    });
     expect(stopResponse.status).toBe(200);
     await expect(stopResponse.json()).resolves.toMatchObject({
       ok: true,
       agentId: "demo",
-      runtime: "fake-local",
+      runtime: "fake",
     });
 
     const eventsResponse = await app.request("/v1/events?limit=20");
@@ -413,7 +416,7 @@ describe("agentroom daemon app", () => {
   it("rejects invalid runtime launch role and harness values", async () => {
     const app = createApp(await appOptions());
 
-    const invalidRole = await app.request("/v1/runtime/fake-local/agents", {
+    const invalidRole = await app.request("/v1/runtime/fake/agents", {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -427,7 +430,7 @@ describe("agentroom daemon app", () => {
       error: "Invalid agent role: engineer",
     });
 
-    const invalidHarness = await app.request("/v1/runtime/fake-local/agents", {
+    const invalidHarness = await app.request("/v1/runtime/fake/agents", {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({
@@ -850,6 +853,7 @@ class FailingChatGatewayProvider implements ChatGatewayProvider {
 async function appOptions() {
   const dir = await mkdtemp(join(tmpdir(), "agentroom-test-"));
   tempDirs.push(dir);
+  process.env.AGENTROOM_HOME = join(dir, "home");
   return {
     roomId: "test-room",
     eventLogPath: join(dir, "events.jsonl"),

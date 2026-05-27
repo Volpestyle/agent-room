@@ -31,16 +31,25 @@ export class Poller {
     if (this.inflight) return;
     this.inflight = true;
     try {
-      const [health, events, agents, messages, tasks, providers, config] =
-        await Promise.all([
-          this.api.health(),
-          this.api.listEvents(120),
-          this.api.listAgents(),
-          this.api.listMessages({ limit: 120 }),
-          this.api.listTasks(),
-          this.api.listRuntimeProviders(),
-          this.api.dashboardConfig().catch(() => undefined),
-        ]);
+      const [
+        health,
+        events,
+        agents,
+        messages,
+        tasks,
+        workspaces,
+        providers,
+        config,
+      ] = await Promise.all([
+        this.api.health(),
+        this.api.listEvents(120),
+        this.api.listAgents(),
+        this.api.listMessages({ limit: 120 }),
+        this.api.listTasks(),
+        this.api.listWorkspaces(),
+        this.api.listRuntimeProviders(),
+        this.api.dashboardConfig().catch(() => undefined),
+      ]);
       const runtimeAgents: RuntimeAgentSnapshot[] = [];
       await Promise.all(
         providers.providers.map(async (provider) => {
@@ -61,6 +70,7 @@ export class Poller {
         agents: agents.agents,
         messages: messages.messages,
         tasks: tasks.tasks,
+        workspaces: workspaces.workspaces,
         providers: providers.providers,
         runtimeAgents,
         ...(config !== undefined ? { config } : {}),

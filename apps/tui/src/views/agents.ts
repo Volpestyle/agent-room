@@ -27,9 +27,7 @@ class AgentsPanel extends PanelBase {
     if (state.providers.length === 0) {
       lines.push(
         "  " +
-          palette.muted(
-            "(no providers configured — set up .agentroom/config.yaml)",
-          ),
+          palette.muted("(no providers configured — check AgentRoom config)"),
       );
     } else {
       for (const provider of state.providers) {
@@ -59,7 +57,10 @@ class AgentsPanel extends PanelBase {
           ? `${agent.runtime.providerId}:${agent.runtime.bindingId}`
           : "local";
         const runtimeLabel = roomAgentRuntimeLabel(agent, state.runtimeAgents);
-        const runtimeTarget = roomAgentRuntimeTarget(agent, state.runtimeAgents);
+        const runtimeTarget = roomAgentRuntimeTarget(
+          agent,
+          state.runtimeAgents,
+        );
         const details = [
           "id=" + agent.id,
           "role=" + agent.role,

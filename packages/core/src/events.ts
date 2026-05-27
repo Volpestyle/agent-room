@@ -10,6 +10,7 @@ import type {
   RuntimeBinding,
   Task,
   TaskStatus,
+  Workspace,
 } from "./domain.js";
 import type {
   ChatGatewayAttribution,
@@ -27,6 +28,8 @@ export type RoomEventType =
   | "task.assigned"
   | "task.ref_added"
   | "task.status_changed"
+  | "workspace.registered"
+  | "workspace.updated"
   | "agent.joined"
   | "agent.left"
   | "agent.heartbeat"
@@ -90,6 +93,19 @@ export type RoomEvent =
         actor?: ActorRef;
         reason?: string;
         summary?: string;
+      }
+    >
+  | BaseEvent<"workspace.registered", { workspace: Workspace }>
+  | BaseEvent<
+      "workspace.updated",
+      {
+        workspaceId: Id;
+        label?: string;
+        cwd?: string;
+        aliases?: string[];
+        lastSeenAt?: string;
+        runtime?: RuntimeBinding;
+        metadata?: Record<string, unknown>;
       }
     >
   | BaseEvent<"agent.joined", { agent: Agent }>

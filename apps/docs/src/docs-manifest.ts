@@ -17,7 +17,7 @@ export const site: DocsSiteInfo = {
     height: 32,
   },
   llms: {
-    baseUrl: "https://volpestyle.github.io/agent-room",
+    baseUrl: "https://volpestyle.github.io/docs/agent-room",
     title: "AgentRoom",
     blurb:
       "AgentRoom is the local-first control room for launching, steering, auditing, and coordinating long-running coding agents, with provider ports for runtimes, trackers, chat gateways, design, code hosts, and local room state.",

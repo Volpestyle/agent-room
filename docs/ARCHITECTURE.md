@@ -73,7 +73,7 @@ Adapters implement ports:
 
 ## Configuration Model
 
-AgentRoom's durable topology lives in `.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
+AgentRoom's durable topology lives in `$AGENTROOM_HOME/config.yaml`, defaulting to `~/.agentroom/config.yaml`: runtime providers, dashboard operator defaults, room-owned gateways/routes, and storage settings. The config schema and formatter live in `@agentroom/config`.
 
 The TUI is the intended full editor/status/control surface for this model, but it must round-trip through the same config package instead of creating a second hidden settings store. Secrets stay out of YAML; config stores env var names such as `tokenEnv`, while process env or auth stores provide the sensitive value. See `docs/CONFIGURATION.md`.
 

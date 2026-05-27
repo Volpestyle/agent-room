@@ -172,6 +172,13 @@ export const humanEscalationCreateSchema = z.object({
   priority: importanceSchema.default("normal"),
 });
 
+export const workspaceRegisterSchema = z.object({
+  cwd: z.string().min(1),
+  label: z.string().min(1).optional(),
+  aliases: z.array(z.string().min(1)).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 export type MessageCreateInput = z.infer<typeof messageCreateSchema>;
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskDetailsUpdateInput = z.infer<typeof taskDetailsUpdateSchema>;
@@ -182,3 +189,4 @@ export type TaskStatusUpdateInput = z.infer<typeof taskStatusUpdateSchema>;
 export type HumanEscalationCreateInput = z.infer<
   typeof humanEscalationCreateSchema
 >;
+export type WorkspaceRegisterInput = z.infer<typeof workspaceRegisterSchema>;

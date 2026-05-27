@@ -1,4 +1,5 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import { basename } from "node:path";
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { AgentRole, HarnessSpec } from "@agentroom/core";
 import type { ApiClient } from "../api.js";
@@ -120,6 +121,14 @@ function nextAgentId(role: AgentRole, agents: RuntimeAgent[]): string {
   throw new Error(`could not allocate agent id for role ${role}`);
 }
 
+function workspaceLabelFromCwd(cwd: string): string {
+  const label = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return label || "workspace";
+}
+
 export function createDashboardTools(env: ToolEnv): AgentTool[] {
   const { api, poller } = env;
 
@@ -222,6 +231,38 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     execute: async () => {
       const tasks = await api.listTasks();
       return jsonContent(tasks);
+    },
+  });
+
+  const listWorkspaces = defineTool({
+    name: "list_workspaces",
+    label: "List workspaces",
+    description:
+      "List durable AgentRoom workspaces. Use this before launching agents when the operator references a project or repo by name.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      const { workspaces } = await api.listWorkspaces();
+      return jsonContent(workspaces);
+    },
+  });
+
+  const registerWorkspace = defineTool({
+    name: "register_workspace",
+    label: "Register workspace",
+    description: "Register a working directory as an AgentRoom workspace.",
+    parameters: Type.Object({
+      cwd: Type.String(),
+      label: Type.Optional(Type.String()),
+    }),
+    execute: async (_callId, params) => {
+      const workspace = await api.registerWorkspace({
+        cwd: params.cwd,
+        label: params.label ?? workspaceLabelFromCwd(params.cwd),
+      });
+      void poller.tick();
+      return ok(`workspace ${workspace.workspace.label} registered`, {
+        workspace: workspace.workspace,
+      });
     },
   });
 
@@ -400,7 +441,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "launch_runtime_agent",
     label: "Launch a runtime agent",
     description:
-      "Start an agent under a runtime provider with a configured harness only when the operator explicitly asks to launch/start/spawn/create one. If arguments are missing, derive provider/cwd from daemon config and use implementer + codex defaults.",
+      "Start an agent under a runtime provider only when the operator explicitly asks to launch/start/spawn/create one. Require cwd from the operator unless the UI supplies a selected workspace.",
     parameters: Type.Object({
       providerId: Type.Optional(Type.String()),
       agentId: Type.Optional(Type.String()),
@@ -429,6 +470,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
       command: Type.Optional(Type.String()),
       args: Type.Optional(Type.Array(Type.String())),
       cwd: Type.Optional(Type.String()),
+      workspace: Type.Optional(Type.String()),
       displayName: Type.Optional(Type.String()),
       env: Type.Optional(Type.Record(Type.String(), Type.String())),
     }),
@@ -450,7 +492,13 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
         params.command ??
         defaultCommandForHarness(harnessKind as HarnessSpec["kind"]);
       const agentId = params.agentId ?? nextAgentId(role, agents);
-      const cwd = params.cwd ?? config.cwd;
+      if (!params.cwd) {
+        throw new Error(
+          "cwd is required to launch an agent; ask the operator which working directory/workspace to use.",
+        );
+      }
+      const cwd = params.cwd;
+      const workspace = params.workspace ?? workspaceLabelFromCwd(cwd);
 
       const launched = await api.launchRuntimeAgent(provider.id, {
         agentId,
@@ -466,6 +514,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
           ? { displayName: params.displayName }
           : {}),
         cwd,
+        workspace,
         ...(params.env !== undefined ? { env: params.env } : {}),
       });
       let attached = false;
@@ -489,7 +538,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
         }`,
         {
           agent: launched.agent,
-          defaults: { role, harnessKind, command, cwd },
+          defaults: { role, harnessKind, command, cwd, workspace },
           attached,
           ...(attachError !== undefined ? { attachError } : {}),
         },
@@ -565,6 +614,8 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     listMessages,
     postMessage,
     listTasks,
+    listWorkspaces,
+    registerWorkspace,
     createTask,
     claimTask,
     updateTaskStatus,

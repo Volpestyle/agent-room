@@ -173,6 +173,35 @@ describe("AgentRoomService", () => {
     });
   });
 
+  it("registers cwd workspaces as durable room state", async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: "room-test" });
+
+    const first = await service.registerWorkspace({
+      cwd: "/repo",
+      label: "repo",
+    });
+    const second = await service.registerWorkspace({
+      cwd: "/repo",
+      label: "repo-main",
+      runtime: { providerId: "herdr", bindingId: "w1", kind: "pane" },
+    });
+
+    expect(second.id).toBe(first.id);
+    await expect(service.listWorkspaces()).resolves.toEqual([
+      expect.objectContaining({
+        id: first.id,
+        cwd: "/repo",
+        label: "repo-main",
+        runtime: { providerId: "herdr", bindingId: "w1", kind: "pane" },
+      }),
+    ]);
+    expect(store.events.map((event) => event.type)).toEqual([
+      "workspace.registered",
+      "workspace.updated",
+    ]);
+  });
+
   it("returns the latest runtime binding for an agent", async () => {
     const store = new TestStore();
     const service = new AgentRoomService(store, { roomId: "room-test" });

@@ -11,6 +11,7 @@ import type {
   RuntimeBinding,
   Task,
   TaskStatus,
+  Workspace,
 } from "../domain.js";
 import type { RoomEvent } from "../events.js";
 import { createId, nowIso } from "../ids.js";
@@ -248,6 +249,67 @@ export class AgentRoomService {
   async listTasks(): Promise<Task[]> {
     return [...(await this.taskProjection()).values()].sort((a, b) =>
       a.createdAt.localeCompare(b.createdAt),
+    );
+  }
+
+  async registerWorkspace(input: {
+    cwd: string;
+    label?: string;
+    aliases?: string[];
+    runtime?: RuntimeBinding;
+    metadata?: Record<string, unknown>;
+  }): Promise<Workspace> {
+    const now = nowIso();
+    const existing = (await this.workspaceProjection()).find(
+      (workspace) => workspace.cwd === input.cwd,
+    );
+
+    if (existing) {
+      const updated: Workspace = {
+        ...existing,
+        ...(input.label !== undefined ? { label: input.label } : {}),
+        ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+        ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        lastSeenAt: now,
+        updatedAt: now,
+      };
+      await this.events.append(
+        this.event("workspace.updated", {
+          workspaceId: existing.id,
+          ...(input.label !== undefined ? { label: input.label } : {}),
+          ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+          lastSeenAt: now,
+          ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        }),
+      );
+      return updated;
+    }
+
+    const workspace: Workspace = {
+      id: createId("ws", input.label ?? input.cwd),
+      roomId: this.roomId,
+      cwd: input.cwd,
+      label: input.label ?? input.cwd,
+      createdAt: now,
+      updatedAt: now,
+      lastSeenAt: now,
+      ...(input.aliases !== undefined && input.aliases.length > 0
+        ? { aliases: input.aliases }
+        : {}),
+      ...(input.runtime !== undefined ? { runtime: input.runtime } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    };
+    await this.events.append(
+      this.event("workspace.registered", { workspace }, now),
+    );
+    return workspace;
+  }
+
+  async listWorkspaces(): Promise<Workspace[]> {
+    return (await this.workspaceProjection()).sort((a, b) =>
+      a.label.localeCompare(b.label),
     );
   }
 
@@ -669,6 +731,47 @@ export class AgentRoomService {
     }
 
     return tasks;
+  }
+
+  private async workspaceProjection(): Promise<Workspace[]> {
+    const workspaces = new Map<Id, Workspace>();
+    const events = await this.events.list({ roomId: this.roomId });
+
+    for (const event of events) {
+      switch (event.type) {
+        case "workspace.registered":
+          workspaces.set(event.payload.workspace.id, event.payload.workspace);
+          break;
+        case "workspace.updated": {
+          const workspace = workspaces.get(event.payload.workspaceId);
+          if (workspace) {
+            workspaces.set(event.payload.workspaceId, {
+              ...workspace,
+              ...(event.payload.label !== undefined
+                ? { label: event.payload.label }
+                : {}),
+              ...(event.payload.cwd !== undefined
+                ? { cwd: event.payload.cwd }
+                : {}),
+              ...(event.payload.aliases !== undefined
+                ? { aliases: event.payload.aliases }
+                : {}),
+              ...(event.payload.runtime !== undefined
+                ? { runtime: event.payload.runtime }
+                : {}),
+              ...(event.payload.metadata !== undefined
+                ? { metadata: event.payload.metadata }
+                : {}),
+              lastSeenAt: event.payload.lastSeenAt ?? event.createdAt,
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    return [...workspaces.values()];
   }
 
   private async agentProjection(): Promise<Map<Id, Agent>> {

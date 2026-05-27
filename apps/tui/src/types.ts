@@ -16,6 +16,7 @@ import type {
   RuntimeSession,
   Task,
   TaskStatus,
+  Workspace,
 } from "@agentroom/core";
 import type { DashboardOperatorConfig } from "@agentroom/config";
 
@@ -37,6 +38,7 @@ export type {
   RuntimeSession,
   Task,
   TaskStatus,
+  Workspace,
 };
 export type { DashboardOperatorConfig };
 
@@ -93,5 +95,6 @@ export interface RuntimeAgentLaunchInput {
   harness: HarnessSpec;
   displayName?: string;
   cwd?: string;
+  workspace?: string;
   env?: Record<string, string>;
 }

@@ -19,6 +19,7 @@ import type {
   RuntimeSession,
   Task,
   TaskStatus,
+  Workspace,
 } from "./types.js";
 
 export class AgentRoomApiError extends Error {
@@ -72,6 +73,13 @@ export interface RoomAgentRegisterInput {
   role: AgentRole;
   harness?: HarnessSpec;
   capabilities?: string[];
+}
+
+export interface WorkspaceRegisterInput {
+  cwd: string;
+  label?: string;
+  aliases?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 async function request<T>(
@@ -176,6 +184,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
         },
       ),
     listTasks: () => apiRequest<{ tasks: Task[] }>("/v1/tasks"),
+    listWorkspaces: () =>
+      apiRequest<{ workspaces: Workspace[] }>("/v1/workspaces"),
+    registerWorkspace: (input: WorkspaceRegisterInput) =>
+      apiRequest<{ workspace: Workspace }>("/v1/workspaces", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     createTask: (input: TaskCreateInput) =>
       apiRequest<{ task: Task }>("/v1/tasks", {
         method: "POST",
