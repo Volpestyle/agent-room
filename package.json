@@ -24,7 +24,7 @@
     "dev:tui": "pnpm --filter @agentroom/tui dev --",
     "dev:setup:fresh": "./bin/agent-room dev-new-user --run",
     "test": "vitest run",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && pnpm --filter @agentroom/mobile typecheck",
     "format": "prettier --write ."
   },
   "devDependencies": {

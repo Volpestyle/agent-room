@@ -32,6 +32,22 @@ examples/
   configs and role/policy examples
 ```
 
+## Documentation
+
+These repo-relative `docs/...` links are intended to open directly in the docs UI:
+
+- [System diagram](docs/DIAGRAM.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Setup guide](docs/SETUP.md)
+- [Configuration model](docs/CONFIGURATION.md)
+- [Room topology](docs/TOPOLOGY.md)
+- [Coordination model](docs/COORDINATION.md)
+- [Runtime providers](docs/RUNTIMES.md)
+- [Security model](docs/SECURITY.md)
+- [Protocol notes](docs/PROTOCOL.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Migration notes](docs/MIGRATION.md)
+
 ## Tech stack
 
 - TypeScript across core, CLI, daemon, TUI, MCP server, provider adapters, and the mobile client.
@@ -197,7 +213,6 @@ runtime:
 runtimes:
   runtime-id:
     type: RUNTIME
-    # runtime-specific settings live here
   fake:
     type: fake
 

@@ -3,10 +3,10 @@ import {
   Key,
   matchesKey,
   SelectList,
-  TruncatedText,
   TUI,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type {
   Component,
@@ -78,9 +78,9 @@ class HeaderBar extends PanelBase {
       .join(" ");
     const room = state.health?.roomId ?? state.config?.roomId ?? "—";
     const right = `${palette.muted("room: ")}${palette.accentBold(room)}  ${palette.muted("daemon: ")}${palette.accent(stripScheme(this.baseUrl))}  ${palette.muted("agent: ")}${palette.accent(this.agentLabel())}`;
-    const top = pad(tabs, right, width);
-    const status = renderStatusLine(state, width);
-    return [top, status];
+    const top = padWrapped(tabs, right, width);
+    const status = renderStatusLines(state, width);
+    return [...top, ...status];
   }
 }
 
@@ -130,17 +130,17 @@ class DashboardLayout extends PanelBase {
   }
 }
 
-function renderStatusLine(
+function renderStatusLines(
   state: { lastError: string | undefined; lastRefreshAt: string | undefined },
   width: number,
-): string {
+): string[] {
   const refreshed = state.lastRefreshAt
     ? `refreshed ${new Date(state.lastRefreshAt).toLocaleTimeString()}`
     : "refreshing…";
   const error = state.lastError
     ? palette.bad(" · error: " + state.lastError)
     : "";
-  return fit(palette.muted(refreshed) + error, width);
+  return wrapFit(palette.muted(refreshed) + error, width);
 }
 
 export class Dashboard {
@@ -390,13 +390,25 @@ function pad(left: string, right: string, width: number): string {
   return left + " ".repeat(space) + right;
 }
 
+function padWrapped(left: string, right: string, width: number): string[] {
+  const leftWidth = visibleWidth(left);
+  const rightWidth = visibleWidth(right);
+  if (leftWidth + rightWidth + 1 <= width) {
+    return [pad(left, right, width)];
+  }
+  return wrapFit(left + " " + right, width);
+}
+
 function fit(line: string, width: number): string {
   return visibleWidth(line) > width ? truncateToWidth(line, width) : line;
+}
+
+function wrapFit(line: string, width: number): string[] {
+  return wrapTextWithAnsi(line, Math.max(1, width)).map((part) =>
+    fit(part, width),
+  );
 }
 
 function stripScheme(url: string): string {
   return url.replace(/^https?:\/\//, "");
 }
-
-// `TruncatedText` is imported to keep the option of a future single-line header.
-export { TruncatedText };

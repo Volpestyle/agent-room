@@ -1,5 +1,8 @@
 # Roadmap
 
+See [`MILESTONES.md`](./MILESTONES.md) for the dated log of end-to-end
+moments.
+
 ## Built
 
 - Runtime provider port with fake, tmux, and Herdr adapters.

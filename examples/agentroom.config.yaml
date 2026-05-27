@@ -3,12 +3,9 @@ room:
   name: My Project
 
 runtime:
-  # Choose one configured runtime id for this room.
   default: local-runtime
 
 runtimes:
-  # Example tmux runtime. Replace with Herdr, fake, or a custom adapter if that
-  # is the runtime you chose for the room.
   local-runtime:
     type: tmux
     sessionPrefix: my-project
@@ -23,11 +20,3 @@ runtimes:
 storage:
   driver: jsonl
   path: .agentroom/events.jsonl
-
-channels:
-  - announcements
-  - planning
-  - implementation
-  - review
-  - human
-  - scratch
