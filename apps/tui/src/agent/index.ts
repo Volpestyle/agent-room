@@ -1,5 +1,14 @@
-import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
-import { getModel, getModels, type KnownProvider } from "@earendil-works/pi-ai";
+import {
+  Agent,
+  type AgentEvent,
+  type ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
+import {
+  clampThinkingLevel,
+  getModel,
+  getModels,
+  type KnownProvider,
+} from "@earendil-works/pi-ai";
 import type { AuthStorage } from "../auth/storage.js";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
@@ -42,6 +51,23 @@ const DEFAULT_PROVIDER_ORDER: KnownProvider[] = [
   "google",
 ];
 
+const VALID_THINKING_LEVELS: readonly ThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+function resolveThinkingLevel(): ThinkingLevel {
+  const raw = process.env.AGENTROOM_TUI_THINKING_LEVEL?.trim().toLowerCase();
+  if (raw && (VALID_THINKING_LEVELS as readonly string[]).includes(raw)) {
+    return raw as ThinkingLevel;
+  }
+  return "medium";
+}
+
 function defaultModelFor(provider: KnownProvider): string {
   switch (provider) {
     case "anthropic":
@@ -49,7 +75,7 @@ function defaultModelFor(provider: KnownProvider): string {
     case "openai":
       return "gpt-4o";
     case "openai-codex":
-      return "gpt-5.2";
+      return "gpt-5.5";
     case "google":
       return "gemini-2.0-flash";
     default:
@@ -138,10 +164,15 @@ export function createDashboardAgent(
     .replace("{{roomId}}", options.roomId)
     .replace("{{cwd}}", options.cwd);
 
+  const model = getModel(resolved.provider, resolved.modelId as never);
+  const requestedThinking = resolveThinkingLevel();
+  const thinkingLevel = clampThinkingLevel(model, requestedThinking);
+
   const agent = new Agent({
     initialState: {
       systemPrompt,
-      model: getModel(resolved.provider, resolved.modelId as never),
+      model,
+      thinkingLevel,
       tools,
     },
     getApiKey: async (provider) => options.auth.getApiKey(provider),

@@ -78,7 +78,13 @@ class HelpPanel extends PanelBase {
     lines.push(
       "  " +
         palette.muted(
-          "AGENTROOM_TUI_MODEL       provider/model (default: anthropic/claude-sonnet-4-5-20250929)",
+          "AGENTROOM_TUI_MODEL          provider/model (default: openai-codex/gpt-5.5 if signed in)",
+        ),
+    );
+    lines.push(
+      "  " +
+        palette.muted(
+          "AGENTROOM_TUI_THINKING_LEVEL off|minimal|low|medium|high|xhigh (default: medium)",
         ),
     );
     lines.push(
