@@ -4,37 +4,37 @@
 
 ## Start
 
-- [Ecosystem Tour](https://volpestyle.github.io/agent-room/?doc=ecosystem): What users can do, what agents should handle, and the diagrams that explain the agent-first workspace.
-- [Overview](https://volpestyle.github.io/agent-room/?doc=overview): AgentRoom's local-first coordination model, repository layout, tech stack, and quick start.
+- [Ecosystem Tour](https://volpestyle.github.io/docs/agent-room/?doc=ecosystem): What users can do, what agents should handle, and the diagrams that explain the agent-first workspace.
+- [Overview](https://volpestyle.github.io/docs/agent-room/?doc=overview): AgentRoom's local-first coordination model, repository layout, tech stack, and quick start.
 
 ## Setup
 
-- [Setup Guide](https://volpestyle.github.io/agent-room/?doc=setup): Install local tooling, choose room shape, runtime provider, agent harness, integrations, and skills.
-- [Configuration Model](https://volpestyle.github.io/agent-room/?doc=configuration): Typed topology, source-of-truth rules, env overrides, secrets, and TUI editing boundaries.
-- [Room Topology](https://volpestyle.github.io/agent-room/?doc=topology): Single-project rooms, HQ rooms, hybrids, gateway ownership, and state placement tradeoffs.
+- [Setup Guide](https://volpestyle.github.io/docs/agent-room/?doc=setup): Install local tooling, choose room shape, runtime provider, agent harness, integrations, and skills.
+- [Configuration Model](https://volpestyle.github.io/docs/agent-room/?doc=configuration): Typed topology, source-of-truth rules, env overrides, secrets, and TUI editing boundaries.
+- [Room Topology](https://volpestyle.github.io/docs/agent-room/?doc=topology): Single-project rooms, HQ rooms, hybrids, gateway ownership, and state placement tradeoffs.
 
 ## Operations
 
-- [Coordination Model](https://volpestyle.github.io/agent-room/?doc=coordination): Native room messages, handoffs, status, task shadows, escalation, and external tracker split.
-- [Runtime Providers](https://volpestyle.github.io/agent-room/?doc=runtimes): Provider-neutral launch, read, send, stop, tmux, Herdr, fake runtimes, and future adapters.
+- [Coordination Model](https://volpestyle.github.io/docs/agent-room/?doc=coordination): Native room messages, handoffs, status, task shadows, escalation, and external tracker split.
+- [Runtime Providers](https://volpestyle.github.io/docs/agent-room/?doc=runtimes): Provider-neutral launch, read, send, stop, tmux, Herdr, fake runtimes, and future adapters.
 
 ## Reference
 
-- [Protocol Notes](https://volpestyle.github.io/agent-room/?doc=protocol): Agent opt-in environment, structured commands, local task shadows, and Linear bridge commands.
-- [Security Model](https://volpestyle.github.io/agent-room/?doc=security): Runtime audit boundaries, scoped tokens, dangerous actions, transcript handling, and secrets.
+- [Protocol Notes](https://volpestyle.github.io/docs/agent-room/?doc=protocol): Agent opt-in environment, structured commands, local task shadows, and Linear bridge commands.
+- [Security Model](https://volpestyle.github.io/docs/agent-room/?doc=security): Runtime audit boundaries, scoped tokens, dangerous actions, transcript handling, and secrets.
 
 ## Architecture
 
-- [Architecture](https://volpestyle.github.io/agent-room/?doc=architecture): Core domain ownership, provider ports, adapters, configuration model, gateways, and daemon surfaces.
-- [System Diagram](https://volpestyle.github.io/agent-room/?doc=diagram): Docs-friendly end-to-end map of UIs, daemon, core, ports, adapters, and external systems.
+- [Architecture](https://volpestyle.github.io/docs/agent-room/?doc=architecture): Core domain ownership, provider ports, adapters, configuration model, gateways, and daemon surfaces.
+- [System Diagram](https://volpestyle.github.io/docs/agent-room/?doc=diagram): Docs-friendly end-to-end map of UIs, daemon, core, ports, adapters, and external systems.
 
 ## Planning
 
-- [Roadmap](https://volpestyle.github.io/agent-room/?doc=roadmap): Planned runtime, storage, gateway, provider, TUI, mobile, and policy milestones.
-- [Milestones](https://volpestyle.github.io/agent-room/?doc=milestones): Current delivery milestones, sequencing, implementation notes, and acceptance gates.
+- [Roadmap](https://volpestyle.github.io/docs/agent-room/?doc=roadmap): Planned runtime, storage, gateway, provider, TUI, mobile, and policy milestones.
+- [Milestones](https://volpestyle.github.io/docs/agent-room/?doc=milestones): Current delivery milestones, sequencing, implementation notes, and acceptance gates.
 
 ## Maintainer
 
-- [ADR 0001: Tech Stack](https://volpestyle.github.io/agent-room/?doc=adr-tech-stack): Decision record for AgentRoom's core language, packaging, daemon, MCP, and client choices.
-- [ADR 0002: Runtime Provider Port](https://volpestyle.github.io/agent-room/?doc=adr-runtime-provider): Decision record for the runtime provider boundary and adapter responsibilities.
-- [ADR 0003: Chat Gateway Port](https://volpestyle.github.io/agent-room/?doc=adr-chat-gateway): Decision record for bidirectional chat gateway ownership and provider boundaries.
+- [ADR 0001: Tech Stack](https://volpestyle.github.io/docs/agent-room/?doc=adr-tech-stack): Decision record for AgentRoom's core language, packaging, daemon, MCP, and client choices.
+- [ADR 0002: Runtime Provider Port](https://volpestyle.github.io/docs/agent-room/?doc=adr-runtime-provider): Decision record for the runtime provider boundary and adapter responsibilities.
+- [ADR 0003: Chat Gateway Port](https://volpestyle.github.io/docs/agent-room/?doc=adr-chat-gateway): Decision record for bidirectional chat gateway ownership and provider boundaries.

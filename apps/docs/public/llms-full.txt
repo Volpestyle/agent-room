@@ -8,7 +8,7 @@ Generated from the live docs site. Each section below is one page; see the headi
 
 # Ecosystem Tour
 
-Source: `docs/ECOSYSTEM.md` - https://volpestyle.github.io/agent-room/?doc=ecosystem
+Source: `docs/ECOSYSTEM.md` - https://volpestyle.github.io/docs/agent-room/?doc=ecosystem
 
 # Ecosystem Tour
 
@@ -192,7 +192,7 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 # Overview
 
-Source: `README.md` - https://volpestyle.github.io/agent-room/?doc=overview
+Source: `README.md` - https://volpestyle.github.io/docs/agent-room/?doc=overview
 
 # AgentRoom
 
@@ -437,7 +437,7 @@ and hosted or multi-host runtime adapters.
 
 # Setup Guide
 
-Source: `docs/SETUP.md` - https://volpestyle.github.io/agent-room/?doc=setup
+Source: `docs/SETUP.md` - https://volpestyle.github.io/docs/agent-room/?doc=setup
 
 # AgentRoom Setup Guide
 
@@ -632,7 +632,7 @@ Stop or reconfigure anything that fails health checks before launching a real mu
 
 # Configuration Model
 
-Source: `docs/CONFIGURATION.md` - https://volpestyle.github.io/agent-room/?doc=configuration
+Source: `docs/CONFIGURATION.md` - https://volpestyle.github.io/docs/agent-room/?doc=configuration
 
 # Configuration Model
 
@@ -764,7 +764,7 @@ durable configuration.
 
 # Room Topology
 
-Source: `docs/TOPOLOGY.md` - https://volpestyle.github.io/agent-room/?doc=topology
+Source: `docs/TOPOLOGY.md` - https://volpestyle.github.io/docs/agent-room/?doc=topology
 
 # Room Topology
 
@@ -930,7 +930,7 @@ Prefer multiple rooms when:
 
 # Coordination Model
 
-Source: `docs/COORDINATION.md` - https://volpestyle.github.io/agent-room/?doc=coordination
+Source: `docs/COORDINATION.md` - https://volpestyle.github.io/docs/agent-room/?doc=coordination
 
 # Coordination Model
 
@@ -1014,7 +1014,7 @@ If the selected tracker MCP, CLI, skill, bridge, or credentials are unavailable,
 
 # Runtime Providers
 
-Source: `docs/RUNTIMES.md` - https://volpestyle.github.io/agent-room/?doc=runtimes
+Source: `docs/RUNTIMES.md` - https://volpestyle.github.io/docs/agent-room/?doc=runtimes
 
 # Runtime Providers
 
@@ -1128,7 +1128,7 @@ agent-room launch demo-tmux --runtime tmux --harness shell --command "bash" --cw
 
 # Protocol Notes
 
-Source: `docs/PROTOCOL.md` - https://volpestyle.github.io/agent-room/?doc=protocol
+Source: `docs/PROTOCOL.md` - https://volpestyle.github.io/docs/agent-room/?doc=protocol
 
 # AgentRoom Protocol Notes
 
@@ -1181,7 +1181,7 @@ Use `skills/agentroom/SKILL.md` as the enrolled-agent behavior playbook.
 
 # Security Model
 
-Source: `docs/SECURITY.md` - https://volpestyle.github.io/agent-room/?doc=security
+Source: `docs/SECURITY.md` - https://volpestyle.github.io/docs/agent-room/?doc=security
 
 # Security model
 
@@ -1219,7 +1219,7 @@ Do not paste `.env`, API keys, OAuth tokens, SSH keys, or cloud credentials into
 
 # Architecture
 
-Source: `docs/ARCHITECTURE.md` - https://volpestyle.github.io/agent-room/?doc=architecture
+Source: `docs/ARCHITECTURE.md` - https://volpestyle.github.io/docs/agent-room/?doc=architecture
 
 # Architecture
 
@@ -1347,7 +1347,7 @@ For local MVPs, JSONL is enough. For production local use, add SQLite. For multi
 
 # System Diagram
 
-Source: `docs/DIAGRAM.md` - https://volpestyle.github.io/agent-room/?doc=diagram
+Source: `docs/DIAGRAM.md` - https://volpestyle.github.io/docs/agent-room/?doc=diagram
 
 # AgentRoom Diagrams
 
@@ -1460,7 +1460,7 @@ For the written model, see [Architecture](ARCHITECTURE.md),
 
 # Roadmap
 
-Source: `docs/ROADMAP.md` - https://volpestyle.github.io/agent-room/?doc=roadmap
+Source: `docs/ROADMAP.md` - https://volpestyle.github.io/docs/agent-room/?doc=roadmap
 
 # Roadmap
 
@@ -1494,7 +1494,7 @@ moments.
 
 # Milestones
 
-Source: `docs/MILESTONES.md` - https://volpestyle.github.io/agent-room/?doc=milestones
+Source: `docs/MILESTONES.md` - https://volpestyle.github.io/docs/agent-room/?doc=milestones
 
 # Milestones
 

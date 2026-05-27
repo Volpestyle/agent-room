@@ -16,7 +16,7 @@ await generateLlmsFiles({
     baseUrl: (
       process.env.LLMS_BASE_URL ??
       site.llms?.baseUrl ??
-      "https://volpestyle.github.io/agent-room"
+      "https://volpestyle.github.io/docs/agent-room"
     ).replace(/\/$/, ""),
     blurb: site.llms?.blurb ?? site.description,
   },
