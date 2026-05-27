@@ -5,7 +5,7 @@ import architecture from "../../../docs/ARCHITECTURE.md?raw";
 import configuration from "../../../docs/CONFIGURATION.md?raw";
 import coordination from "../../../docs/COORDINATION.md?raw";
 import diagram from "../../../docs/DIAGRAM.md?raw";
-import migration from "../../../docs/MIGRATION.md?raw";
+import ecosystem from "../../../docs/ECOSYSTEM.md?raw";
 import milestones from "../../../docs/MILESTONES.md?raw";
 import protocol from "../../../docs/PROTOCOL.md?raw";
 import roadmap from "../../../docs/ROADMAP.md?raw";
@@ -26,7 +26,7 @@ const markdownBySource = {
   "docs/CONFIGURATION.md": configuration,
   "docs/COORDINATION.md": coordination,
   "docs/DIAGRAM.md": diagram,
-  "docs/MIGRATION.md": migration,
+  "docs/ECOSYSTEM.md": ecosystem,
   "docs/MILESTONES.md": milestones,
   "docs/PROTOCOL.md": protocol,
   "docs/ROADMAP.md": roadmap,

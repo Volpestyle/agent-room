@@ -1,9 +1,10 @@
 # AgentRoom
 
-> AgentRoom is a local-first, runtime-agnostic coordination plane for long-running coding agents, with provider ports for runtimes, trackers, chat gateways, and local room state.
+> AgentRoom is the local-first control room for launching, steering, auditing, and coordinating long-running coding agents, with provider ports for runtimes, trackers, chat gateways, design, code hosts, and local room state.
 
 ## Start
 
+- [Ecosystem Tour](https://volpestyle.github.io/agent-room/?doc=ecosystem): What users can do, what agents should handle, and the diagrams that explain the agent-first workspace.
 - [Overview](https://volpestyle.github.io/agent-room/?doc=overview): AgentRoom's local-first coordination model, repository layout, tech stack, and quick start.
 
 ## Setup
@@ -34,7 +35,6 @@
 
 ## Maintainer
 
-- [Migration Notes](https://volpestyle.github.io/agent-room/?doc=migration): Repo migration context, package split, command changes, and compatibility guidance.
 - [ADR 0001: Tech Stack](https://volpestyle.github.io/agent-room/?doc=adr-tech-stack): Decision record for AgentRoom's core language, packaging, daemon, MCP, and client choices.
 - [ADR 0002: Runtime Provider Port](https://volpestyle.github.io/agent-room/?doc=adr-runtime-provider): Decision record for the runtime provider boundary and adapter responsibilities.
 - [ADR 0003: Chat Gateway Port](https://volpestyle.github.io/agent-room/?doc=adr-chat-gateway): Decision record for bidirectional chat gateway ownership and provider boundaries.
