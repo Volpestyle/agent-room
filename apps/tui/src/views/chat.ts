@@ -25,6 +25,7 @@ import {
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
 import type { DashboardState, DashboardStore } from "../state.js";
+import type { RuntimeAgent } from "../types.js";
 import type { View } from "./types.js";
 
 const SLASH_COMMANDS = [
@@ -648,8 +649,12 @@ function dashboardContext(state: DashboardState): string {
         })
         .join(", ")
     : "none";
-  const agents = state.runtimeAgents.length
-    ? state.runtimeAgents
+  const visibleRuntimeAgents = state.runtimeAgents.filter(({ agent }) =>
+    isDetectedRuntimeAgent(agent),
+  );
+  const visibleRoomAgents = state.agents.filter(isActiveRoomAgent);
+  const agents = visibleRuntimeAgents.length
+    ? visibleRuntimeAgents
         .slice(0, 12)
         .map(
           ({ providerId, agent }) =>
@@ -657,8 +662,8 @@ function dashboardContext(state: DashboardState): string {
         )
         .join(", ")
     : "none";
-  const roomAgents = state.agents.length
-    ? state.agents
+  const roomAgents = visibleRoomAgents.length
+    ? visibleRoomAgents
         .slice(0, 12)
         .map((agent) => {
           const runtime = agent.runtime
@@ -690,6 +695,18 @@ function dashboardContext(state: DashboardState): string {
     ...(state.lastError ? [`- lastError: ${state.lastError}`] : []),
     "Use this context for dashboard questions and do not ask for details already present here.",
   ].join("\n");
+}
+
+function isDetectedRuntimeAgent(agent: RuntimeAgent): boolean {
+  const label = agent.metadata?.["agent"];
+  return (
+    (typeof label === "string" && label.length > 0) ||
+    agent.id !== agent.bindingId
+  );
+}
+
+function isActiveRoomAgent(agent: { state: string }): boolean {
+  return agent.state !== "stopped";
 }
 
 function summarizeTasks(state: DashboardState): string {

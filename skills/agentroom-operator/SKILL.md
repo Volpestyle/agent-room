@@ -58,7 +58,7 @@ Use `agent-room send/read/stop` for bound agents so runtime input and output are
 
 ## Adopt an existing pane
 
-For panes that already exist outside an AgentRoom `launch` flow — typically a shell the human opened directly — the running daemon adopts them automatically by listening to its runtime adapter's pane lifecycle events. The agent id is derived from the runtime's session and pane identifiers (e.g. `herdr:<session>:<pane>`) and CLI writes from inside the pane resolve identity via the daemon, so no shell-level configuration is required.
+For panes that already exist outside an AgentRoom `launch` flow — typically a coding agent the human opened directly — the running daemon adopts them automatically after the runtime reports an agent identity for the pane. The agent id is derived from the runtime's session and pane identifiers (e.g. `herdr:<session>:<pane>`) and CLI writes from inside the pane resolve identity via the daemon, so no shell-level configuration is required. Plain shells, log panes, and dashboard panes should not become room agents unless they are explicitly enrolled or launched.
 
 When the daemon is not running, `agent-room enroll --json` from inside a pane performs the same adoption as a one-off and writes the binding to the local event log.
 

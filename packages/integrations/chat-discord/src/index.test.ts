@@ -181,6 +181,21 @@ describe("DiscordChatGatewayProvider", () => {
     expect(client.webhookSent).toEqual([]);
   });
 
+  it("sends typing indicators to the concrete Discord conversation", async () => {
+    const client = new FakeDiscordClient();
+    const provider = new DiscordChatGatewayProvider({
+      token: "bot-token",
+      client,
+      credentialKind: "bot-token",
+    });
+
+    await provider.sendTyping({
+      conversation: { id: "channel-1", kind: "thread", threadId: "thread-1" },
+    });
+
+    expect(client.typingChannelIds).toEqual(["thread-1"]);
+  });
+
   it("starts the client and forwards inbound messages to the handler", async () => {
     const client = new FakeDiscordClient();
     const provider = new DiscordChatGatewayProvider({
@@ -235,46 +250,54 @@ class FakeDiscordClient implements DiscordGatewayClient {
     avatarURL?: string;
     threadId?: string;
   }> = [];
+  readonly typingChannelIds: string[] = [];
   loggedInToken: string | undefined;
   private messageListener: ((message: Message) => void) | undefined;
 
   readonly channels = {
-    fetch: async (_id: string): Promise<unknown> => this.channel,
+    fetch: async (id: string): Promise<unknown> => this.channelFor(id),
     cache: {
-      get: (_id: string): unknown => this.channel,
+      get: (id: string): unknown => this.channelFor(id),
     },
   };
 
-  private readonly channel = {
-    send: async (payload: {
-      content: string;
-      reply?: { messageReference: string; failIfNotExists: boolean };
-      allowedMentions: { parse: string[]; repliedUser: boolean };
-    }) => {
-      this.sent.push(payload);
-      return { id: `sent-${this.sent.length}` };
-    },
-    fetchWebhooks: async () => [],
-    createWebhook: async (_options: {
-      name: string;
-      avatar?: string;
-      reason?: string;
-    }) => ({
-      id: "webhook-1",
-      name: "AgentRoom",
+  private channelFor(id: string): unknown {
+    return {
       send: async (payload: {
         content: string;
         reply?: { messageReference: string; failIfNotExists: boolean };
         allowedMentions: { parse: string[]; repliedUser: boolean };
-        username?: string;
-        avatarURL?: string;
-        threadId?: string;
       }) => {
-        this.webhookSent.push(payload);
-        return { id: `webhook-sent-${this.webhookSent.length}` };
+        this.sent.push(payload);
+        return { id: `sent-${this.sent.length}` };
       },
-    }),
-  };
+      sendTyping: async () => {
+        this.typingChannelIds.push(id);
+      },
+      fetchWebhooks: async () => [],
+      createWebhook: async (_options: {
+        name: string;
+        avatar?: string;
+        reason?: string;
+      }) => {
+        return {
+          id: "webhook-1",
+          name: "AgentRoom",
+          send: async (payload: {
+            content: string;
+            reply?: { messageReference: string; failIfNotExists: boolean };
+            allowedMentions: { parse: string[]; repliedUser: boolean };
+            username?: string;
+            avatarURL?: string;
+            threadId?: string;
+          }) => {
+            this.webhookSent.push(payload);
+            return { id: `webhook-sent-${this.webhookSent.length}` };
+          },
+        };
+      },
+    };
+  }
 
   on(
     _event: typeof Events.MessageCreate,

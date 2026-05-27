@@ -259,7 +259,10 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
       id: request.agentId,
       bindingId: pane.pane_id,
       displayName: request.displayName ?? request.agentId,
-      state: "online",
+      state:
+        pane.agent_status && isAgentState(pane.agent_status)
+          ? pane.agent_status
+          : "online",
       ...(pane.workspace_id ? { sessionId: pane.workspace_id } : {}),
       metadata: {
         ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),

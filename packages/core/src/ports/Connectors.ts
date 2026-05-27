@@ -163,6 +163,11 @@ export interface ChatSendMessageResult {
   metadata?: Record<string, unknown>;
 }
 
+export interface ChatSendTypingInput {
+  conversation: ChatGatewayConversation;
+  metadata?: Record<string, unknown>;
+}
+
 export type ChatInboundHandler = (
   message: ChatInboundMessage,
 ) => void | Promise<void>;
@@ -175,4 +180,5 @@ export interface ChatGatewayProvider {
   start(handler: ChatInboundHandler): Promise<void>;
   stop(): Promise<void>;
   sendMessage(input: ChatSendMessageInput): Promise<ChatSendMessageResult>;
+  sendTyping?(input: ChatSendTypingInput): Promise<void>;
 }

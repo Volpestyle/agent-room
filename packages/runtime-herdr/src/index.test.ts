@@ -419,6 +419,7 @@ describe("HerdrRuntimeProvider", () => {
               workspace_id: "w7",
               tab_id: "w7:1",
               focused: true,
+              agent_status: "working",
             },
           });
         }
@@ -438,7 +439,7 @@ describe("HerdrRuntimeProvider", () => {
         id: "herdr:agent-room:p_42",
         bindingId: "p_42",
         sessionId: "w7",
-        state: "online",
+        state: "working",
         metadata: expect.objectContaining({
           workspaceId: "w7",
           tabId: "w7:1",

@@ -23,6 +23,8 @@ describe("HerdrPaneObserver", () => {
       bindingId: "p_existing",
       roomId: "room",
       role: "implementer",
+      displayName: "claude",
+      metadata: { agent: "claude" },
     });
 
     const observer = new HerdrPaneObserver({
@@ -81,7 +83,13 @@ describe("HerdrPaneObserver", () => {
     await startPromise;
 
     socket.deliverEvent("pane_created", {
-      pane: { pane_id: "p_42", workspace_id: "w1", tab_id: "w1:1" },
+      pane: {
+        pane_id: "p_42",
+        workspace_id: "w1",
+        tab_id: "w1:1",
+        agent: "claude",
+        agent_status: "working",
+      },
     });
     await flush();
     await flush();
@@ -111,7 +119,12 @@ describe("HerdrPaneObserver", () => {
     );
 
     socket.deliverEvent("pane_created", {
-      pane: { pane_id: "p_42", workspace_id: "w1", tab_id: "w1:1" },
+      pane: {
+        pane_id: "p_42",
+        workspace_id: "w1",
+        tab_id: "w1:1",
+        agent: "claude",
+      },
     });
     await flush();
     await flush();
@@ -128,6 +141,112 @@ describe("HerdrPaneObserver", () => {
         (event) =>
           event.type === "runtime.bound" &&
           event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
+  it("does not enroll panes until Herdr reports an agent", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    socket.deliverEvent("pane_created", {
+      pane: { pane_id: "p_shell", workspace_id: "w1", tab_id: "w1:1" },
+    });
+    await flush();
+    await flush();
+
+    expect(store.events).toHaveLength(0);
+
+    socket.deliverEvent("pane_agent_detected", {
+      pane_id: "p_shell",
+      workspace_id: "w1",
+      tab_id: "w1:1",
+      agent: "codex",
+    });
+    await flush();
+    await flush();
+
+    const expectedAgentId = deriveAgentId("agent-room", "p_shell");
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.joined" &&
+          event.payload.agent.id === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
+  it("marks stale auto-adopted panes stopped when they no longer report an agent", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+    const staleAgentId = deriveAgentId("agent-room", "p_logs");
+
+    await service.registerAgent({
+      id: staleAgentId,
+      role: "implementer",
+      displayName: "p_logs",
+    });
+    await service.bindRuntime({
+      agentId: staleAgentId,
+      runtime: {
+        providerId: "test-herdr",
+        bindingId: "p_logs",
+        kind: "pane",
+        metadata: { adopted: true },
+      },
+    });
+    await provider.adoptAgent({
+      agentId: staleAgentId,
+      bindingId: "p_logs",
+      roomId: "room",
+      role: "implementer",
+    });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    await expect(service.getAgent(staleAgentId)).resolves.toEqual(
+      expect.objectContaining({ state: "stopped" }),
+    );
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.left" && event.payload.agentId === staleAgentId,
       ),
     ).toHaveLength(1);
 

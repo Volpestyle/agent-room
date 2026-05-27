@@ -10,6 +10,7 @@ import type {
   ChatMessageKind,
   ChatSendMessageInput,
   ChatSendMessageResult,
+  ChatSendTypingInput,
 } from "@agentroom/core";
 import {
   Client,
@@ -253,6 +254,17 @@ export class DiscordChatGatewayProvider implements ChatGatewayProvider {
       ...(chunks.length > 1 ? { chunked: true } : {}),
       ...sendResultMetadata(chunks.length, webhook),
     };
+  }
+
+  async sendTyping(input: ChatSendTypingInput): Promise<void> {
+    const channelId = input.conversation.threadId ?? input.conversation.id;
+    const channel = await this.resolveChannel(channelId);
+    if (!isTypingCapableDiscordChannel(channel)) {
+      throw new Error(
+        `Discord conversation '${channelId}' does not support typing indicators`,
+      );
+    }
+    await channel.sendTyping();
   }
 
   private async handleDiscordMessage(message: Message): Promise<void> {
@@ -619,6 +631,14 @@ function isWebhookCapableDiscordChannel(
   );
 }
 
+function isTypingCapableDiscordChannel(
+  value: unknown,
+): value is DiscordTypingCapableChannel {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as DiscordTypingCapableChannel;
+  return typeof candidate.sendTyping === "function";
+}
+
 function valuesOf<T>(
   value: IterableCollection<T> | T[] | null | undefined,
 ): T[] {
@@ -662,6 +682,10 @@ interface DiscordSentMessage {
 
 interface DiscordSendableChannel {
   send: (payload: DiscordSendPayload) => Promise<DiscordSentMessage>;
+}
+
+interface DiscordTypingCapableChannel {
+  sendTyping: () => Promise<void>;
 }
 
 interface DiscordWebhook {

@@ -99,6 +99,7 @@ export function createAppWithLifecycle(
     routes: chatRoutes,
     runtimeProviderForBinding: (binding) =>
       registry.runtime(binding.providerId),
+    providerForRoute: (route) => chatRegistry.gateway(route.providerId),
   });
   const chatDispatcher = new ChatGatewayOutboundDispatcher({
     service,

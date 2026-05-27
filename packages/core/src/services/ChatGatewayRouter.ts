@@ -2,6 +2,8 @@ import type { ActorRef, RuntimeBinding } from "../domain.js";
 import type { RuntimeProvider } from "../ports/RuntimeProvider.js";
 import type {
   ChatConversationKind,
+  ChatGatewayConversation,
+  ChatGatewayProvider,
   ChatInboundMessage,
 } from "../ports/Connectors.js";
 import type { AgentRoomService } from "./AgentRoomService.js";
@@ -31,6 +33,9 @@ export interface ChatGatewayRouterOptions {
   runtimeProviderForBinding?: (
     binding: RuntimeBinding,
   ) => RuntimeProvider | Promise<RuntimeProvider>;
+  providerForRoute?: (
+    route: ChatGatewayRoute,
+  ) => ChatGatewayProvider | Promise<ChatGatewayProvider>;
 }
 
 export interface ChatGatewayRouteResult {
@@ -45,11 +50,17 @@ export class ChatGatewayRouter {
   private readonly runtimeProviderForBinding:
     | ((binding: RuntimeBinding) => RuntimeProvider | Promise<RuntimeProvider>)
     | undefined;
+  private readonly providerForRoute:
+    | ((
+        route: ChatGatewayRoute,
+      ) => ChatGatewayProvider | Promise<ChatGatewayProvider>)
+    | undefined;
 
   constructor(options: ChatGatewayRouterOptions) {
     this.service = options.service;
     this.routes = options.routes;
     this.runtimeProviderForBinding = options.runtimeProviderForBinding;
+    this.providerForRoute = options.providerForRoute;
   }
 
   async handleInbound(
@@ -83,6 +94,7 @@ export class ChatGatewayRouter {
         });
         return { routed: true, route };
       case "agent-stdin":
+        await this.sendTyping(route, message);
         await this.sendToAgentStdin(route.target.agentId, message);
         return { routed: true, route };
     }
@@ -132,6 +144,39 @@ export class ChatGatewayRouter {
       source: connectorActor(message),
     });
   }
+
+  private async sendTyping(
+    route: ChatGatewayRoute,
+    message: ChatInboundMessage,
+  ): Promise<void> {
+    if (this.providerForRoute === undefined) return;
+    try {
+      const provider = await this.providerForRoute(route);
+      if (provider.id !== route.providerId) return;
+      await provider.sendTyping?.({
+        conversation: conversationForRoute(route),
+        metadata: {
+          externalMessageId: message.externalMessageId,
+          senderId: message.sender.id,
+        },
+      });
+    } catch {
+      return;
+    }
+  }
+}
+
+function conversationForRoute(
+  route: ChatGatewayRoute,
+): ChatGatewayConversation {
+  const conversation: ChatGatewayConversation = {
+    id: route.conversationId,
+    kind:
+      route.conversationKind ??
+      (route.threadId !== undefined ? "thread" : "channel"),
+  };
+  if (route.threadId !== undefined) conversation.threadId = route.threadId;
+  return conversation;
 }
 
 function connectorActor(message: ChatInboundMessage): ActorRef {

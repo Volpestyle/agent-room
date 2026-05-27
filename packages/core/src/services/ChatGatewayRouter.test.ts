@@ -18,7 +18,13 @@ import type {
   StartAgentRequest
 } from '../index.js';
 import { nowIso } from '../index.js';
-import type { ChatInboundMessage } from '../ports/Connectors.js';
+import type {
+  ChatGatewayProvider,
+  ChatInboundMessage,
+  ChatSendMessageInput,
+  ChatSendMessageResult,
+  ChatSendTypingInput
+} from '../ports/Connectors.js';
 import { AgentRoomService } from './AgentRoomService.js';
 import { ChatGatewayRouter } from './ChatGatewayRouter.js';
 
@@ -88,6 +94,25 @@ class TestRuntimeProvider implements RuntimeProvider {
   }
 }
 
+class TestChatGatewayProvider implements ChatGatewayProvider {
+  readonly id = 'discord-personal';
+  readonly kind = 'discord' as const;
+  readonly credentialKind = 'user-token' as const;
+  readonly typingInputs: ChatSendTypingInput[] = [];
+
+  async health() {
+    return { ok: true };
+  }
+  async start(): Promise<void> {}
+  async stop(): Promise<void> {}
+  async sendMessage(_input: ChatSendMessageInput): Promise<ChatSendMessageResult> {
+    return { externalMessageId: 'sent-1' };
+  }
+  async sendTyping(input: ChatSendTypingInput): Promise<void> {
+    this.typingInputs.push(input);
+  }
+}
+
 describe('ChatGatewayRouter', () => {
   it('records unrouted inbound chat messages', async () => {
     const store = new TestStore();
@@ -144,6 +169,7 @@ describe('ChatGatewayRouter', () => {
     const store = new TestStore();
     const service = new AgentRoomService(store, { roomId: 'room-test' });
     const runtime = new TestRuntimeProvider();
+    const chat = new TestChatGatewayProvider();
     await service.bindRuntime({
       agentId: 'clanky',
       runtime: { providerId: runtime.id, bindingId: 'pane-1', kind: 'pane' }
@@ -154,10 +180,12 @@ describe('ChatGatewayRouter', () => {
         {
           providerId: 'discord-personal',
           conversationId: 'dm-1',
+          conversationKind: 'dm',
           target: { type: 'agent-stdin', agentId: 'clanky' }
         }
       ],
-      runtimeProviderForBinding: () => runtime
+      runtimeProviderForBinding: () => runtime,
+      providerForRoute: () => chat
     });
 
     const result = await router.handleInbound(chatMessage({ conversationId: 'dm-1', text: 'run the plan' }));
@@ -184,6 +212,12 @@ describe('ChatGatewayRouter', () => {
         source: 'discord-personal:u-1'
       }
     });
+    expect(chat.typingInputs).toEqual([
+      {
+        conversation: { id: 'dm-1', kind: 'dm' },
+        metadata: { externalMessageId: 'm-1', senderId: 'u-1' }
+      }
+    ]);
   });
 });
 

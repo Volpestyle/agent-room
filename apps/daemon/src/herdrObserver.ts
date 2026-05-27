@@ -4,6 +4,7 @@ import {
   type SocketFactory,
 } from "@agentroom/runtime-herdr";
 import type {
+  Agent,
   AgentRoomService,
   AgentRole,
   RuntimeAgent,
@@ -50,6 +51,7 @@ export class HerdrPaneObserver {
   async start(): Promise<void> {
     await this.client.start([
       { type: "pane.created" },
+      { type: "pane.agent_detected" },
       { type: "pane.closed" },
     ]);
     this.log(
@@ -72,8 +74,10 @@ export class HerdrPaneObserver {
     try {
       if (pushed.event === "pane_created") {
         await this.handlePaneCreated(pushed.data);
+      } else if (pushed.event === "pane_agent_detected") {
+        await this.handlePaneAgentDetected(pushed.data);
       } else if (pushed.event === "pane_closed") {
-        this.handlePaneClosed(pushed.data);
+        await this.handlePaneClosed(pushed.data);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -86,22 +90,52 @@ export class HerdrPaneObserver {
   ): Promise<void> {
     const pane = extractPane(data);
     if (!pane) return;
+    if (!isDetectedPane(pane)) return;
     const agentId = deriveAgentId(this.opts.session, pane.pane_id);
     await this.adoptPane({
       agentId,
       bindingId: pane.pane_id,
+      ...(pane.agent ? { displayName: pane.agent } : {}),
+      ...(pane.agent_status
+        ? { state: normalizedAgentState(pane.agent_status) }
+        : {}),
       metadata: {
         ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
         ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+        ...(pane.agent ? { agent: pane.agent } : {}),
+        ...(pane.agent_status ? { agent_status: pane.agent_status } : {}),
       },
     });
   }
 
-  private handlePaneClosed(data: Record<string, unknown>): void {
+  private async handlePaneAgentDetected(
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const pane = extractPane(data);
+    if (!pane || !isDetectedPane(pane)) return;
+    const agentId = deriveAgentId(this.opts.session, pane.pane_id);
+    await this.adoptPane({
+      agentId,
+      bindingId: pane.pane_id,
+      ...(pane.agent ? { displayName: pane.agent } : {}),
+      ...(pane.agent_status
+        ? { state: normalizedAgentState(pane.agent_status) }
+        : {}),
+      metadata: {
+        ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
+        ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+        agent: pane.agent,
+        ...(pane.agent_status ? { agent_status: pane.agent_status } : {}),
+      },
+    });
+  }
+
+  private async handlePaneClosed(data: Record<string, unknown>): Promise<void> {
     const pane = extractPane(data);
     if (!pane) return;
     const agentId = deriveAgentId(this.opts.session, pane.pane_id);
     this.log(`pane closed: ${pane.pane_id} (${agentId})`);
+    await this.markBindingStopped(pane.pane_id, "herdr pane closed");
   }
 
   private log(message: string): void {
@@ -118,13 +152,19 @@ export class HerdrPaneObserver {
       return;
     }
 
+    await this.reconcileExistingBindings(agents);
+
     for (const agent of agents) {
+      if (!isDetectedRuntimeAgent(agent, this.opts.session)) {
+        continue;
+      }
       await this.adoptPane({
         agentId: agentIdForRuntimeAgent(this.opts.session, agent),
         bindingId: agent.bindingId,
         ...(agent.displayName !== undefined
           ? { displayName: agent.displayName }
           : {}),
+        state: agent.state,
         ...(agent.metadata !== undefined ? { metadata: agent.metadata } : {}),
       });
     }
@@ -134,17 +174,28 @@ export class HerdrPaneObserver {
     agentId: string;
     bindingId: string;
     displayName?: string;
+    state?: RuntimeAgent["state"];
     metadata?: Record<string, unknown>;
   }): Promise<void> {
     const existingByBinding = await this.opts.service.findAgentByBinding(
       input.bindingId,
     );
-    if (existingByBinding) return;
+    if (existingByBinding && existingByBinding !== input.agentId) {
+      const existingAgent = await this.opts.service.getAgent(existingByBinding);
+      if (existingAgent?.state !== "stopped") return;
+    }
 
     const existingBinding = await this.opts.service.getRuntimeBinding(
       input.agentId,
     );
-    if (existingBinding) return;
+    const existingAgent = await this.opts.service.getAgent(input.agentId);
+    if (
+      existingBinding &&
+      existingBinding.bindingId !== input.bindingId &&
+      existingAgent?.state !== "stopped"
+    ) {
+      return;
+    }
 
     if (!this.opts.provider.adoptAgent) {
       this.log(
@@ -154,8 +205,7 @@ export class HerdrPaneObserver {
     }
 
     const role: AgentRole = this.opts.defaultRole ?? "implementer";
-    const existingAgent = await this.opts.service.getAgent(input.agentId);
-    if (!existingAgent) {
+    if (shouldRegisterAgent(existingAgent, input.displayName)) {
       await this.opts.service.registerAgent({
         id: input.agentId,
         role,
@@ -174,11 +224,71 @@ export class HerdrPaneObserver {
         : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     });
-    await this.opts.service.bindRuntime({
+    const runtime = bindingFor(
+      this.opts.provider,
+      agent.bindingId,
+      agent.metadata,
+    );
+    if (shouldBindRuntime(existingAgent?.runtime, runtime)) {
+      await this.opts.service.bindRuntime({
+        agentId: input.agentId,
+        runtime,
+      });
+    }
+    await this.opts.service.recordAgentHeartbeat({
       agentId: input.agentId,
-      runtime: bindingFor(this.opts.provider, agent.bindingId, agent.metadata),
+      state: input.state ?? agent.state,
     });
     this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+  }
+
+  private async reconcileExistingBindings(
+    agents: RuntimeAgent[],
+  ): Promise<void> {
+    const liveBindings = new Set(agents.map((agent) => agent.bindingId));
+    const detectedBindings = new Set(
+      agents
+        .filter((agent) => isDetectedRuntimeAgent(agent, this.opts.session))
+        .map((agent) => agent.bindingId),
+    );
+    const roomAgents = await this.opts.service.listAgents();
+
+    for (const agent of roomAgents) {
+      const binding = agent.runtime;
+      if (binding?.providerId !== this.opts.provider.id) continue;
+      if (agent.state === "stopped") continue;
+
+      if (!liveBindings.has(binding.bindingId)) {
+        await this.markAgentStopped(agent, "herdr pane no longer exists");
+        continue;
+      }
+
+      if (
+        isAutoAdoptedHerdrAgent(agent, this.opts.session) &&
+        !detectedBindings.has(binding.bindingId)
+      ) {
+        await this.markAgentStopped(
+          agent,
+          "herdr pane no longer reports an agent",
+        );
+      }
+    }
+  }
+
+  private async markBindingStopped(
+    bindingId: string,
+    reason: string,
+  ): Promise<void> {
+    const agentId = await this.opts.service.findAgentByBinding(bindingId);
+    if (!agentId) return;
+    const agent = await this.opts.service.getAgent(agentId);
+    if (!agent || agent.state === "stopped") return;
+    await this.markAgentStopped(agent, reason);
+  }
+
+  private async markAgentStopped(agent: Agent, reason: string): Promise<void> {
+    await this.opts.service.leaveAgent({ agentId: agent.id, reason });
+    this.log(`marked ${agent.id} stopped: ${reason}`);
   }
 }
 
@@ -196,6 +306,8 @@ interface ExtractedPane {
   pane_id: string;
   workspace_id?: string;
   tab_id?: string;
+  agent?: string;
+  agent_status?: string;
 }
 
 function extractPane(data: Record<string, unknown>): ExtractedPane | undefined {
@@ -212,7 +324,97 @@ function extractPane(data: Record<string, unknown>): ExtractedPane | undefined {
     ...(typeof candidate["tab_id"] === "string"
       ? { tab_id: candidate["tab_id"] }
       : {}),
+    ...(typeof candidate["agent"] === "string" && candidate["agent"].length > 0
+      ? { agent: candidate["agent"] }
+      : {}),
+    ...(typeof candidate["agent_status"] === "string" &&
+    candidate["agent_status"].length > 0
+      ? { agent_status: candidate["agent_status"] }
+      : {}),
   };
+}
+
+function isDetectedPane(pane: ExtractedPane): boolean {
+  return pane.agent !== undefined;
+}
+
+function isDetectedRuntimeAgent(agent: RuntimeAgent, session: string): boolean {
+  return (
+    detectedAgentName(agent) !== undefined ||
+    (agent.id !== agent.bindingId && !agent.id.startsWith(`herdr:${session}:`))
+  );
+}
+
+function detectedAgentName(agent: RuntimeAgent): string | undefined {
+  const value = agent.metadata?.["agent"];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizedAgentState(state: string): RuntimeAgent["state"] {
+  return isAgentState(state) ? state : "unknown";
+}
+
+function isAgentState(value: string): value is RuntimeAgent["state"] {
+  return [
+    "created",
+    "starting",
+    "online",
+    "working",
+    "waiting",
+    "blocked",
+    "needs-human",
+    "reviewing",
+    "done",
+    "idle",
+    "failed",
+    "stopped",
+    "unknown",
+  ].includes(value);
+}
+
+function isAutoAdoptedHerdrAgent(agent: Agent, session: string): boolean {
+  return (
+    agent.id.startsWith(`herdr:${session}:`) &&
+    agent.runtime?.metadata?.["adopted"] === true
+  );
+}
+
+function shouldRegisterAgent(
+  existing: Agent | undefined,
+  displayName: string | undefined,
+): boolean {
+  return (
+    existing === undefined ||
+    existing.state === "stopped" ||
+    (displayName !== undefined && existing.displayName !== displayName)
+  );
+}
+
+function shouldBindRuntime(
+  existing: RuntimeBinding | undefined,
+  next: RuntimeBinding,
+): boolean {
+  if (!existing) return true;
+  if (existing.providerId !== next.providerId) return true;
+  if (existing.bindingId !== next.bindingId) return true;
+  if (existing.kind !== next.kind) return true;
+
+  return (
+    metadataString(existing.metadata, "agent") !==
+      metadataString(next.metadata, "agent") ||
+    metadataString(existing.metadata, "workspaceId") !==
+      metadataString(next.metadata, "workspaceId") ||
+    metadataString(existing.metadata, "tabId") !==
+      metadataString(next.metadata, "tabId")
+  );
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function bindingFor(

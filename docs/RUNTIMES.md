@@ -93,7 +93,7 @@ This avoids crowding new agents into stale panes from an older Herdr workspace. 
 
 ### Adopting human-opened panes
 
-The Herdr adapter implements `adoptAgent`. When the AgentRoom daemon is running with a Herdr-backed room, it opens a long-lived subscription to the configured Herdr session's socket and listens for `pane.created` and `pane.closed` events. New panes are auto-enrolled with a stable agent id `herdr:<session>:<pane>`; closed panes transition their bound agent to `offline`. Adoption does not execute a harness command; whatever shell or harness is already running in the pane stays running.
+The Herdr adapter implements `adoptAgent`. When the AgentRoom daemon is running with a Herdr-backed room, it opens a long-lived subscription to the configured Herdr session's socket and listens for pane creation, agent detection, and pane close events. Panes are auto-enrolled only after Herdr reports an agent identity, using `herdr:<session>:<pane>` as the agent id. Closed panes, missing bindings, and previously auto-adopted panes that no longer report an agent are marked `stopped`. Adoption does not execute a harness command; whatever shell or harness is already running in the pane stays running.
 
 For one-off manual enrollment when the daemon is not running, use `agent-room enroll --json` from inside the pane.
 
