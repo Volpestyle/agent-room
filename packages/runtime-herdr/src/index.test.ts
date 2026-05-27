@@ -14,6 +14,18 @@ describe("HerdrRuntimeProvider", () => {
     );
   });
 
+  it("returns an empty agent list when Herdr cannot enumerate workspaces", async () => {
+    const runtime = new HerdrRuntimeProvider({
+      runner: runnerFor({
+        "workspace list": new Error(
+          'Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }',
+        ),
+      }),
+    });
+
+    await expect(runtime.listAgents()).resolves.toEqual([]);
+  });
+
   it("lists panes as runtime agents using AgentRoom workspace labels", async () => {
     const runtime = new HerdrRuntimeProvider({
       runner: runnerFor({
@@ -441,11 +453,14 @@ describe("HerdrRuntimeProvider", () => {
   });
 });
 
-function runnerFor(responses: Record<string, string>): HerdrCommandRunner {
+function runnerFor(
+  responses: Record<string, string | Error>,
+): HerdrCommandRunner {
   return async (args) => {
     const response = responses[args.join(" ")];
     if (response === undefined)
       throw new Error(`unexpected command: ${args.join(" ")}`);
+    if (response instanceof Error) throw response;
     return response;
   };
 }

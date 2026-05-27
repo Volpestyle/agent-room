@@ -13,6 +13,52 @@ import type { DuplexLike } from "@agentroom/runtime-herdr";
 import { HerdrPaneObserver, deriveAgentId } from "./herdrObserver.js";
 
 describe("HerdrPaneObserver", () => {
+  it("adopts panes that already exist when the observer starts", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+    await provider.adoptAgent({
+      agentId: "p_existing",
+      bindingId: "p_existing",
+      roomId: "room",
+      role: "implementer",
+    });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    const expectedAgentId = deriveAgentId("agent-room", "p_existing");
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.joined" &&
+          event.payload.agent.id === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.bound" &&
+          event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
   it("adopts a pane on pane_created and is idempotent", async () => {
     const { socket, factory } = createMockSocket();
     const store = new TestEventStore();

@@ -221,6 +221,10 @@ program
     "Herdr session name or tmux session prefix; defaults to agentroom for Herdr and room id for tmux",
   )
   .option(
+    "--runtime-cli <command>",
+    "runtime CLI command to write into config, e.g. herdr-dev for Herdr dev sessions",
+  )
+  .option(
     "--work-tracker <tracker>",
     "portable work tracker selection: native|linear|github-issues|jira|custom",
     "native",
@@ -248,6 +252,7 @@ program
       name?: string;
       runtime: string;
       runtimeSession?: string;
+      runtimeCli?: string;
       workTracker: string;
       linearTeam?: string;
       clanky?: boolean;
@@ -265,6 +270,7 @@ program
           ? { runtimeSession: options.runtimeSession }
           : {}),
       });
+      applyRuntimeCliOverride(appConfig, options.runtime, options.runtimeCli);
       appConfig.workTracker = createWorkTrackerConfig({
         tracker: options.workTracker,
         ...(options.linearTeam !== undefined
@@ -3183,6 +3189,19 @@ function basename(path: string): string {
 function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
   if (value === "fake" || value === "herdr" || value === "tmux") return value;
   throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
+}
+
+function applyRuntimeCliOverride(
+  config: AgentRoomConfig,
+  runtimeName: string,
+  runtimeCli: string | undefined,
+): void {
+  if (runtimeCli === undefined) return;
+  const runtime = ensureRuntimeConfig(config, runtimeName);
+  if (runtime.type === "fake") {
+    throw new Error("--runtime-cli requires a Herdr or tmux runtime");
+  }
+  runtime.cli = runtimeCli;
 }
 
 function createWorkTrackerConfig(options: {

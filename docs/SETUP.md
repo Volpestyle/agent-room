@@ -53,6 +53,13 @@ agent-room runtime providers
 agent-room runtime doctor
 ```
 
+When the runtime command is not the default binary name, write it into config
+at init time:
+
+```bash
+agent-room init --room agents --runtime herdr --runtime-session agent-room --runtime-cli herdr-dev
+```
+
 For a Clanky-first room, write the shared defaults in the same config file:
 
 ```bash

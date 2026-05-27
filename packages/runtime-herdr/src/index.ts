@@ -122,12 +122,20 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
   }
 
   async listAgents(): Promise<RuntimeAgent[]> {
-    const workspaces = await this.listWorkspaces();
-    const workspaceLabels = new Map(
-      workspaces.map((workspace) => [workspace.workspace_id, workspace.label]),
-    );
-    const panes = await this.listPanes();
-    return panes.map((pane) => normalizeHerdrPane(pane, workspaceLabels));
+    try {
+      const workspaces = await this.listWorkspaces();
+      const workspaceLabels = new Map(
+        workspaces.map((workspace) => [
+          workspace.workspace_id,
+          workspace.label,
+        ]),
+      );
+      const panes = await this.listPanes();
+      return panes.map((pane) => normalizeHerdrPane(pane, workspaceLabels));
+    } catch (error) {
+      if (!isHerdrUnavailableError(error)) throw error;
+      return [];
+    }
   }
 
   async startAgent(request: StartAgentRequest): Promise<RuntimeAgent> {
@@ -674,6 +682,16 @@ function parseStatusField(text: string, field: string): string | undefined {
     }
   }
   return undefined;
+}
+
+function isHerdrUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("status: not running") ||
+    message.includes("No such file or directory") ||
+    message.includes("ENOENT") ||
+    message.includes("ECONNREFUSED")
+  );
 }
 
 function parseJson(text: string): unknown {

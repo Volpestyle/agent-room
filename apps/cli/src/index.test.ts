@@ -74,6 +74,39 @@ describe("agent-room init", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("writes a configured runtime CLI command", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-runtime-cli-"));
+    const env = testEnv("cli-init-runtime-cli-test");
+
+    try {
+      await execAgentRoom(
+        cwd,
+        [
+          "init",
+          "--room",
+          "cli-init-runtime-cli-test",
+          "--runtime",
+          "herdr",
+          "--runtime-session",
+          "agent-room",
+          "--runtime-cli",
+          "herdr-dev",
+        ],
+        env,
+      );
+
+      const config = await readFile(
+        join(cwd, ".agentroom", "config.yaml"),
+        "utf8",
+      );
+      expect(config).toContain("default: herdr");
+      expect(config).toContain("session: agent-room");
+      expect(config).toContain("cli: herdr-dev");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("agent-room wait", () => {

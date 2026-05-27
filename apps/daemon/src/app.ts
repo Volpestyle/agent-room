@@ -21,6 +21,7 @@ import {
   type HarnessSpec,
   type RoomEvent,
   type RuntimeBinding,
+  type RuntimeHealth,
   type RuntimeProvider,
   type StartAgentRequest,
 } from "@agentroom/core";
@@ -118,6 +119,14 @@ export function createAppWithLifecycle(
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
   const app = new Hono();
+  app.onError((error, c) => {
+    console.error(
+      `[http] ${c.req.method} ${new URL(c.req.url).pathname} failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return c.json({ error: errorMessage(error) }, 500);
+  });
 
   app.use("/v1/*", async (c, next) => {
     if (isPublicV1Path(new URL(c.req.url).pathname)) {
@@ -143,7 +152,7 @@ export function createAppWithLifecycle(
         id: provider.id,
         kind: provider.kind,
         capabilities: provider.capabilities,
-        health: await provider.health(),
+        health: await safeRuntimeHealth(provider),
       })),
     );
     const chatGateways = await Promise.all(
@@ -632,18 +641,6 @@ function startHerdrObservers(input: {
     if (runtime.type !== "herdr") continue;
     const session = runtime.session ?? process.env.HERDR_SESSION;
     if (!session) continue;
-    const socketPath = resolveHerdrSocketPath({
-      ...(runtime.session === undefined &&
-      process.env.HERDR_SOCKET_PATH !== undefined
-        ? { envSocketPath: process.env.HERDR_SOCKET_PATH }
-        : {}),
-      session,
-      ...(process.env.XDG_CONFIG_HOME !== undefined
-        ? { xdgConfigHome: process.env.XDG_CONFIG_HOME }
-        : {}),
-      ...(process.env.HOME !== undefined ? { home: process.env.HOME } : {}),
-    });
-    if (!socketPath) continue;
 
     let provider;
     try {
@@ -653,22 +650,76 @@ function startHerdrObservers(input: {
     }
     if (!provider.adoptAgent) continue;
 
+    void startHerdrObserver({
+      providerId,
+      runtime,
+      session,
+      provider,
+      service: input.service,
+      roomId: input.roomId,
+      observers,
+    });
+  }
+  return observers;
+}
+
+async function startHerdrObserver(input: {
+  providerId: string;
+  runtime: Extract<AgentRoomConfig["runtimes"][string], { type: "herdr" }>;
+  session: string;
+  provider: RuntimeProvider;
+  service: AgentRoomService;
+  roomId: string;
+  observers: HerdrPaneObserver[];
+}): Promise<void> {
+  try {
+    const socketPath = await herdrSocketPathForRuntime(input);
+    if (!socketPath) return;
     const observer = new HerdrPaneObserver({
       socketPath,
-      session,
+      session: input.session,
       service: input.service,
-      provider,
+      provider: input.provider,
       roomId: input.roomId,
       logger: (message) => console.log(`[herdr-observer] ${message}`),
     });
-    void observer.start().catch((error: Error) => {
-      console.error(
-        `[herdr-observer] failed to start for ${providerId}: ${error.message}`,
-      );
-    });
-    observers.push(observer);
+    input.observers.push(observer);
+    await observer.start();
+  } catch (error) {
+    console.error(
+      `[herdr-observer] failed to start for ${input.providerId}: ${errorMessage(error)}`,
+    );
   }
-  return observers;
+}
+
+async function herdrSocketPathForRuntime(input: {
+  runtime: Extract<AgentRoomConfig["runtimes"][string], { type: "herdr" }>;
+  session: string;
+  provider: RuntimeProvider;
+}): Promise<string | undefined> {
+  const health = await input.provider.health().catch(() => undefined);
+  const socketPath = stringMetadata(health?.metadata, "socketPath");
+  if (socketPath) return socketPath;
+
+  return resolveHerdrSocketPath({
+    ...(input.runtime.session === undefined &&
+    process.env.HERDR_SOCKET_PATH !== undefined
+      ? { envSocketPath: process.env.HERDR_SOCKET_PATH }
+      : {}),
+    session: input.session,
+    ...(process.env.XDG_CONFIG_HOME !== undefined
+      ? { xdgConfigHome: process.env.XDG_CONFIG_HOME }
+      : {}),
+    ...(process.env.HOME !== undefined ? { home: process.env.HOME } : {}),
+  });
+}
+
+function stringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function bindingFor(
@@ -742,6 +793,25 @@ function actorKind(value: string): "human" | "agent" | "system" | "connector" {
   )
     return value;
   return "agent";
+}
+
+async function safeRuntimeHealth(
+  provider: RuntimeProvider,
+): Promise<RuntimeHealth> {
+  try {
+    return await provider.health();
+  } catch (error) {
+    return {
+      ok: false,
+      status: "offline",
+      message: errorMessage(error),
+      metadata: { providerId: provider.id, kind: provider.kind },
+    };
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isPublicV1Path(pathname: string): boolean {

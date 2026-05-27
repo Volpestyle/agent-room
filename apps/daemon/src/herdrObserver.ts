@@ -6,6 +6,7 @@ import {
 import type {
   AgentRoomService,
   AgentRole,
+  RuntimeAgent,
   RuntimeProvider,
   RuntimeBinding,
 } from "@agentroom/core";
@@ -47,10 +48,14 @@ export class HerdrPaneObserver {
   }
 
   async start(): Promise<void> {
-    await this.client.start([{ type: "pane.created" }, { type: "pane.closed" }]);
+    await this.client.start([
+      { type: "pane.created" },
+      { type: "pane.closed" },
+    ]);
     this.log(
       `observing herdr session=${this.opts.session} socket=${this.opts.socketPath}`,
     );
+    await this.adoptExistingPanes();
   }
 
   async stop(): Promise<void> {
@@ -82,27 +87,14 @@ export class HerdrPaneObserver {
     const pane = extractPane(data);
     if (!pane) return;
     const agentId = deriveAgentId(this.opts.session, pane.pane_id);
-    const existing = await this.opts.service.getRuntimeBinding(agentId);
-    if (existing) return;
-    if (!this.opts.provider.adoptAgent) {
-      this.log(
-        `provider ${this.opts.provider.kind} does not support adoptAgent; skipping pane ${pane.pane_id}`,
-      );
-      return;
-    }
-    const role: AgentRole = this.opts.defaultRole ?? "implementer";
-    await this.opts.service.registerAgent({ id: agentId, role });
-    const agent = await this.opts.provider.adoptAgent({
+    await this.adoptPane({
       agentId,
       bindingId: pane.pane_id,
-      roomId: this.opts.roomId,
-      role,
+      metadata: {
+        ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
+        ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+      },
     });
-    await this.opts.service.bindRuntime({
-      agentId,
-      runtime: bindingFor(this.opts.provider, agent.bindingId, agent.metadata),
-    });
-    this.log(`auto-enrolled pane ${pane.pane_id} as ${agentId}`);
   }
 
   private handlePaneClosed(data: Record<string, unknown>): void {
@@ -115,10 +107,89 @@ export class HerdrPaneObserver {
   private log(message: string): void {
     this.opts.logger?.(message);
   }
+
+  private async adoptExistingPanes(): Promise<void> {
+    let agents: RuntimeAgent[];
+    try {
+      agents = await this.opts.provider.listAgents();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`could not list existing herdr panes: ${message}`);
+      return;
+    }
+
+    for (const agent of agents) {
+      await this.adoptPane({
+        agentId: agentIdForRuntimeAgent(this.opts.session, agent),
+        bindingId: agent.bindingId,
+        ...(agent.displayName !== undefined
+          ? { displayName: agent.displayName }
+          : {}),
+        ...(agent.metadata !== undefined ? { metadata: agent.metadata } : {}),
+      });
+    }
+  }
+
+  private async adoptPane(input: {
+    agentId: string;
+    bindingId: string;
+    displayName?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const existingByBinding = await this.opts.service.findAgentByBinding(
+      input.bindingId,
+    );
+    if (existingByBinding) return;
+
+    const existingBinding = await this.opts.service.getRuntimeBinding(
+      input.agentId,
+    );
+    if (existingBinding) return;
+
+    if (!this.opts.provider.adoptAgent) {
+      this.log(
+        `provider ${this.opts.provider.kind} does not support adoptAgent; skipping pane ${input.bindingId}`,
+      );
+      return;
+    }
+
+    const role: AgentRole = this.opts.defaultRole ?? "implementer";
+    const existingAgent = await this.opts.service.getAgent(input.agentId);
+    if (!existingAgent) {
+      await this.opts.service.registerAgent({
+        id: input.agentId,
+        role,
+        ...(input.displayName !== undefined
+          ? { displayName: input.displayName }
+          : {}),
+      });
+    }
+    const agent = await this.opts.provider.adoptAgent({
+      agentId: input.agentId,
+      bindingId: input.bindingId,
+      roomId: this.opts.roomId,
+      role,
+      ...(input.displayName !== undefined
+        ? { displayName: input.displayName }
+        : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    });
+    await this.opts.service.bindRuntime({
+      agentId: input.agentId,
+      runtime: bindingFor(this.opts.provider, agent.bindingId, agent.metadata),
+    });
+    this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+  }
 }
 
 export function deriveAgentId(session: string, paneId: string): string {
   return `herdr:${session}:${paneId}`;
+}
+
+function agentIdForRuntimeAgent(session: string, agent: RuntimeAgent): string {
+  return agent.id === agent.bindingId
+    ? deriveAgentId(session, agent.bindingId)
+    : agent.id;
 }
 
 interface ExtractedPane {

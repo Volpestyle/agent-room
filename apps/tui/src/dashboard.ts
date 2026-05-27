@@ -152,8 +152,13 @@ export class Dashboard {
   private overlayHandle: OverlayHandle | undefined;
   private shuttingDown = false;
   private currentAgent: DashboardAgent | DashboardAgentError;
+  private readonly closed: Promise<void>;
+  private resolveClosed: () => void = () => undefined;
 
   constructor(private readonly options: DashboardOptions) {
+    this.closed = new Promise((resolve) => {
+      this.resolveClosed = resolve;
+    });
     this.tui = new TUI(options.terminal);
     options.store.subscribe(() => {
       this.tui.requestRender();
@@ -249,6 +254,7 @@ export class Dashboard {
       await this.announceJoin(this.currentAgent);
     }
     this.options.poller.start();
+    await this.closed;
   }
 
   private async announceJoin(agent: DashboardAgent): Promise<void> {
@@ -290,6 +296,11 @@ export class Dashboard {
     this.options.poller.stop();
     if (!("reason" in this.currentAgent)) {
       try {
+        this.currentAgent.abort();
+      } catch {
+        // ignore — agent may already be settled
+      }
+      try {
         await this.options.api.postMessage({
           body: `Dashboard agent ${dashboardActor().id} signing off.`,
           sender: dashboardActor(),
@@ -301,7 +312,7 @@ export class Dashboard {
       await this.announceLeave("dashboard shutdown");
     }
     this.tui.stop();
-    process.exit(0);
+    this.resolveClosed();
   }
 
   private activateView(index: number, forceFullRender = true): void {
