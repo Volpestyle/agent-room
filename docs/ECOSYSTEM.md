@@ -1,6 +1,6 @@
 # Ecosystem Tour
 
-These docs should answer three questions quickly:
+These docs answer three questions quickly:
 
 1. What powerful things can I do as a user?
 2. What work should I let my agents handle?
@@ -11,27 +11,35 @@ can live inside or outside a room. ClankVox is the native media plane that makes
 Discord voice and Go Live work. The iOS client makes the room reachable when
 the operator is away from the desk.
 
+## Which Surface Should I Use?
+
+| Need                                                | Start here                                                     |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| I want to know what all the agents are doing.       | Open `agent-room` and ask the operator chat.                   |
+| I want one personal agent with memory and Discord.  | Start Clanky directly.                                         |
+| I want Clanky plus other agents in one shared room. | Launch Clanky from AgentRoom as a Pi harness.                  |
+| I want to script room actions.                      | Use the AgentRoom CLI reference.                               |
+| I want to check the room from my phone.             | Pair AgentRoom iOS over a private tailnet.                     |
+| I want Discord voice or Go Live.                    | Use Clanky voice; ClankVox handles the native media transport. |
+
 ## 1. What You Can Do
 
 Use AgentRoom as an agent command center:
 
-- open the TUI and ask the operator what is happening
+- open the TUI and ask the operator what is happening in plain language
 - see active agents, tasks, messages, runtime output, and recent audit events
 - launch workers into Herdr or tmux without leaving the room model
 - send instructions and read output through audited AgentRoom commands
 - link local task shadows to durable tracker issues
-- expose room tools to MCP-capable agents
+- let compatible agents inspect and update room context through their tools
 - route Discord or another chat surface into a room-owned conversation
 - pair a phone over tailnet and check the room on the go
 - run Clanky as a personal agent, a room lead, a worker, or a reviewer
 
-> GIF slot: `docs/assets/gifs/agentroom-tui-overview.gif`  
-> Capture: ask the operator "what is happening?", then move through Overview,
-> Agents, Tasks, Messages, and Events.
-
-> GIF slot: `docs/assets/gifs/mobile-room-check.gif`  
-> Capture: `agent-room mobile-connect --copy`, open the pairing link on iPhone,
-> and inspect a running room.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-tui-overview.gif: ask the operator "what is happening?", then move through Overview, Agents, Tasks, Messages, and Events.
+- docs/assets/gifs/mobile-room-check.gif: mobile-connect pairing link on iPhone, then inspect a running room.
+-->
 
 ## 2. What Agents Should Handle
 
@@ -46,20 +54,17 @@ tool access:
   chat manually
 - update the external tracker when durable work status changes
 - summarize runtime output for the operator instead of dumping raw logs
-- preserve terminal audit by using AgentRoom `send` and `read`
-- delegate voice, Discord, web, media, or MCP-specific work to the agent with
-  the right profile and skills
+- preserve terminal audit by letting AgentRoom handle runtime `send` and `read`
+- delegate voice, Discord, web, media, or connector-specific work to the agent
+  with the right profile and skills
 
 The agent should not treat a terminal pane, Discord channel, or tracker issue as
 the whole system. Those are surfaces. The room is the coordination model.
 
-> GIF slot: `docs/assets/gifs/agentroom-launch-provider.gif`  
-> Capture: launch two workers, assign one implementation task and one review
-> task, then show the room event log proving what happened.
-
-> GIF slot: `docs/assets/gifs/clanky-tui-discord.gif`  
-> Capture: Clanky continuing local TUI work while Discord routes a side request
-> through a subagent and delegates durable work back to the main session.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-launch-provider.gif: launch two workers, assign implementation and review tasks, then show the room event log.
+- docs/assets/gifs/clanky-tui-discord.gif: Clanky continuing local TUI work while Discord routes a side request through a subagent.
+-->
 
 ## 3. Mental Model
 
@@ -165,8 +170,11 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 ## Where To Go Next
 
+- [Terminal TUI](TUI.md): use the dashboard before learning every command.
 - [Setup Guide](SETUP.md): choose runtime, harness, tracker, messaging surface,
   skills, and operator clients.
+- [CLI Reference](CLI_REFERENCE.md): exact commands for operators, scripts, and
+  agents.
 - [Room Topology](TOPOLOGY.md): one room per project, one HQ room across repos,
   or a hybrid.
 - [Coordination Model](COORDINATION.md): what belongs in AgentRoom versus the

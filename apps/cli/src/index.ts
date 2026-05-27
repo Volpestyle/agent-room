@@ -1437,7 +1437,20 @@ function normalizeRootArgv(argv: string[]): string[] {
   if (node === undefined || script === undefined) return argv;
   if (first === undefined) return [node, script, "tui"];
   if (first === "--headless") return [node, script, "daemon", "start", ...rest];
+  if (isRootTuiOption(first)) return [node, script, "tui", first, ...rest];
   return argv;
+}
+
+function isRootTuiOption(value: string): boolean {
+  return (
+    value === "--daemon" ||
+    value.startsWith("--daemon=") ||
+    value === "--api-token" ||
+    value.startsWith("--api-token=") ||
+    value === "--refresh-ms" ||
+    value.startsWith("--refresh-ms=") ||
+    value === "--no-auto-start"
+  );
 }
 
 async function runtimeProviderForCwd(

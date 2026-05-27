@@ -1,31 +1,46 @@
 # AgentRoom
 
-AgentRoom is the local-first coordination plane for long-running coding agents.
-It gives humans and agents one room model for launch, messages, task shadows,
-handoffs, approvals, runtime audit, and provider integrations.
+AgentRoom is the local-first control room for long-running coding agents. Open
+the terminal dashboard, ask what is happening, launch or redirect agents, and
+keep the active work in one evented room instead of scattered across terminal
+panes, chat threads, and issue comments.
 
-The important idea is simple: runtimes, trackers, design tools, code hosts, and
-chat systems are adapters. The room stays the product.
+The important idea is simple: the room is the product. Runtimes, trackers,
+design tools, code hosts, chat systems, MCP servers, and phone clients are ways
+into or out of that room.
+
+## When To Use AgentRoom
+
+Use AgentRoom when one of these is true:
+
+- more than one agent needs to coordinate
+- you want a simple terminal dashboard instead of watching raw panes
+- you need audited `send`, `read`, `launch`, and `stop` for runtime agents
+- work should be tied to local task shadows and durable tracker issues
+- an agent should wait for room messages, task changes, or human approval
+- you want to check the room from a phone over a private network
+
+Use Clanky directly when you want a personal Pi agent with profile state,
+memory, Discord, voice, media, and skills. Run Clanky inside AgentRoom when that
+personal agent needs to act as a lead, worker, reviewer, or room participant.
 
 ## 1. What You Can Do
 
 AgentRoom is the control layer in the agent-first workspace:
 
-- open the singleton TUI from anywhere and ask what is happening
+- open the singleton TUI from anywhere and ask what is happening in plain
+  language
 - launch agents into Herdr, tmux, or any future runtime provider
 - send and read through audited room commands instead of raw terminal input
-- expose room context through MCP to enrolled agents
+- let compatible agents inspect room context and coordinate through MCP
 - connect a phone over a private tailnet for on-the-go room checks
 - route external chat into the room without making chat the source of truth
 - keep durable work trackers canonical while AgentRoom records execution state
 
-> GIF slot: `docs/assets/gifs/agentroom-tui-overview.gif`  
-> Capture the TUI moving between operator chat, overview, agents, tasks,
-> messages, runtime output, and events.
-
-> GIF slot: `docs/assets/gifs/agentroom-launch-provider.gif`  
-> Capture a provider-backed launch, then `send`, `read`, and task handoff in the
-> same room.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-tui-overview.gif: TUI moving between operator chat, overview, agents, tasks, messages, runtime output, and events.
+- docs/assets/gifs/agentroom-launch-provider.gif: provider-backed launch, send, read, and task handoff in the same room.
+-->
 
 ## 2. What To Let Agents Handle
 
@@ -62,6 +77,31 @@ flowchart TB
 
 For the full product tour, see [Ecosystem Tour](docs/ECOSYSTEM.md).
 
+## First Run
+
+Start with the dashboard. You do not need to memorize the CLI before using the
+room.
+
+```bash
+corepack enable
+corepack prepare pnpm@11 --activate
+pnpm install
+pnpm build
+agent-room
+```
+
+The TUI starts in operator chat. Ask it things like:
+
+```text
+What is running in this room?
+Launch a reviewer for this workspace.
+Read the latest output from impl-1.
+Post a status update for the room.
+```
+
+Use the CLI when you need automation, scripts, or exact commands. See
+[CLI Reference](docs/CLI_REFERENCE.md) for the complete command map.
+
 ## What Is In This Repo
 
 ```text
@@ -87,7 +127,7 @@ docs/
   product tour, setup, topology, runtime, security, protocol, ADRs
 ```
 
-## Quick Start
+## Build And Test
 
 ```bash
 corepack enable
@@ -102,7 +142,7 @@ Start the local singleton room:
 ```bash
 agent-room runtime doctor
 agent-room daemon start
-agent-room tui
+agent-room
 herdr --session agent-room
 ```
 
@@ -128,7 +168,7 @@ default so terminal input and output stay in the room event log.
 Open the terminal dashboard:
 
 ```bash
-agent-room tui
+agent-room
 ```
 
 The TUI starts in operator chat. Type normally to ask what is happening or to
@@ -153,8 +193,9 @@ Open the copied `agentroom://connect?...` link on the phone. The daemon URL and
 token are saved by the mobile client, and `/v1/*` routes require the bearer
 token when tailnet mode or `AGENTROOM_API_TOKEN` is active.
 
-> GIF slot: `docs/assets/gifs/mobile-room-check.gif`  
-> Capture daemon pairing, phone connection, and a quick room status check.
+<!-- Capture backlog:
+- docs/assets/gifs/mobile-room-check.gif: daemon pairing, phone connection, and a quick room status check.
+-->
 
 ## Provider Model
 
@@ -204,7 +245,9 @@ pnpm docs:dev
 High-signal pages:
 
 - [Ecosystem Tour](docs/ECOSYSTEM.md)
+- [Terminal TUI](docs/TUI.md)
 - [Setup Guide](docs/SETUP.md)
+- [CLI Reference](docs/CLI_REFERENCE.md)
 - [Configuration Model](docs/CONFIGURATION.md)
 - [Room Topology](docs/TOPOLOGY.md)
 - [Coordination Model](docs/COORDINATION.md)

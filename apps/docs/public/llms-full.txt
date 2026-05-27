@@ -1,6 +1,6 @@
 # AgentRoom - Full Docs
 
-> AgentRoom is the local-first control room for launching, steering, auditing, and coordinating long-running coding agents, with provider ports for runtimes, trackers, chat gateways, design, code hosts, and local room state.
+> AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI, then use CLI and MCP references when you need exact automation.
 
 Generated from the live docs site. Each section below is one page; see the heading and source path for context.
 
@@ -12,7 +12,7 @@ Source: `docs/ECOSYSTEM.md` - https://volpestyle.github.io/docs/agent-room/?doc=
 
 # Ecosystem Tour
 
-These docs should answer three questions quickly:
+These docs answer three questions quickly:
 
 1. What powerful things can I do as a user?
 2. What work should I let my agents handle?
@@ -23,27 +23,35 @@ can live inside or outside a room. ClankVox is the native media plane that makes
 Discord voice and Go Live work. The iOS client makes the room reachable when
 the operator is away from the desk.
 
+## Which Surface Should I Use?
+
+| Need                                                | Start here                                                     |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| I want to know what all the agents are doing.       | Open `agent-room` and ask the operator chat.                   |
+| I want one personal agent with memory and Discord.  | Start Clanky directly.                                         |
+| I want Clanky plus other agents in one shared room. | Launch Clanky from AgentRoom as a Pi harness.                  |
+| I want to script room actions.                      | Use the AgentRoom CLI reference.                               |
+| I want to check the room from my phone.             | Pair AgentRoom iOS over a private tailnet.                     |
+| I want Discord voice or Go Live.                    | Use Clanky voice; ClankVox handles the native media transport. |
+
 ## 1. What You Can Do
 
 Use AgentRoom as an agent command center:
 
-- open the TUI and ask the operator what is happening
+- open the TUI and ask the operator what is happening in plain language
 - see active agents, tasks, messages, runtime output, and recent audit events
 - launch workers into Herdr or tmux without leaving the room model
 - send instructions and read output through audited AgentRoom commands
 - link local task shadows to durable tracker issues
-- expose room tools to MCP-capable agents
+- let compatible agents inspect and update room context through their tools
 - route Discord or another chat surface into a room-owned conversation
 - pair a phone over tailnet and check the room on the go
 - run Clanky as a personal agent, a room lead, a worker, or a reviewer
 
-> GIF slot: `docs/assets/gifs/agentroom-tui-overview.gif`  
-> Capture: ask the operator "what is happening?", then move through Overview,
-> Agents, Tasks, Messages, and Events.
-
-> GIF slot: `docs/assets/gifs/mobile-room-check.gif`  
-> Capture: `agent-room mobile-connect --copy`, open the pairing link on iPhone,
-> and inspect a running room.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-tui-overview.gif: ask the operator "what is happening?", then move through Overview, Agents, Tasks, Messages, and Events.
+- docs/assets/gifs/mobile-room-check.gif: mobile-connect pairing link on iPhone, then inspect a running room.
+-->
 
 ## 2. What Agents Should Handle
 
@@ -58,20 +66,17 @@ tool access:
   chat manually
 - update the external tracker when durable work status changes
 - summarize runtime output for the operator instead of dumping raw logs
-- preserve terminal audit by using AgentRoom `send` and `read`
-- delegate voice, Discord, web, media, or MCP-specific work to the agent with
-  the right profile and skills
+- preserve terminal audit by letting AgentRoom handle runtime `send` and `read`
+- delegate voice, Discord, web, media, or connector-specific work to the agent
+  with the right profile and skills
 
 The agent should not treat a terminal pane, Discord channel, or tracker issue as
 the whole system. Those are surfaces. The room is the coordination model.
 
-> GIF slot: `docs/assets/gifs/agentroom-launch-provider.gif`  
-> Capture: launch two workers, assign one implementation task and one review
-> task, then show the room event log proving what happened.
-
-> GIF slot: `docs/assets/gifs/clanky-tui-discord.gif`  
-> Capture: Clanky continuing local TUI work while Discord routes a side request
-> through a subagent and delegates durable work back to the main session.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-launch-provider.gif: launch two workers, assign implementation and review tasks, then show the room event log.
+- docs/assets/gifs/clanky-tui-discord.gif: Clanky continuing local TUI work while Discord routes a side request through a subagent.
+-->
 
 ## 3. Mental Model
 
@@ -177,8 +182,11 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 ## Where To Go Next
 
+- [Terminal TUI](TUI.md): use the dashboard before learning every command.
 - [Setup Guide](SETUP.md): choose runtime, harness, tracker, messaging surface,
   skills, and operator clients.
+- [CLI Reference](CLI_REFERENCE.md): exact commands for operators, scripts, and
+  agents.
 - [Room Topology](TOPOLOGY.md): one room per project, one HQ room across repos,
   or a hybrid.
 - [Coordination Model](COORDINATION.md): what belongs in AgentRoom versus the
@@ -196,32 +204,47 @@ Source: `README.md` - https://volpestyle.github.io/docs/agent-room/?doc=overview
 
 # AgentRoom
 
-AgentRoom is the local-first coordination plane for long-running coding agents.
-It gives humans and agents one room model for launch, messages, task shadows,
-handoffs, approvals, runtime audit, and provider integrations.
+AgentRoom is the local-first control room for long-running coding agents. Open
+the terminal dashboard, ask what is happening, launch or redirect agents, and
+keep the active work in one evented room instead of scattered across terminal
+panes, chat threads, and issue comments.
 
-The important idea is simple: runtimes, trackers, design tools, code hosts, and
-chat systems are adapters. The room stays the product.
+The important idea is simple: the room is the product. Runtimes, trackers,
+design tools, code hosts, chat systems, MCP servers, and phone clients are ways
+into or out of that room.
+
+## When To Use AgentRoom
+
+Use AgentRoom when one of these is true:
+
+- more than one agent needs to coordinate
+- you want a simple terminal dashboard instead of watching raw panes
+- you need audited `send`, `read`, `launch`, and `stop` for runtime agents
+- work should be tied to local task shadows and durable tracker issues
+- an agent should wait for room messages, task changes, or human approval
+- you want to check the room from a phone over a private network
+
+Use Clanky directly when you want a personal Pi agent with profile state,
+memory, Discord, voice, media, and skills. Run Clanky inside AgentRoom when that
+personal agent needs to act as a lead, worker, reviewer, or room participant.
 
 ## 1. What You Can Do
 
 AgentRoom is the control layer in the agent-first workspace:
 
-- open the singleton TUI from anywhere and ask what is happening
+- open the singleton TUI from anywhere and ask what is happening in plain
+  language
 - launch agents into Herdr, tmux, or any future runtime provider
 - send and read through audited room commands instead of raw terminal input
-- expose room context through MCP to enrolled agents
+- let compatible agents inspect room context and coordinate through MCP
 - connect a phone over a private tailnet for on-the-go room checks
 - route external chat into the room without making chat the source of truth
 - keep durable work trackers canonical while AgentRoom records execution state
 
-> GIF slot: `docs/assets/gifs/agentroom-tui-overview.gif`  
-> Capture the TUI moving between operator chat, overview, agents, tasks,
-> messages, runtime output, and events.
-
-> GIF slot: `docs/assets/gifs/agentroom-launch-provider.gif`  
-> Capture a provider-backed launch, then `send`, `read`, and task handoff in the
-> same room.
+<!-- Capture backlog:
+- docs/assets/gifs/agentroom-tui-overview.gif: TUI moving between operator chat, overview, agents, tasks, messages, runtime output, and events.
+- docs/assets/gifs/agentroom-launch-provider.gif: provider-backed launch, send, read, and task handoff in the same room.
+-->
 
 ## 2. What To Let Agents Handle
 
@@ -258,6 +281,31 @@ flowchart TB
 
 For the full product tour, see [Ecosystem Tour](docs/ECOSYSTEM.md).
 
+## First Run
+
+Start with the dashboard. You do not need to memorize the CLI before using the
+room.
+
+```bash
+corepack enable
+corepack prepare pnpm@11 --activate
+pnpm install
+pnpm build
+agent-room
+```
+
+The TUI starts in operator chat. Ask it things like:
+
+```text
+What is running in this room?
+Launch a reviewer for this workspace.
+Read the latest output from impl-1.
+Post a status update for the room.
+```
+
+Use the CLI when you need automation, scripts, or exact commands. See
+[CLI Reference](docs/CLI_REFERENCE.md) for the complete command map.
+
 ## What Is In This Repo
 
 ```text
@@ -283,7 +331,7 @@ docs/
   product tour, setup, topology, runtime, security, protocol, ADRs
 ```
 
-## Quick Start
+## Build And Test
 
 ```bash
 corepack enable
@@ -298,7 +346,7 @@ Start the local singleton room:
 ```bash
 agent-room runtime doctor
 agent-room daemon start
-agent-room tui
+agent-room
 herdr --session agent-room
 ```
 
@@ -324,7 +372,7 @@ default so terminal input and output stay in the room event log.
 Open the terminal dashboard:
 
 ```bash
-agent-room tui
+agent-room
 ```
 
 The TUI starts in operator chat. Type normally to ask what is happening or to
@@ -349,8 +397,9 @@ Open the copied `agentroom://connect?...` link on the phone. The daemon URL and
 token are saved by the mobile client, and `/v1/*` routes require the bearer
 token when tailnet mode or `AGENTROOM_API_TOKEN` is active.
 
-> GIF slot: `docs/assets/gifs/mobile-room-check.gif`  
-> Capture daemon pairing, phone connection, and a quick room status check.
+<!-- Capture backlog:
+- docs/assets/gifs/mobile-room-check.gif: daemon pairing, phone connection, and a quick room status check.
+-->
 
 ## Provider Model
 
@@ -400,7 +449,9 @@ pnpm docs:dev
 High-signal pages:
 
 - [Ecosystem Tour](docs/ECOSYSTEM.md)
+- [Terminal TUI](docs/TUI.md)
 - [Setup Guide](docs/SETUP.md)
+- [CLI Reference](docs/CLI_REFERENCE.md)
 - [Configuration Model](docs/CONFIGURATION.md)
 - [Room Topology](docs/TOPOLOGY.md)
 - [Coordination Model](docs/COORDINATION.md)
@@ -436,6 +487,101 @@ and hosted or multi-host runtime adapters.
 
 ---
 
+# Terminal TUI
+
+Source: `docs/TUI.md` - https://volpestyle.github.io/docs/agent-room/?doc=tui
+
+# Terminal TUI
+
+The AgentRoom TUI is the normal front door for humans. It is a terminal
+dashboard with an operator chat on the first screen. Start there, ask the room
+what is happening, and let the dashboard agent use the room tools for you.
+
+```bash
+agent-room
+```
+
+If no local daemon is reachable, the TUI can start one for the session. The
+plain command is the normal entry point. If you are connecting to a daemon that
+was started separately on a non-default URL, pass the daemon URL to `agent-room`:
+
+```bash
+agent-room --daemon http://127.0.0.1:4317
+```
+
+## What To Ask
+
+Use plain language first:
+
+```text
+What is running in this room?
+Show me the active tasks.
+Launch an implementation agent in this workspace.
+Read the last 80 lines from reviewer-1.
+Send impl-2 a reminder to post status before editing.
+Which agent is blocked?
+```
+
+The dashboard agent should translate those requests into room operations:
+messages, tasks, launches, runtime reads, runtime sends, waits, and status
+summaries. You do not need to know the full CLI for day-to-day operation.
+
+## Views
+
+Use the views when you want to inspect state directly:
+
+| View       | Use it for                                                         |
+| ---------- | ------------------------------------------------------------------ |
+| Chat       | Ask the operator what is happening and request room actions.       |
+| Overview   | Check daemon health, runtime provider, room id, and recent status. |
+| Workspaces | See registered cwd/project contexts.                               |
+| Agents     | See launched or adopted agents and their runtime bindings.         |
+| Tasks      | Inspect local task shadows and active ownership.                   |
+| Messages   | Read room channels, direct messages, and handoffs.                 |
+| Events     | Audit room activity, runtime reads/sends, and provider changes.    |
+| Help       | See hotkeys, slash commands, and environment knobs.                |
+
+`Ctrl+G` and `Ctrl+L` cycle views. `Esc` opens the view picker. `?` opens Help.
+
+## Mental Model
+
+```mermaid
+flowchart LR
+  human["Human operator"]
+  tui["AgentRoom TUI<br/>chat + dashboard"]
+  daemon["agentroomd"]
+  room["Room events<br/>messages, tasks, audit"]
+  runtime["Runtime provider<br/>Herdr, tmux, future"]
+  agents["Agents<br/>Clanky, Codex, Claude Code, Pi, custom"]
+
+  human --> tui
+  tui --> daemon
+  daemon --> room
+  daemon --> runtime
+  runtime --> agents
+  agents --> room
+```
+
+The TUI is a surface. The daemon and event store hold the room state. Runtime
+providers place processes in Herdr, tmux, or future execution backends. Agents
+coordinate through the room rather than through private terminal assumptions.
+
+## When To Use The CLI Instead
+
+Use the CLI when you need a script, a repeatable smoke check, or a precise
+automation step:
+
+```bash
+agent-room launch impl --harness codex --command "codex" --cwd .
+agent-room read impl --lines 80
+agent-room send impl "Post status, then continue."
+agent-room events --follow
+```
+
+The complete command map lives in [CLI Reference](CLI_REFERENCE.md).
+
+---
+
 # Setup Guide
 
 Source: `docs/SETUP.md` - https://volpestyle.github.io/docs/agent-room/?doc=setup
@@ -452,6 +598,10 @@ AgentRoom is provider-neutral. A working room is assembled from explicit choices
 - agent skills
 
 Use native AgentRoom messages and events as the source of truth for room coordination. Add external systems only where they are the system of record or the surface you want humans to use.
+
+If you are new, do not configure every integration first. Get the TUI running,
+launch one agent, read its output, and only then add trackers, chat gateways,
+mobile pairing, or custom skills.
 
 ## 1. Install The Local Tooling
 
@@ -478,6 +628,16 @@ pnpm test
 AgentRoom defaults to one local room named `agent-room`. Its durable state lives
 in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
 `herdr --session agent-room`.
+
+Start with the human surface:
+
+```bash
+agent-room
+```
+
+The dashboard opens in operator chat. Ask it what is running, which agents are
+active, or what needs attention. The CLI remains available for exact automation,
+but the TUI should be the first interface a human learns.
 
 - The room is global for this workstation.
 - A cwd is workspace context, not room identity.
@@ -611,7 +771,8 @@ Expose these skills to the agent harnesses you launch using that harness's norma
 The daemon can be driven from several local clients:
 
 - CLI: `agent-room ...` commands read and write the same room event log.
-- TUI: `agent-room tui` opens the terminal dashboard against `AGENTROOM_DAEMON` or `--daemon`.
+- TUI: `agent-room` opens the terminal dashboard. Use
+  `agent-room --daemon <url>` only when connecting to a non-default daemon.
 - MCP: `agentroom-mcp` exposes room context, messages, tasks, waits, and audit reads to MCP-capable agents.
 - Mobile: `apps/mobile` connects to the daemon API. For iPhone access over Tailscale, start with `agent-room daemon start --tailnet`, then run `agent-room mobile-connect --copy` and open the `agentroom://connect?...` link on the phone.
 
@@ -633,6 +794,8 @@ agent-room events --limit 20
 ```
 
 Stop or reconfigure anything that fails health checks before launching a real multi-agent workflow.
+
+For the complete command surface, use [CLI Reference](CLI_REFERENCE.md).
 
 ---
 
@@ -806,7 +969,7 @@ id, task id, messages, and runtime binding history.
 Register a cwd when you want it to appear as a stable workspace:
 
 ```bash
-agent-room workspace add /Users/jamesvolpe/dev/project-a --label project-a
+agent-room workspace add /path/to/project-a --label project-a
 agent-room workspace list
 ```
 
@@ -817,18 +980,18 @@ cwd-derived workspace label unless `--workspace` is supplied:
 agent-room launch api-impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/api
+  --cwd /path/to/api
 
 agent-room launch reviewer \
   --workspace project-a-review \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/project-a
+  --cwd /path/to/project-a
 ```
 
 ## TUI Portal
 
-`agent-room tui` connects to the same local daemon from any cwd. The dashboard is
+`agent-room` connects to the same local daemon from any cwd. The dashboard is
 a portal into the full room: overview, workspaces, agents, tasks, messages,
 runtime state, and events.
 
@@ -1013,7 +1176,7 @@ runtimes:
   herdr:
     type: herdr
     session: agent-room
-    cli: /Users/jamesvolpe/dev/herdr/target/debug/herdr
+    cli: /path/to/herdr/target/debug/herdr
 ```
 
 Herdr layout is config-driven:
@@ -1106,6 +1269,181 @@ agent-room task comment AR-42 "Implemented callback and tests pass"
 ```
 
 Use `skills/agentroom/SKILL.md` as the enrolled-agent behavior playbook.
+
+---
+
+# CLI Reference
+
+Source: `docs/CLI_REFERENCE.md` - https://volpestyle.github.io/docs/agent-room/?doc=cli-reference
+
+# CLI Reference
+
+This page is the command map for operators, scripts, and agents that need exact
+AgentRoom commands. Start with [Terminal TUI](TUI.md) or
+[Ecosystem Tour](ECOSYSTEM.md) if you are still learning when to use AgentRoom.
+
+Root shortcuts:
+
+```bash
+agent-room              # open the TUI
+agent-room --headless   # start the local daemon in the background
+```
+
+Most commands accept `--json` when their output is useful for scripts or agent
+tools.
+
+## First-Run And Config
+
+| Command                   | Purpose                                                        |
+| ------------------------- | -------------------------------------------------------------- |
+| `agent-room init`         | Write room config into `$AGENTROOM_HOME` or `~/.agentroom`.    |
+| `agent-room dev-new-user` | Create a temporary home for first-run TUI testing.             |
+| `agent-room doctor`       | Check local prerequisites and configured runtime availability. |
+| `agent-room whoami`       | Print current AgentRoom enrollment environment.                |
+
+Common init examples:
+
+```bash
+agent-room init --runtime herdr
+agent-room init --runtime herdr --runtime-cli herdr-dev
+agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
+```
+
+## Daemon, TUI, And Mobile
+
+| Command                             | Purpose                                                      |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `agent-room daemon foreground`      | Run `agentroomd` in the foreground.                          |
+| `agent-room daemon start`           | Start the daemon in the background.                          |
+| `agent-room daemon status`          | Show daemon pid, health, URL, and token requirement.         |
+| `agent-room daemon stop`            | Stop the managed daemon.                                     |
+| `agent-room daemon restart`         | Restart the managed daemon.                                  |
+| `agent-room daemon start --tailnet` | Bind to the machine's Tailscale address and require a token. |
+| `agent-room`                        | Open the interactive terminal dashboard.                     |
+| `agent-room --daemon <url>`         | Open the dashboard against a non-default daemon URL.         |
+| `agent-room mobile-connect`         | Print AgentRoom iOS/mobile connection settings.              |
+| `agent-room mobile-connect --copy`  | Copy the `agentroom://connect?...` pairing link on macOS.    |
+
+Useful options:
+
+| Option                | Applies to      | Purpose                                                  |
+| --------------------- | --------------- | -------------------------------------------------------- |
+| `--host <host>`       | `daemon`        | Bind host. Defaults to `127.0.0.1`.                      |
+| `--port <port>`       | `daemon`        | Bind port. Defaults to `4317`.                           |
+| `--api-token <token>` | `daemon`, `agent-room` | Bearer token for remote clients. Prefer env for secrets. |
+| `--daemon <url>`      | `agent-room`    | Connect the TUI to an existing daemon.                   |
+| `--no-auto-start`     | `agent-room`    | Do not start a daemon if none is reachable.              |
+
+## Runtime Providers
+
+| Command                            | Purpose                               |
+| ---------------------------------- | ------------------------------------- |
+| `agent-room runtime providers`     | List configured runtime providers.    |
+| `agent-room runtime use <runtime>` | Set the default runtime in config.    |
+| `agent-room runtime doctor`        | Check the selected runtime provider.  |
+| `agent-room runtime fake-smoke`    | Run the fake provider contract smoke. |
+
+Supported runtime kinds today: `herdr`, `tmux`, and `fake`.
+
+## Agent Runtime Control
+
+| Command                            | Purpose                                              |
+| ---------------------------------- | ---------------------------------------------------- |
+| `agent-room launch <agentId>`      | Launch an opted-in agent through a runtime provider. |
+| `agent-room enroll`                | Enroll the current pane or shell into the room.      |
+| `agent-room read <agentId>`        | Read recent output from a runtime-backed agent.      |
+| `agent-room send <agentId> <text>` | Send input to a runtime-backed agent.                |
+| `agent-room stop <agentId>`        | Stop a runtime-backed agent.                         |
+
+Launch requires an explicit harness and command:
+
+```bash
+agent-room launch impl \
+  --harness codex \
+  --command "codex" \
+  --cwd /path/to/workspace
+```
+
+Supported harness kinds: `claude-code`, `codex`, `pi`, `gemini-cli`, `shell`,
+and `custom`.
+
+Herdr placement options:
+
+| Option                     | Purpose                                     |
+| -------------------------- | ------------------------------------------- | ------------------------------- | ------------------------------------ |
+| `--placement workspace     | tab                                         | pane`                           | Override configured Herdr placement. |
+| `--workspace <label>`      | Place the agent in a named Herdr workspace. |
+| `--panes-per-tab <number>` | Cap pane-grid density.                      |
+| `--split largest           | focused`                                    | Choose the pane split strategy. |
+
+By default, `read`, `send`, and `stop` require an AgentRoom runtime binding so
+terminal IO stays audited. `--unaudited` is for manual recovery only.
+
+## Messages And Waits
+
+| Command                           | Purpose                                      |
+| --------------------------------- | -------------------------------------------- |
+| `agent-room post <body>`          | Post a room channel message.                 |
+| `agent-room dm <agentIds> <body>` | Send a direct message to one or more agents. |
+| `agent-room messages`             | Show recent room messages.                   |
+| `agent-room wait`                 | Wait until a matching room event appears.    |
+| `agent-room events`               | Show recent local room events.               |
+| `agent-room events --follow`      | Stream new events.                           |
+
+Examples:
+
+```bash
+agent-room post "Planning is done" --channel announcements
+agent-room dm reviewer "Ready for review"
+agent-room messages --with impl-1 --limit 20
+agent-room wait --dm-to-me --timeout 600 --json
+agent-room wait --message "ready for review" --since now
+```
+
+## Tasks
+
+AgentRoom tasks are local execution shadows. Link them to the durable tracker
+when a real issue exists.
+
+| Command                                          | Purpose                             |
+| ------------------------------------------------ | ----------------------------------- |
+| `agent-room task create <title>`                 | Create a local task shadow.         |
+| `agent-room task list`                           | List local task shadows.            |
+| `agent-room task show <taskId>`                  | Show one task shadow.               |
+| `agent-room task claim <taskId>`                 | Claim a task.                       |
+| `agent-room task status <taskId> <status>`       | Set task status.                    |
+| `agent-room task link-linear <taskId> <issueId>` | Link a task to Linear.              |
+| `agent-room task comment <taskId> <body>`        | Comment on the linked Linear issue. |
+| `agent-room block <taskId> --reason <reason>`    | Mark a task blocked.                |
+| `agent-room done <taskId>`                       | Mark a task done.                   |
+| `agent-room ask-human <question>`                | Create a human escalation question. |
+
+Statuses come from the AgentRoom task model. Use `task status` for explicit
+state changes and `done` / `block` for the common paths.
+
+## Workspaces And Trackers
+
+| Command                                        | Purpose                                   |
+| ---------------------------------------------- | ----------------------------------------- |
+| `agent-room workspace add <cwd>`               | Register a cwd as an AgentRoom workspace. |
+| `agent-room workspace list`                    | List registered workspaces.               |
+| `agent-room tracker health`                    | Check the configured work tracker bridge. |
+| `agent-room tracker comment <issueId> <body>`  | Comment on a Linear issue.                |
+| `agent-room tracker status <issueId> <status>` | Update Linear issue status.               |
+
+## Environment
+
+| Variable              | Purpose                                                       |
+| --------------------- | ------------------------------------------------------------- |
+| `AGENTROOM_HOME`      | Room config and local state home. Defaults to `~/.agentroom`. |
+| `AGENTROOM_DAEMON`    | Daemon base URL for clients and enrolled agents.              |
+| `AGENTROOM_API_TOKEN` | Bearer token for tailnet or remote daemon access.             |
+| `AGENTROOM_AGENT_ID`  | Current enrolled agent id.                                    |
+| `AGENTROOM_ROOM_ID`   | Current room id.                                              |
+| `AGENTROOM_ROLE`      | Current enrolled role.                                        |
+
+When AgentRoom launches an agent, runtime providers set the enrollment variables
+so the agent can identify itself and coordinate through the room.
 
 ---
 
@@ -1419,130 +1757,3 @@ moments.
 - Add richer approval enforcement beyond local policy files.
 - Expand mobile/TUI controls for task editing, launch forms, config editing, and chat gateway status.
 - Prototype SSH, Docker, and hosted/cloud runtime providers.
-
----
-
-# Milestones
-
-Source: `docs/MILESTONES.md` - https://volpestyle.github.io/docs/agent-room/?doc=milestones
-
-# Milestones
-
-A dated log of moments where the AgentRoom system did something end-to-end
-that it could not do before. Each entry names the session, the artifacts
-that prove it, and what is explicitly not yet wired.
-
-## 2026-05-26 — Passive multi-pane dashboard over live Codex/Claude work
-
-First session where a lead agent in the AgentRoom TUI produced an
-accurate per-pane status across seven parallel runtime panes in one turn,
-while real coding work landed on disk from agents running in those panes.
-
-### Topology
-
-- Operator: Clanky against the `agent-room` profile.
-- Lead agent: `dashboard` (openai-codex / gpt-5.5), joining and rejoining
-  across effort tiers (low → medium → xhigh) before producing the
-  consolidated status read.
-- Runtime: `herdr` provider, two workspaces.
-  - `w652ad8185cafa2-1..6` — six panes (Vite docs server, idle pane,
-    Claude on a Mermaid theme fix, the TUI itself, Codex on a duplicate
-    ElevenLabs TTS root-cause, Codex on configuration contracts).
-  - `w652c48cca32463-1` — `implementer-1` codex pane, joined at
-    2026-05-27T03:53Z.
-
-### What worked
-
-- Single-turn fan-out: the dashboard issued seven `read_runtime_agent`
-  calls in parallel and synthesized them into a per-pane status that
-  matched ground truth in `events.jsonl`.
-- Event pipeline healthy across the session window: `agent.joined`,
-  `runtime.bound`, `agent.heartbeat`, `message.posted`, and
-  `runtime.output_observed` all firing as expected; ~9k events tailed
-  with no schema drift.
-- Real artifacts produced by agents inside the observed panes:
-  - `docs/CONFIGURATION.md` (commit `0262ffb`, "Expand AgentRoom
-    dashboard and config surfaces").
-  - `clanky-pi/docs/configuration.md` (commit `2e5c92b`, "Document
-    Clanky configuration ownership").
-  - Mermaid dark/light theme fix in `clanky-pi` (commit `7148f23`).
-  - Evidence-backed root-cause writeup for the duplicate ElevenLabs TTS
-    bug, produced in pane `w652ad8185cafa2-5` from `clankvox` buffer
-    logs.
-
-### What is explicitly not yet wired
-
-- The drive half of the loop. During the session there were zero
-  `runtime.input_sent` events to any bound pane; the agents in panes 5
-  and 6 ran under direct user steering, not under dashboard dispatch.
-  The single post-session `runtime.input_sent` event (`"hi"` to
-  `operator`, 2026-05-27T00:46Z) is an input-path smoke test, not a
-  programmatic dispatch.
-
-### Known cracks observed in the same window
-
-- Stale pane polling: `daemon.log` filled with `pane_not_found` for
-  `w652aca9fd72f08-8` at 160-line read cadence. Pane should be dropped
-  from the observer after two consecutive `pane_not_found` results.
-- Herdr observer socket lookup wrong:
-  `[herdr-observer] failed to start … ENOENT
-/Users/jamesvolpe/.config/herdr/sessions/agent-room/herdr.sock`. Events
-  still flow via CLI fallback, so this is silent degradation.
-- Unrelated Vite import error in `clanky-pi/apps/docs/src/content.ts:3`
-  (`../../../docs/demo.md?raw`) recycled into the room's output stream
-  for ~30 minutes. Not an AgentRoom bug, but the room is faithfully
-  logging it forever.
-
-### Evidence
-
-- `.agentroom/events.jsonl` (tail of session window).
-- `.agentroom/daemon.log`.
-- `.agentroom/clanky/profiles/operator/sessions/2026-05-26T02-19-17-411Z_019e6214-4a23-77b1-a719-a7af49533021.jsonl`.
-- Output commits produced during the session: `0262ffb`, `2e5c92b`,
-  `7148f23` (see Snapshot below for the repos and HEADs).
-
-### Snapshot — restore points
-
-Captured at the close of the session so a future human or agent can
-check out the exact state of the system that produced this milestone.
-
-| Repo                     | Path                                      | Branch               | HEAD                                       | Commit date               | Subject                                        |
-| ------------------------ | ----------------------------------------- | -------------------- | ------------------------------------------ | ------------------------- | ---------------------------------------------- |
-| AgentRoom                | `/Users/jamesvolpe/dev/agents/agent-room` | `main`               | `0262ffbc35bffbfffcf5bfcebde01593039d1142` | 2026-05-26 23:33:42 -0500 | Expand AgentRoom dashboard and config surfaces |
-| clanky-pi (operator)     | `/Users/jamesvolpe/dev/agents/clanky-pi`  | `v2-vanilla`         | `34f2a3b8b7cdf50771d6bea83b703186b60ce2a0` | 2026-05-26 23:36:24 -0500 | Register configuration.md in docs content map  |
-| herdr (runtime provider) | `/Users/jamesvolpe/dev/herdr`             | `feat/balance-panes` | `324b778fdbe1232b5e684a5c096bd79deac3c399` | 2026-05-25 02:36:40 -0500 | feat: expose tab balance command               |
-
-Working-tree notes at snapshot time:
-
-- `agent-room`: clean for session-critical files. Dirty diffs in
-  `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, and the
-  untracked `docs/MILESTONES.md` are this milestone-documentation pass
-  itself, not session output.
-- `clanky-pi`: uncommitted edits in
-  `agents/clanky/src/agentDiscordVoice.ts`,
-  `agents/clanky/src/voice/openAiRealtimeClient.ts`,
-  `agents/clanky/src/voice/xAiRealtimeClient.ts`, and
-  `agents/clanky/test/voice-smoke.ts` — work-in-progress on the
-  duplicate-TTS bug from pane `w652ad8185cafa2-5`, not part of the
-  milestone artifact.
-- `herdr`: uncommitted edits in `CONFIGURATION.md`,
-  `src/app/input/navigate.rs`, `src/detect.rs`. The herdr binary that
-  the daemon was talking to during the session was whatever was last
-  built locally; if exact reproduction matters, rebuild from
-  `324b778` with the working tree clean, then re-apply these diffs
-  only if the session symptoms (e.g. `pane_not_found` polling) need to
-  be reproduced.
-
-To restore to this snapshot:
-
-```bash
-git -C /Users/jamesvolpe/dev/agents/agent-room checkout 0262ffbc35bffbfffcf5bfcebde01593039d1142
-git -C /Users/jamesvolpe/dev/agents/clanky-pi checkout 34f2a3b8b7cdf50771d6bea83b703186b60ce2a0
-git -C /Users/jamesvolpe/dev/herdr     checkout 324b778fdbe1232b5e684a5c096bd79deac3c399
-```
-
-The room state itself (events, daemon log, clanky session log) lives
-under `.agentroom/` in this repo and is not tracked by git; if you need
-that side preserved, copy `.agentroom/` to a snapshot directory before
-running any new sessions, since `events.jsonl` and `daemon.log` will
-keep appending.

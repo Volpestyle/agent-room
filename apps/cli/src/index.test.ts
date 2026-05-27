@@ -682,6 +682,31 @@ describe("agent-room daemon lifecycle", () => {
     }
   });
 
+  it("passes top-level TUI options through to the AgentRoom TUI command", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-tui-root-options-"));
+    const env = testEnv("cli-tui-root-options-test");
+
+    try {
+      const help = await execAgentRoom(
+        cwd,
+        [
+          "--daemon",
+          "http://127.0.0.1:4317",
+          "--no-auto-start",
+          "--help",
+        ],
+        env,
+      );
+
+      expect(help.stdout).toContain(
+        "Open the interactive AgentRoom terminal UI",
+      );
+      expect(help.stdout).toContain("--daemon <url>");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("connects to the same singleton daemon from a different cwd", async () => {
     const firstCwd = await mkdtemp(join(tmpdir(), "agentroom-headless-a-"));
     const secondCwd = await mkdtemp(join(tmpdir(), "agentroom-headless-b-"));

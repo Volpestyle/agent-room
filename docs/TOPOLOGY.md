@@ -31,7 +31,7 @@ id, task id, messages, and runtime binding history.
 Register a cwd when you want it to appear as a stable workspace:
 
 ```bash
-agent-room workspace add /Users/jamesvolpe/dev/project-a --label project-a
+agent-room workspace add /path/to/project-a --label project-a
 agent-room workspace list
 ```
 
@@ -42,18 +42,18 @@ cwd-derived workspace label unless `--workspace` is supplied:
 agent-room launch api-impl \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/api
+  --cwd /path/to/api
 
 agent-room launch reviewer \
   --workspace project-a-review \
   --harness HARNESS_KIND \
   --command "AGENT_COMMAND" \
-  --cwd /Users/jamesvolpe/dev/project-a
+  --cwd /path/to/project-a
 ```
 
 ## TUI Portal
 
-`agent-room tui` connects to the same local daemon from any cwd. The dashboard is
+`agent-room` connects to the same local daemon from any cwd. The dashboard is
 a portal into the full room: overview, workspaces, agents, tasks, messages,
 runtime state, and events.
 

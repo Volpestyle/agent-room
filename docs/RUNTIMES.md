@@ -68,7 +68,7 @@ runtimes:
   herdr:
     type: herdr
     session: agent-room
-    cli: /Users/jamesvolpe/dev/herdr/target/debug/herdr
+    cli: /path/to/herdr/target/debug/herdr
 ```
 
 Herdr layout is config-driven:

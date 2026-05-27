@@ -11,6 +11,10 @@ AgentRoom is provider-neutral. A working room is assembled from explicit choices
 
 Use native AgentRoom messages and events as the source of truth for room coordination. Add external systems only where they are the system of record or the surface you want humans to use.
 
+If you are new, do not configure every integration first. Get the TUI running,
+launch one agent, read its output, and only then add trackers, chat gateways,
+mobile pairing, or custom skills.
+
 ## 1. Install The Local Tooling
 
 Prerequisites:
@@ -36,6 +40,16 @@ pnpm test
 AgentRoom defaults to one local room named `agent-room`. Its durable state lives
 in `$AGENTROOM_HOME` or `~/.agentroom`; the default visible runtime is
 `herdr --session agent-room`.
+
+Start with the human surface:
+
+```bash
+agent-room
+```
+
+The dashboard opens in operator chat. Ask it what is running, which agents are
+active, or what needs attention. The CLI remains available for exact automation,
+but the TUI should be the first interface a human learns.
 
 - The room is global for this workstation.
 - A cwd is workspace context, not room identity.
@@ -169,7 +183,8 @@ Expose these skills to the agent harnesses you launch using that harness's norma
 The daemon can be driven from several local clients:
 
 - CLI: `agent-room ...` commands read and write the same room event log.
-- TUI: `agent-room tui` opens the terminal dashboard against `AGENTROOM_DAEMON` or `--daemon`.
+- TUI: `agent-room` opens the terminal dashboard. Use
+  `agent-room --daemon <url>` only when connecting to a non-default daemon.
 - MCP: `agentroom-mcp` exposes room context, messages, tasks, waits, and audit reads to MCP-capable agents.
 - Mobile: `apps/mobile` connects to the daemon API. For iPhone access over Tailscale, start with `agent-room daemon start --tailnet`, then run `agent-room mobile-connect --copy` and open the `agentroom://connect?...` link on the phone.
 
@@ -191,3 +206,5 @@ agent-room events --limit 20
 ```
 
 Stop or reconfigure anything that fails health checks before launching a real multi-agent workflow.
+
+For the complete command surface, use [CLI Reference](CLI_REFERENCE.md).

@@ -1,0 +1,168 @@
+# CLI Reference
+
+This page is the command map for operators, scripts, and agents that need exact
+AgentRoom commands. Start with [Terminal TUI](TUI.md) or
+[Ecosystem Tour](ECOSYSTEM.md) if you are still learning when to use AgentRoom.
+
+Root shortcuts:
+
+```bash
+agent-room              # open the TUI
+agent-room --headless   # start the local daemon in the background
+```
+
+Most commands accept `--json` when their output is useful for scripts or agent
+tools.
+
+## First-Run And Config
+
+| Command                   | Purpose                                                        |
+| ------------------------- | -------------------------------------------------------------- |
+| `agent-room init`         | Write room config into `$AGENTROOM_HOME` or `~/.agentroom`.    |
+| `agent-room dev-new-user` | Create a temporary home for first-run TUI testing.             |
+| `agent-room doctor`       | Check local prerequisites and configured runtime availability. |
+| `agent-room whoami`       | Print current AgentRoom enrollment environment.                |
+
+Common init examples:
+
+```bash
+agent-room init --runtime herdr
+agent-room init --runtime herdr --runtime-cli herdr-dev
+agent-room init --runtime herdr --clanky --work-tracker linear --linear-team team_123
+```
+
+## Daemon, TUI, And Mobile
+
+| Command                             | Purpose                                                      |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `agent-room daemon foreground`      | Run `agentroomd` in the foreground.                          |
+| `agent-room daemon start`           | Start the daemon in the background.                          |
+| `agent-room daemon status`          | Show daemon pid, health, URL, and token requirement.         |
+| `agent-room daemon stop`            | Stop the managed daemon.                                     |
+| `agent-room daemon restart`         | Restart the managed daemon.                                  |
+| `agent-room daemon start --tailnet` | Bind to the machine's Tailscale address and require a token. |
+| `agent-room`                        | Open the interactive terminal dashboard.                     |
+| `agent-room --daemon <url>`         | Open the dashboard against a non-default daemon URL.         |
+| `agent-room mobile-connect`         | Print AgentRoom iOS/mobile connection settings.              |
+| `agent-room mobile-connect --copy`  | Copy the `agentroom://connect?...` pairing link on macOS.    |
+
+Useful options:
+
+| Option                | Applies to      | Purpose                                                  |
+| --------------------- | --------------- | -------------------------------------------------------- |
+| `--host <host>`       | `daemon`        | Bind host. Defaults to `127.0.0.1`.                      |
+| `--port <port>`       | `daemon`        | Bind port. Defaults to `4317`.                           |
+| `--api-token <token>` | `daemon`, `agent-room` | Bearer token for remote clients. Prefer env for secrets. |
+| `--daemon <url>`      | `agent-room`    | Connect the TUI to an existing daemon.                   |
+| `--no-auto-start`     | `agent-room`    | Do not start a daemon if none is reachable.              |
+
+## Runtime Providers
+
+| Command                            | Purpose                               |
+| ---------------------------------- | ------------------------------------- |
+| `agent-room runtime providers`     | List configured runtime providers.    |
+| `agent-room runtime use <runtime>` | Set the default runtime in config.    |
+| `agent-room runtime doctor`        | Check the selected runtime provider.  |
+| `agent-room runtime fake-smoke`    | Run the fake provider contract smoke. |
+
+Supported runtime kinds today: `herdr`, `tmux`, and `fake`.
+
+## Agent Runtime Control
+
+| Command                            | Purpose                                              |
+| ---------------------------------- | ---------------------------------------------------- |
+| `agent-room launch <agentId>`      | Launch an opted-in agent through a runtime provider. |
+| `agent-room enroll`                | Enroll the current pane or shell into the room.      |
+| `agent-room read <agentId>`        | Read recent output from a runtime-backed agent.      |
+| `agent-room send <agentId> <text>` | Send input to a runtime-backed agent.                |
+| `agent-room stop <agentId>`        | Stop a runtime-backed agent.                         |
+
+Launch requires an explicit harness and command:
+
+```bash
+agent-room launch impl \
+  --harness codex \
+  --command "codex" \
+  --cwd /path/to/workspace
+```
+
+Supported harness kinds: `claude-code`, `codex`, `pi`, `gemini-cli`, `shell`,
+and `custom`.
+
+Herdr placement options:
+
+| Option                     | Purpose                                     |
+| -------------------------- | ------------------------------------------- | ------------------------------- | ------------------------------------ |
+| `--placement workspace     | tab                                         | pane`                           | Override configured Herdr placement. |
+| `--workspace <label>`      | Place the agent in a named Herdr workspace. |
+| `--panes-per-tab <number>` | Cap pane-grid density.                      |
+| `--split largest           | focused`                                    | Choose the pane split strategy. |
+
+By default, `read`, `send`, and `stop` require an AgentRoom runtime binding so
+terminal IO stays audited. `--unaudited` is for manual recovery only.
+
+## Messages And Waits
+
+| Command                           | Purpose                                      |
+| --------------------------------- | -------------------------------------------- |
+| `agent-room post <body>`          | Post a room channel message.                 |
+| `agent-room dm <agentIds> <body>` | Send a direct message to one or more agents. |
+| `agent-room messages`             | Show recent room messages.                   |
+| `agent-room wait`                 | Wait until a matching room event appears.    |
+| `agent-room events`               | Show recent local room events.               |
+| `agent-room events --follow`      | Stream new events.                           |
+
+Examples:
+
+```bash
+agent-room post "Planning is done" --channel announcements
+agent-room dm reviewer "Ready for review"
+agent-room messages --with impl-1 --limit 20
+agent-room wait --dm-to-me --timeout 600 --json
+agent-room wait --message "ready for review" --since now
+```
+
+## Tasks
+
+AgentRoom tasks are local execution shadows. Link them to the durable tracker
+when a real issue exists.
+
+| Command                                          | Purpose                             |
+| ------------------------------------------------ | ----------------------------------- |
+| `agent-room task create <title>`                 | Create a local task shadow.         |
+| `agent-room task list`                           | List local task shadows.            |
+| `agent-room task show <taskId>`                  | Show one task shadow.               |
+| `agent-room task claim <taskId>`                 | Claim a task.                       |
+| `agent-room task status <taskId> <status>`       | Set task status.                    |
+| `agent-room task link-linear <taskId> <issueId>` | Link a task to Linear.              |
+| `agent-room task comment <taskId> <body>`        | Comment on the linked Linear issue. |
+| `agent-room block <taskId> --reason <reason>`    | Mark a task blocked.                |
+| `agent-room done <taskId>`                       | Mark a task done.                   |
+| `agent-room ask-human <question>`                | Create a human escalation question. |
+
+Statuses come from the AgentRoom task model. Use `task status` for explicit
+state changes and `done` / `block` for the common paths.
+
+## Workspaces And Trackers
+
+| Command                                        | Purpose                                   |
+| ---------------------------------------------- | ----------------------------------------- |
+| `agent-room workspace add <cwd>`               | Register a cwd as an AgentRoom workspace. |
+| `agent-room workspace list`                    | List registered workspaces.               |
+| `agent-room tracker health`                    | Check the configured work tracker bridge. |
+| `agent-room tracker comment <issueId> <body>`  | Comment on a Linear issue.                |
+| `agent-room tracker status <issueId> <status>` | Update Linear issue status.               |
+
+## Environment
+
+| Variable              | Purpose                                                       |
+| --------------------- | ------------------------------------------------------------- |
+| `AGENTROOM_HOME`      | Room config and local state home. Defaults to `~/.agentroom`. |
+| `AGENTROOM_DAEMON`    | Daemon base URL for clients and enrolled agents.              |
+| `AGENTROOM_API_TOKEN` | Bearer token for tailnet or remote daemon access.             |
+| `AGENTROOM_AGENT_ID`  | Current enrolled agent id.                                    |
+| `AGENTROOM_ROOM_ID`   | Current room id.                                              |
+| `AGENTROOM_ROLE`      | Current enrolled role.                                        |
+
+When AgentRoom launches an agent, runtime providers set the enrollment variables
+so the agent can identify itself and coordinate through the room.

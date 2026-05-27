@@ -1,11 +1,12 @@
 # AgentRoom
 
-> AgentRoom is the local-first control room for launching, steering, auditing, and coordinating long-running coding agents, with provider ports for runtimes, trackers, chat gateways, design, code hosts, and local room state.
+> AgentRoom is the local-first terminal control room for seeing, launching, steering, and auditing long-running coding agents. Start with the TUI, then use CLI and MCP references when you need exact automation.
 
 ## Start
 
 - [Ecosystem Tour](https://volpestyle.github.io/docs/agent-room/?doc=ecosystem): What users can do, what agents should handle, and the diagrams that explain the agent-first workspace.
 - [Overview](https://volpestyle.github.io/docs/agent-room/?doc=overview): AgentRoom's local-first coordination model, repository layout, tech stack, and quick start.
+- [Terminal TUI](https://volpestyle.github.io/docs/agent-room/?doc=tui): The human dashboard path: operator chat, views, hotkeys, and when to use the CLI instead.
 
 ## Setup
 
@@ -21,6 +22,7 @@
 ## Reference
 
 - [Protocol Notes](https://volpestyle.github.io/docs/agent-room/?doc=protocol): Agent opt-in environment, structured commands, local task shadows, and Linear bridge commands.
+- [CLI Reference](https://volpestyle.github.io/docs/agent-room/?doc=cli-reference): Complete AgentRoom command map for operators, scripts, and agents that need exact commands.
 - [Security Model](https://volpestyle.github.io/docs/agent-room/?doc=security): Runtime audit boundaries, scoped tokens, dangerous actions, transcript handling, and secrets.
 
 ## Architecture
@@ -31,10 +33,3 @@
 ## Planning
 
 - [Roadmap](https://volpestyle.github.io/docs/agent-room/?doc=roadmap): Planned runtime, storage, gateway, provider, TUI, mobile, and policy milestones.
-- [Milestones](https://volpestyle.github.io/docs/agent-room/?doc=milestones): Current delivery milestones, sequencing, implementation notes, and acceptance gates.
-
-## Maintainer
-
-- [ADR 0001: Tech Stack](https://volpestyle.github.io/docs/agent-room/?doc=adr-tech-stack): Decision record for AgentRoom's core language, packaging, daemon, MCP, and client choices.
-- [ADR 0002: Runtime Provider Port](https://volpestyle.github.io/docs/agent-room/?doc=adr-runtime-provider): Decision record for the runtime provider boundary and adapter responsibilities.
-- [ADR 0003: Chat Gateway Port](https://volpestyle.github.io/docs/agent-room/?doc=adr-chat-gateway): Decision record for bidirectional chat gateway ownership and provider boundaries.
