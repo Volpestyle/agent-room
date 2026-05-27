@@ -12,4 +12,3 @@ coverage/
 .agentroom/clanky/
 .agentroom/pi-sessions/
 *.log
-pnpm-lock.yaml
