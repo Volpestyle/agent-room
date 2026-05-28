@@ -5,7 +5,7 @@ AgentRoom is provider-neutral. A working room is assembled from explicit choices
 - runtime provider / terminal multiplexer
 - agent harness command
 - work tracker
-- design provider
+- design tooling
 - messaging surface
 - agent skills
 
@@ -135,13 +135,16 @@ operations.
 
 If the selected tracker is unavailable, agents must report `tracker_update_skipped` with the reason. They should not pretend a tracker update happened.
 
-## 6. Choose The Design Integration
+## 6. Choose Design Tooling
 
-Design is optional. If design data matters for the room, choose one source of truth:
+Design is optional. If design data matters for the room, choose one source of
+truth and let the agents use the right tool directly:
 
 - Native only: link screenshots, files, or URLs in room messages and task refs.
-- Figma: use the `DesignProvider` port and `@agentroom/design-figma` scaffold where available; use Figma MCP/tools for direct Figma operations until the AgentRoom adapter workflow is complete.
-- Custom: implement the `DesignProvider` port and keep provider-specific language out of core room guidance.
+- Figma or another design system: use that tool's MCP server, connector, CLI,
+  browser workflow, or skill inside the relevant agent runtime.
+- Custom: document the room's design source of truth in `.agentroom/AGENTS.md`
+  and have agents link stable refs back to task shadows or room messages.
 
 Workers should discuss design work through AgentRoom messages and task refs, not by assuming every room uses Figma.
 

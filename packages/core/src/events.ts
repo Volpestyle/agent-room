@@ -16,7 +16,7 @@ import type {
   ChatGatewayAttribution,
   ChatInboundMessage,
   ChatSendMessageResult,
-} from "./ports/Connectors.js";
+} from "./ports/ChatGatewayProvider.js";
 
 export type RoomEventType =
   | "message.posted"
@@ -46,9 +46,7 @@ export type RoomEventType =
   | "runtime.state_observed"
   | "chat.inbound_received"
   | "chat.outbound_sent"
-  | "github.pr_event"
   | "tracker.ref_event"
-  | "figma.design_event"
   | "decision.recorded"
   | "handoff.created";
 

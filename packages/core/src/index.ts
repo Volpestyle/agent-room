@@ -3,7 +3,7 @@ export * from "./events.js";
 export * from "./ids.js";
 export * from "./ports/EventStore.js";
 export * from "./ports/RuntimeProvider.js";
-export * from "./ports/Connectors.js";
+export * from "./ports/ChatGatewayProvider.js";
 export * from "./schemas.js";
 export * from "./services/AgentRoomService.js";
 export * from "./services/ChatGatewayOutboundDispatcher.js";

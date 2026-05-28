@@ -59,19 +59,21 @@ flowchart TB
   core["@agentroom/core<br/>rooms, agents, task shadows, messages, approvals,<br/>handoffs, normalized events"]
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
-  connectors["Connector ports<br/>work tracker, code host, design, chat"]
+  gateways["ChatGatewayProvider<br/>optional room-owned conversation routing"]
+  external["Agent-owned tools<br/>trackers, code hosts, design systems, CLIs, MCP"]
   local[".agentroom/<br/>config.yaml<br/>AGENTS.md<br/>events.jsonl<br/>SQLite planned"]
   runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
-  adapters["Linear, GitHub<br/>Figma, Discord<br/>Telegram, custom adapters"]
+  chatAdapters["Discord<br/>future chat gateways"]
 
   surfaces --> daemon
   daemon --> core
   core --> store
   core --> runtime
-  core --> connectors
+  core --> gateways
   store --> local
   runtime --> runtimes
-  connectors --> adapters
+  gateways --> chatAdapters
+  surfaces --> external
 ```
 
 ## Read The Boundaries
@@ -87,9 +89,10 @@ flowchart TB
 - Runtime providers own process placement and terminal control. AgentRoom uses
   provider capabilities instead of assuming Herdr, tmux, Docker, SSH, or a
   hosted scheduler.
-- Connector ports keep durable external systems external. The work tracker
-  remains canonical for issues and workflow; AgentRoom keeps local execution
-  context and refs.
+- Durable external systems stay external. The selected work tracker remains
+  canonical for issues and workflow; agents use their own MCP servers,
+  connectors, CLIs, and skills for tracker/code/design work while AgentRoom
+  keeps local execution context and refs.
 
 ## Primary Flow
 
@@ -101,8 +104,9 @@ flowchart TB
    views.
 4. Runtime actions go through `RuntimeProvider` adapters so `launch`, `read`,
    `send`, and `stop` stay audited.
-5. External tracker, code host, design, notification, and chat systems are
-   reached through connector ports when the room explicitly configures them.
+5. Room-owned chat reaches external conversations through `ChatGatewayProvider`.
+   Trackers, code hosts, design systems, and one-off notifications are handled
+   by the agents that need them, then summarized back into the room.
 
 For the written model, see [Architecture](ARCHITECTURE.md),
 [Configuration](CONFIGURATION.md), [Coordination](COORDINATION.md), and

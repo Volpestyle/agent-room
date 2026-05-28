@@ -31,8 +31,8 @@
 
 ## Architecture
 
-- [Architecture](https://volpestyle.github.io/docs/agent-room/?doc=architecture): Core domain ownership, provider ports, adapters, configuration model, gateways, and daemon surfaces.
-- [System Diagram](https://volpestyle.github.io/docs/agent-room/?doc=diagram): Docs-friendly end-to-end map of UIs, daemon, core, ports, adapters, and external systems.
+- [Architecture](https://volpestyle.github.io/docs/agent-room/?doc=architecture): Core domain ownership, runtime and gateway ports, configuration model, and daemon surfaces.
+- [System Diagram](https://volpestyle.github.io/docs/agent-room/?doc=diagram): Docs-friendly end-to-end map of UIs, daemon, core, runtime providers, gateways, and external tools.
 
 ## Planning
 
