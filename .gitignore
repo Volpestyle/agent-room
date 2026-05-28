@@ -8,7 +8,9 @@ coverage/
 !.env.example
 .agentroom/events.jsonl
 .agentroom/daemon.pid
+.agentroom/daemon.log
 .agentroom/room.db
 .agentroom/clanky/
 .agentroom/pi-sessions/
+.clanky-room/
 *.log
