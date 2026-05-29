@@ -19,7 +19,7 @@ import type {
   ChatGatewayAttribution,
   ChatInboundMessage,
   ChatSendMessageResult,
-} from "../ports/Connectors.js";
+} from "../ports/ChatGatewayProvider.js";
 import type {
   EventBatch,
   EventCursor,

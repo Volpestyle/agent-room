@@ -136,7 +136,7 @@ export const docsMeta: DocMeta[] = [
     slug: "architecture",
     title: "Architecture",
     description:
-      "Core domain ownership, provider ports, adapters, configuration model, gateways, and daemon surfaces.",
+      "Core domain ownership, runtime and gateway ports, configuration model, and daemon surfaces.",
     source: "docs/ARCHITECTURE.md",
     group: "Architecture",
   },
@@ -144,7 +144,7 @@ export const docsMeta: DocMeta[] = [
     slug: "diagram",
     title: "System Diagram",
     description:
-      "Docs-friendly end-to-end map of UIs, daemon, core, ports, adapters, and external systems.",
+      "Docs-friendly end-to-end map of UIs, daemon, core, runtime providers, gateways, and external tools.",
     source: "docs/DIAGRAM.md",
     group: "Architecture",
   },

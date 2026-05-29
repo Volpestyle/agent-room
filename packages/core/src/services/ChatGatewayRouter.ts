@@ -5,7 +5,7 @@ import type {
   ChatGatewayConversation,
   ChatGatewayProvider,
   ChatInboundMessage,
-} from "../ports/Connectors.js";
+} from "../ports/ChatGatewayProvider.js";
 import type { AgentRoomService } from "./AgentRoomService.js";
 
 export type ChatRouteTarget =

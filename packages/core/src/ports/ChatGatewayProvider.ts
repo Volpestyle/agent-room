@@ -1,63 +1,6 @@
-import type { ActorRef, Id, Importance, Ref } from "../domain.js";
+import type { ActorRef } from "../domain.js";
 
-export interface PullRequestRef {
-  id: string;
-  number: number;
-  title: string;
-  url: string;
-  branch: string;
-  status: "open" | "closed" | "merged";
-}
-
-export interface CodeHostProvider {
-  id: string;
-  kind: "github" | "gitlab" | "bitbucket" | "custom";
-  health(): Promise<{ ok: boolean; message?: string }>;
-  createPullRequest(input: {
-    title: string;
-    body: string;
-    branch: string;
-    base: string;
-  }): Promise<PullRequestRef>;
-  commentOnPullRequest(prId: string, body: string): Promise<void>;
-}
-
-export interface DesignProvider {
-  id: string;
-  kind: "figma" | "custom";
-  health(): Promise<{ ok: boolean; message?: string }>;
-  resolveRef(
-    ref: Ref,
-  ): Promise<{
-    title: string;
-    summary?: string;
-    url?: string;
-    metadata?: Record<string, unknown>;
-  }>;
-}
-
-export interface NotificationProvider {
-  id: string;
-  kind: "telegram" | "discord" | "custom-app" | "email" | "webhook" | "custom";
-  health(): Promise<{ ok: boolean; message?: string }>;
-  notify(input: {
-    roomId: Id;
-    channelId?: string;
-    recipients?: ActorRef[];
-    title: string;
-    body: string;
-    priority?: Importance;
-    refs?: Ref[];
-  }): Promise<void>;
-}
-
-export type ChatGatewayKind =
-  | "discord"
-  | "telegram"
-  | "sms"
-  | "email"
-  | "webhook"
-  | "custom";
+export type ChatGatewayKind = "discord" | "webhook" | "custom";
 
 export type ChatCredentialKind =
   | "bot-token"
@@ -77,9 +20,7 @@ export type ChatMessageKind =
   | "image"
   | "video"
   | "audio"
-  | "voice"
   | "document"
-  | "sticker"
   | "custom";
 
 export interface ChatGatewayUser {

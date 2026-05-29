@@ -1,6 +1,7 @@
 # Architecture
 
-For a docs-UI-friendly end-to-end map of the surfaces, daemon, core, ports, adapters, and external systems, see [AgentRoom Diagram](docs/DIAGRAM.md).
+For a docs-UI-friendly end-to-end map of the surfaces, daemon, core, ports,
+adapters, and external systems, see [AgentRoom Diagram](DIAGRAM.md).
 
 ```text
 Human UIs / bots / custom app
@@ -10,12 +11,13 @@ Human UIs / bots / custom app
              │
    ┌─────────┼─────────┐
    ▼         ▼         ▼
-EventStore Runtime   Connectors
-          Provider   GitHub/Linear/Figma/etc.
-             │
-   ┌─────────┼──────────────┐
-   ▼         ▼              ▼
- Herdr     tmux         future ECS/K8s
+EventStore Runtime   ChatGateway
+           Provider  Provider
+   │          │        │
+   ▼          ▼        ▼
+ local     Herdr     Discord
+ JSONL     tmux      future chat
+           future
 ```
 
 ## Core domain
@@ -33,7 +35,8 @@ The core domain owns:
 - handoffs
 - normalized events
 
-The core domain does not own terminal multiplexing, cloud scheduling, durable work tracking, code hosting, design data, or notification delivery.
+The core domain does not own terminal multiplexing, cloud scheduling, durable
+work tracking, code hosting, design data, or notification delivery.
 
 ## Coordination Split
 
@@ -49,14 +52,19 @@ AgentRoom talks to the world through ports:
 
 - `RuntimeProvider`
 - `EventStore`
-- `CodeHostProvider`
-- `DesignProvider`
-- `NotificationProvider`
 - `ChatGatewayProvider`
 
 Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the chosen tracker and AgentRoom passes provider-neutral protocol environment to agents; `.agentroom/AGENTS.md` records the room policy. Tracker operations themselves happen through the configured MCP server, CLI, connector, or skill in each agent runtime.
 
-`NotificationProvider` is fire-and-forget alerting (one-way, no inbound). `ChatGatewayProvider` is a bidirectional chat surface that can attach a Discord/Telegram/SMS/etc. conversation to a room channel, a directed room message, or a runtime-backed agent's input. See `docs/ADR/0003-chat-gateway-port.md`.
+Code hosts, design systems, and one-off notification services are not
+AgentRoom ports either. Agents use those tools directly through the MCP servers,
+connectors, CLIs, skills, browsers, and auth stores available in their runtime,
+then link stable refs or summaries back to AgentRoom messages and task shadows.
+
+`ChatGatewayProvider` is the exception because it lets AgentRoom orchestrate a
+room-owned messaging layer: a Discord/Telegram/SMS/etc. conversation can attach
+to a room channel, a directed room message, or a runtime-backed agent's input.
+See `docs/ADR/0003-chat-gateway-port.md`.
 
 ## Adapters
 
@@ -65,10 +73,6 @@ Adapters implement ports:
 - `runtime-herdr`
 - `runtime-tmux`
 - `runtime-fake`
-- `codehost-github`
-- `design-figma`
-- `notify-telegram`
-- `notify-discord`
 - `chat-discord` (`ChatGatewayProvider`, bot-token and user-token modes)
 
 ## Configuration Model

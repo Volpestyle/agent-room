@@ -77,7 +77,8 @@ flowchart TB
   user["Human operator<br/>TUI, CLI, phone, chat"]
   room["AgentRoom<br/>room state, messages, tasks, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini CLI, shell/custom"]
-  providers["Providers<br/>Herdr, tmux, Linear, GitHub, Figma, gateways"]
+  providers["Room providers<br/>Herdr, tmux, chat gateways"]
+  external["Agent-owned tools<br/>Linear, GitHub, Figma, MCP, CLI"]
   media["ClankVox<br/>current Discord voice and Go Live media plane"]
 
   user --> room
@@ -85,6 +86,7 @@ flowchart TB
   agents --> room
   room --> providers
   agents --> providers
+  agents --> external
   agents --> media
   media --> providers
 ```
@@ -93,7 +95,9 @@ Read it as:
 
 - the human asks the room, not a random pane
 - agents coordinate through the room, not private scratchpads
-- providers are replaceable adapters
+- runtime providers and room-owned gateways are replaceable adapters
+- trackers, code hosts, and design tools are handled by agents through their
+  own tools
 - Clanky can bring personal state, memory, communication gateways, voice/media,
   and skills
 - ClankVox stays below Clanky as deterministic transport code
@@ -111,11 +115,12 @@ flowchart LR
   end
 
   room["AgentRoom evented room"]
+  agents["Agents"]
 
   subgraph durable["Durable external systems"]
     tracker["Linear / GitHub / Jira"]
     code["Code host"]
-    design["Figma / design provider"]
+    design["Figma / design system"]
   end
 
   subgraph runtimes["Runtime providers"]
@@ -126,7 +131,9 @@ flowchart LR
 
   surfaces --> room
   room --> runtimes
-  room --> durable
+  room --> gateway
+  room --> agents
+  agents --> durable
 ```
 
 The surfaces are ways into the room. They are not the source of truth. The
@@ -164,7 +171,7 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 | Repo             | Role                   | What the docs should prove                                                                                                                    |
 | ---------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, mobile pairing, room events, task shadows, and provider ports form one control surface.        |
+| `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, optional room chat gateway, mobile pairing, room events, and task shadows form one control surface. |
 | `clanky-pi`      | Personal Pi agent      | Clanky is stateful, profile-scoped, memory-aware, communication-gateway-capable, voice/media-capable, and launchable as a normal AgentRoom worker. |
 | `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and JSON-line IPC.                   |
 | `agent-room-ios` | Mobile operator client | A room can be checked and steered over a private tailnet without exposing the daemon publicly.                                                |

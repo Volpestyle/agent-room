@@ -1,6 +1,0 @@
-approvals:
-  required:
-    - action: github.merge_pr
-      approver: human
-    - action: deploy.production
-      approver: human

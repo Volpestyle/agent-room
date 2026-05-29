@@ -61,9 +61,9 @@ credentials, memory, sessions, and agent-owned connector state.
 
 ## Local Files And Ownership
 
-Setup should make file ownership explicit. The package owns schemas, adapters,
-defaults, and editing surfaces. Users and rooms own the files created on their
-machine.
+Setup should make file ownership explicit. The package owns schemas,
+runtime/gateway adapters, defaults, and editing surfaces. Users and rooms own
+the files created on their machine.
 
 AgentRoom files:
 

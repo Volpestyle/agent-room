@@ -5,9 +5,10 @@ the terminal dashboard, ask what is happening, launch or redirect agents, and
 keep the active work in one evented room instead of scattered across terminal
 panes, chat threads, and issue comments.
 
-The important idea is simple: the room is the product. Runtimes, trackers,
-design tools, code hosts, chat systems, MCP servers, and phone clients are ways
-into or out of that room.
+The important idea is simple: the room is the product. Runtime providers and
+room-owned chat gateways are AgentRoom adapters; trackers, design tools, code
+hosts, MCP servers, and phone clients are surfaces that agents or humans use
+around that room.
 
 ## When To Use AgentRoom
 
@@ -56,8 +57,9 @@ Let agents use AgentRoom for active execution:
 - update the external tracker when durable status changes
 - summarize terminal output instead of forcing the human to read every pane
 
-AgentRoom is the room. Terminals, chat systems, trackers, and design tools are
-surfaces or providers.
+AgentRoom is the room. Terminals and room-owned chat are surfaces into it;
+trackers, code hosts, and design tools are external tools that agents use and
+link back to room state.
 
 ## 3. Mental Model
 
@@ -67,14 +69,15 @@ flowchart TB
   room["AgentRoom<br/>messages, tasks, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini, custom"]
   runtimes["Runtime providers<br/>Herdr, tmux, future hosted"]
-  providers["External providers<br/>Linear, GitHub, Figma, chat gateways"]
+  gateways["Room-owned chat gateways<br/>Discord first"]
+  external["Agent-owned external tools<br/>Linear, GitHub, Figma, MCP, CLI"]
 
   human --> room
   room --> agents
   agents --> room
   room --> runtimes
-  room --> providers
-  agents --> providers
+  room --> gateways
+  agents --> external
 ```
 
 For the full product tour, see [Ecosystem Tour](docs/ECOSYSTEM.md).
@@ -125,7 +128,7 @@ packages/
   runtime-herdr/   Herdr runtime adapter
   runtime-tmux/    tmux runtime adapter
   runtime-fake/    contract-test runtime
-  integrations/    tracker, chat, design, code-host, notification adapters
+  integrations/    room-owned chat gateway adapters
 skills/
   agentroom/       enrolled worker/reviewer behavior
   agentroom-operator/
@@ -220,9 +223,12 @@ replaceable:
 - `ChatGatewayProvider`: communication gateway routing primitives. Discord is
   the first adapter; other chat surfaces should follow the same owner/routing
   model.
-- `CodeHostProvider`, `DesignProvider`, and `NotificationProvider`: optional
-  integrations that should not leak provider-specific assumptions into the room
-  model.
+
+Code hosts, design tools, one-off notifications, and durable tracker mutations
+are agent-owned tool usage, not AgentRoom adapter ports. Agents use the MCP
+servers, connectors, CLIs, skills, or auth stores available in their runtime and
+bring the result back to the room through messages, refs, task shadows, and
+status.
 
 The external work tracker remains canonical for issues, ownership, workflow
 status, acceptance criteria, and durable comments. AgentRoom keeps execution
@@ -278,8 +284,8 @@ High-signal pages:
 3. Runtime input/output is privileged and auditable.
 4. Agents coordinate through room commands, channel messages, DMs, and task
    shadows.
-5. External trackers, design tools, code hosts, and chat systems stay provider
-   adapters.
+5. External trackers, design tools, and code hosts stay agent-owned; room-owned
+   chat gateways are explicit adapters with one owner per conversation.
 6. The local MVP should work on one machine, but the ports should survive
    hosted and multi-host runtimes.
 

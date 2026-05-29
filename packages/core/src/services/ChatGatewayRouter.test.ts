@@ -24,7 +24,7 @@ import type {
   ChatSendMessageInput,
   ChatSendMessageResult,
   ChatSendTypingInput
-} from '../ports/Connectors.js';
+} from '../ports/ChatGatewayProvider.js';
 import { AgentRoomService } from './AgentRoomService.js';
 import { ChatGatewayRouter } from './ChatGatewayRouter.js';
 

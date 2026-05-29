@@ -4,7 +4,7 @@ import type {
   ChatGatewayAttribution,
   ChatGatewayConversation,
   ChatGatewayProvider,
-} from "../ports/Connectors.js";
+} from "../ports/ChatGatewayProvider.js";
 import type { AgentRoomService } from "./AgentRoomService.js";
 import type {
   ChatGatewayOutboundSource,

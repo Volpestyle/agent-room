@@ -183,10 +183,4 @@ export type MessageCreateInput = z.infer<typeof messageCreateSchema>;
 export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
 export type TaskDetailsUpdateInput = z.infer<typeof taskDetailsUpdateSchema>;
 export type TaskDeleteInput = z.infer<typeof taskDeleteSchema>;
-export type TaskLinkRefInput = z.infer<typeof taskLinkRefSchema>;
-export type TaskClaimInput = z.infer<typeof taskClaimSchema>;
-export type TaskStatusUpdateInput = z.infer<typeof taskStatusUpdateSchema>;
-export type HumanEscalationCreateInput = z.infer<
-  typeof humanEscalationCreateSchema
->;
 export type WorkspaceRegisterInput = z.infer<typeof workspaceRegisterSchema>;
