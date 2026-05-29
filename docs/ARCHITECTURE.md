@@ -1,7 +1,7 @@
 # Architecture
 
 For a docs-UI-friendly end-to-end map of the surfaces, daemon, core, ports,
-adapters, and external systems, see [AgentRoom Diagram](docs/DIAGRAM.md).
+adapters, and external systems, see [AgentRoom Diagram](DIAGRAM.md).
 
 ```text
 Human UIs / bots / custom app

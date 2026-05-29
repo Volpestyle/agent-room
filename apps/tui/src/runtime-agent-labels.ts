@@ -21,7 +21,7 @@ export function runtimeAgentLabel(agent: RuntimeAgent): string | undefined {
   return undefined;
 }
 
-export function runtimeAgentForRoomAgent(
+function runtimeAgentForRoomAgent(
   agent: RoomAgent,
   runtimeAgents: RuntimeAgentSnapshotLike[],
 ): RuntimeAgentSnapshotLike | undefined {
@@ -77,7 +77,7 @@ export function roomAgentRuntimeTarget(
   return undefined;
 }
 
-export function roomAgentTypeAlias(
+function roomAgentTypeAlias(
   agent: RoomAgent,
   runtimeAgents: RuntimeAgentSnapshotLike[],
 ): string | undefined {

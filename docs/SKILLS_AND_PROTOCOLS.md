@@ -73,7 +73,7 @@ carry the exact operational steps.
 Clanky, ClankVox, AgentRoom iOS, and supporting MCP packages should expose their
 integration contracts in public docs when the contract is part of the product
 picture. For AgentRoom specifically, the Clanky-side room contract lives in
-[`../clanky-pi/docs/AGENTROOM.md`](../clanky-pi/docs/AGENTROOM.md).
+[`../../clanky-pi/docs/AGENTROOM.md`](../../clanky-pi/docs/AGENTROOM.md).
 
 Clanky's communication layer is a gateway abstraction. Discord text and Discord
 voice are the current concrete adapters, not the boundary of the product.

@@ -6,15 +6,7 @@ import type {
   Id,
 } from "../domain.js";
 
-export type RuntimeProviderKind =
-  | "fake"
-  | "herdr"
-  | "tmux"
-  | "docker"
-  | "ssh"
-  | "ecs"
-  | "kubernetes"
-  | "custom";
+export type RuntimeProviderKind = "fake" | "herdr" | "tmux" | "custom";
 
 export interface RuntimeCapabilities {
   startAgent: boolean;
@@ -151,18 +143,3 @@ export interface RuntimeProvider {
   attach?(agentId: Id): Promise<void>;
   subscribeEvents?(handler: RuntimeEventHandler): Promise<RuntimeSubscription>;
 }
-
-export const defaultRuntimeCapabilities: RuntimeCapabilities = {
-  startAgent: false,
-  stopAgent: false,
-  readOutput: false,
-  sendInput: false,
-  attachInteractive: false,
-  subscribeEvents: false,
-  semanticAgentState: false,
-  screenshots: false,
-  fileMounts: false,
-  worktrees: false,
-  remoteExecution: false,
-  adoptAgent: false,
-};

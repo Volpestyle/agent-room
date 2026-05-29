@@ -36,7 +36,6 @@ import {
   taskStatusSchema,
 } from "@agentroom/core";
 import {
-  DEFAULT_ROOM_ID,
   agentRoomDir,
   agentRoomConfigPath,
   agentRoomProtocolPath,
@@ -45,11 +44,9 @@ import {
   defaultRoomIdFromEnv,
   ensureAgentRoomProtocol,
   ensureRuntimeConfig,
-  loadAgentRoomConfig,
   maybeLoadAgentRoomConfig,
   readAgentRoomProtocol,
   resolveStoragePath,
-  runtimeNameFor,
   withDefaultRuntime,
   writeAgentRoomConfig,
   type AgentRoomConfig,
@@ -1458,7 +1455,7 @@ async function runtimeProviderForCwd(
   config?: AgentRoomConfig;
 }> {
   const config = await ensureLocalAgentRoomConfig();
-  const name = config ? runtimeNameFor(config, runtimeName) : runtimeName;
+  const name = config ? (runtimeName ?? config.runtime.default) : runtimeName;
   if (name === undefined) {
     throw new Error("Runtime provider is required.");
   }
@@ -2725,10 +2722,6 @@ async function resolveAgentByPane(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
-}
-
-async function writeJson(path: string, value: unknown): Promise<void> {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 async function writePrivateJson(path: string, value: unknown): Promise<void> {

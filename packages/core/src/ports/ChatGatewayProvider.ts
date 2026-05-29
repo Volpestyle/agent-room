@@ -1,12 +1,6 @@
 import type { ActorRef } from "../domain.js";
 
-export type ChatGatewayKind =
-  | "discord"
-  | "telegram"
-  | "sms"
-  | "email"
-  | "webhook"
-  | "custom";
+export type ChatGatewayKind = "discord" | "webhook" | "custom";
 
 export type ChatCredentialKind =
   | "bot-token"
@@ -26,9 +20,7 @@ export type ChatMessageKind =
   | "image"
   | "video"
   | "audio"
-  | "voice"
   | "document"
-  | "sticker"
   | "custom";
 
 export interface ChatGatewayUser {

@@ -204,10 +204,6 @@ export function projectAgentRoomDir(cwd = process.cwd()): string {
   return join(cwd, AGENTROOM_DIR);
 }
 
-export function projectAgentRoomConfigPath(cwd = process.cwd()): string {
-  return join(projectAgentRoomDir(cwd), AGENTROOM_CONFIG_FILE);
-}
-
 export function agentRoomRootDir(cwd = process.cwd()): string {
   const home = process.env.AGENTROOM_HOME?.trim();
   if (home) return resolve(home);
@@ -276,7 +272,7 @@ export async function maybeLoadAgentRoomConfig(
   }
 }
 
-export function loadAgentRoomConfigSync(cwd = process.cwd()): AgentRoomConfig {
+function loadAgentRoomConfigSync(cwd = process.cwd()): AgentRoomConfig {
   const text = readFileSync(agentRoomConfigPath(cwd), "utf8");
   return parseAgentRoomConfig(text);
 }
@@ -354,29 +350,6 @@ export function ensureRuntimeConfig(
       `Unknown runtime '${runtimeName}'. Run 'agent-room runtime providers' to list configured runtimes.`,
     );
   return runtime;
-}
-
-export function runtimeNameFor(
-  config: AgentRoomConfig,
-  runtimeName?: string,
-): string {
-  return runtimeName ?? config.runtime.default;
-}
-
-export function workTrackerNameFor(
-  config: AgentRoomConfig,
-  trackerName?: string,
-): string | undefined {
-  return trackerName ?? config.workTracker?.default;
-}
-
-export function ensureWorkTrackerProviderConfig(
-  config: AgentRoomConfig,
-  trackerName: string,
-): WorkTrackerProviderConfig {
-  const provider = config.workTracker?.providers[trackerName];
-  if (!provider) throw new Error(`Unknown work tracker '${trackerName}'.`);
-  return provider;
 }
 
 export function withDefaultRuntime(
