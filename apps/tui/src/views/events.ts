@@ -1,4 +1,8 @@
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
 import { palette } from "../theme.js";
 import type { DashboardStore } from "../state.js";
@@ -55,6 +59,12 @@ function summarize(event: RoomEvent): string {
       return `${event.payload.task.title}`;
     case "task.status_changed":
       return `${event.payload.taskId} → ${event.payload.status}`;
+    case "task.completed":
+      return `${event.payload.taskId} terminal=${event.payload.status}`;
+    case "delegation.created":
+      return `${event.payload.delegation.taskId} → ${event.payload.delegation.agentId}`;
+    case "delegation.resolved":
+      return `${event.payload.taskId} → ${event.payload.agentId} state=${event.payload.state}`;
     case "task.assigned":
       return `${event.payload.taskId} → ${event.payload.assignee.kind}:${event.payload.assignee.id}`;
     case "agent.joined":
@@ -62,6 +72,8 @@ function summarize(event: RoomEvent): string {
     case "agent.left":
       return `${event.payload.agentId}${event.payload.reason ? " · " + event.payload.reason : ""}`;
     case "agent.heartbeat":
+      return `${event.payload.agentId} state=${event.payload.state}`;
+    case "agent.finished":
       return `${event.payload.agentId} state=${event.payload.state}`;
     case "runtime.output_observed":
       return `${event.payload.agentId} +${event.payload.lineCount ?? 0} lines`;

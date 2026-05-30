@@ -16,6 +16,7 @@ export type TaskStatus =
   | "changes-requested"
   | "approved"
   | "merged"
+  | "failed"
   | "done"
   | "canceled";
 

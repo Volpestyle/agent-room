@@ -333,6 +333,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
         Type.Literal("changes-requested"),
         Type.Literal("approved"),
         Type.Literal("merged"),
+        Type.Literal("failed"),
         Type.Literal("done"),
         Type.Literal("canceled"),
       ]),

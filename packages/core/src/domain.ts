@@ -133,6 +133,7 @@ export type TaskStatus =
   | "changes-requested"
   | "approved"
   | "merged"
+  | "failed"
   | "done"
   | "canceled";
 
@@ -147,6 +148,31 @@ export interface Task {
   createdBy: ActorRef;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
+}
+
+export type DelegationState =
+  | "open"
+  | "done"
+  | "failed"
+  | "blocked"
+  | "canceled";
+
+export interface Delegation {
+  id: Id;
+  roomId: Id;
+  taskId: Id;
+  agentId: Id;
+  delegatedBy: ActorRef;
+  notify?: ActorRef;
+  state: DelegationState;
+  createdAt: ISODateTime;
+  resolvedAt?: ISODateTime;
+}
+
+export interface AgentPresence {
+  agent: Agent;
+  lastHeartbeatAt?: ISODateTime;
+  heartbeatStatus?: string;
 }
 
 export interface HumanEscalation {

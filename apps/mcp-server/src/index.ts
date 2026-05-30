@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   type ActorRef,
+  type AgentState,
   AgentRoomService,
   type EventCursor,
   type Id,
@@ -16,7 +17,9 @@ import {
   createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
   loadAgentRoomConfig,
+  readAgentRoomSessionIdentity,
   resolveStoragePath,
+  writeAgentRoomSessionIdentity,
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { z } from "zod";
@@ -54,8 +57,25 @@ const taskStatusSchema = z.enum([
   "changes-requested",
   "approved",
   "merged",
+  "failed",
   "done",
   "canceled",
+]);
+
+const agentStateSchema = z.enum([
+  "created",
+  "starting",
+  "online",
+  "working",
+  "waiting",
+  "blocked",
+  "needs-human",
+  "reviewing",
+  "done",
+  "idle",
+  "failed",
+  "stopped",
+  "unknown",
 ]);
 
 const taskActionSchema = z.enum([
@@ -66,6 +86,9 @@ const taskActionSchema = z.enum([
   "status",
   "comment",
   "link-tracker",
+  "request-review",
+  "approve",
+  "changes-requested",
 ]);
 
 interface RoomContext {
@@ -83,7 +106,7 @@ async function main(): Promise<void> {
     },
     {
       instructions:
-        "AgentRoom coordination tools for room messages, DMs, task shadows, waits, and audit context. Prefer bounded reads. Use the configured work tracker MCP, CLI, or skill as the durable tracker, then link external issue refs with agentroom_task action=link-tracker.",
+        "AgentRoom coordination tools for room messages, DMs, watchable delegated task handles, task shadows, waits, and audit context. Prefer bounded reads. Use the configured work tracker MCP, CLI, or skill as the durable tracker, then link external issue refs with agentroom_task action=link-tracker.",
     },
   );
 
@@ -100,6 +123,59 @@ function registerTools(server: McpServer): void {
       inputSchema: {},
     },
     async () => jsonResult(await whoami()),
+  );
+
+  server.registerTool(
+    "agentroom_enroll",
+    {
+      description:
+        "Persist an AgentRoom identity for this MCP/session when AGENTROOM_* env is unavailable.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        role: z.string().optional(),
+        roomId: z.string().optional(),
+        bindingId: z.string().optional(),
+        paneId: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await roomContext();
+      const agent =
+        (await ctx.service.getAgent(input.agentId)) ??
+        (await ctx.service.registerAgent({
+          id: input.agentId,
+          role: parseRole(input.role),
+        }));
+      if (input.bindingId !== undefined || input.paneId !== undefined) {
+        await ctx.service.bindRuntime({
+          agentId: input.agentId,
+          runtime: {
+            providerId: "manual",
+            bindingId: input.bindingId ?? input.paneId ?? input.agentId,
+            kind: "custom",
+          },
+        });
+      }
+      const roomId = input.roomId ?? ctx.roomId;
+      const env = {
+        AGENTROOM: "1",
+        AGENTROOM_AGENT_ID: input.agentId,
+        AGENTROOM_ROOM_ID: roomId,
+        ...(input.role !== undefined ? { AGENTROOM_ROLE: input.role } : {}),
+      };
+      await writeAgentRoomSessionIdentity(ctx.cwd, {
+        agentId: input.agentId,
+        roomId,
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(input.bindingId !== undefined
+          ? { bindingId: input.bindingId }
+          : {}),
+        ...(input.paneId !== undefined ? { paneId: input.paneId } : {}),
+        env,
+        updatedAt: new Date().toISOString(),
+      });
+      return jsonResult({ enrolled: true, agent, roomId, source: "session" });
+    },
   );
 
   server.registerTool(
@@ -149,6 +225,19 @@ function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "agentroom_agents",
+    {
+      description:
+        "List enrolled room agents with role, state, runtime binding, and last heartbeat.",
+      inputSchema: {},
+    },
+    async () => {
+      const ctx = await roomContext();
+      return jsonResult(await ctx.service.listAgentPresence());
+    },
+  );
+
+  server.registerTool(
     "agentroom_messages",
     {
       description:
@@ -171,6 +260,39 @@ function registerTools(server: McpServer): void {
             ? { participant: { kind: "agent", id: input.withAgentId } }
             : {}),
         }),
+      );
+    },
+  );
+
+  server.registerTool(
+    "agentroom_directed_messages",
+    {
+      description:
+        "Read recent directed messages addressed to the current AgentRoom agent.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await roomContext();
+      const actor = await currentActor(ctx.service);
+      if (actor.kind !== "agent") {
+        throw new Error(
+          "agentroom_directed_messages requires an agent identity.",
+        );
+      }
+      const messages = await ctx.service.listMessages({
+        channelId: "dm",
+        participant: actor,
+        limit: input.limit ?? DEFAULT_MESSAGE_LIMIT,
+      });
+      return jsonResult(
+        messages.filter((message) =>
+          (message.recipients ?? []).some(
+            (recipient) =>
+              recipient.kind === "agent" && recipient.id === actor.id,
+          ),
+        ),
       );
     },
   );
@@ -265,6 +387,56 @@ function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "agentroom_delegate_task",
+    {
+      description:
+        "Assign work to a room agent and return a watchable task/delegation handle.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        work: z.string().min(1),
+        description: z.string().optional(),
+        notifyAgentId: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await roomContext();
+      const actor = await currentActor(ctx.service);
+      const notify =
+        input.notifyAgentId !== undefined
+          ? ({ kind: "agent", id: input.notifyAgentId } as const)
+          : actor.kind === "agent"
+            ? actor
+            : undefined;
+      const result = await ctx.service.delegateTask({
+        agentId: input.agentId,
+        work: input.work,
+        delegatedBy: actor,
+        ...(notify !== undefined ? { notify } : {}),
+        ...(input.description !== undefined
+          ? { description: input.description }
+          : {}),
+      });
+      const message = await ctx.service.postMessage({
+        body: `Delegated ${result.task.id}: ${input.work}`,
+        channelId: "dm",
+        sender: actor,
+        recipients: [{ kind: "agent", id: input.agentId }],
+        kind: "handoff",
+        threadId: result.task.id,
+      });
+      return jsonResult({
+        ...result,
+        message,
+        handle: result.task.id,
+        await: {
+          tool: "agentroom_wait",
+          arguments: { taskId: result.task.id },
+        },
+      });
+    },
+  );
+
+  server.registerTool(
     "agentroom_task",
     {
       description:
@@ -296,9 +468,15 @@ function registerTools(server: McpServer): void {
         "Block until a matching future AgentRoom message, DM, or task-status event arrives.",
       inputSchema: {
         message: z.string().optional(),
+        ignoreCase: z.boolean().optional(),
+        fromAgentId: z.string().optional(),
+        channel: z.string().optional(),
+        kind: messageKindSchema.optional(),
         taskStatus: z.string().optional(),
         taskId: z.string().optional(),
         status: taskStatusSchema.optional(),
+        agentId: z.string().optional(),
+        agentState: agentStateSchema.optional(),
         dmToMe: z.boolean().optional(),
         timeoutSeconds: z
           .number()
@@ -348,9 +526,7 @@ async function runTaskTool(input: {
           : {}),
         ...(input.issueId !== undefined
           ? {
-              refs: [
-                trackerRef(input.issueId, trackerRefOptions(input)),
-              ],
+              refs: [trackerRef(input.issueId, trackerRefOptions(input))],
             }
           : {}),
       });
@@ -379,6 +555,66 @@ async function runTaskTool(input: {
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
         ...(input.summary !== undefined ? { summary: input.summary } : {}),
       });
+    case "request-review": {
+      const taskId = requireTaskId(input.taskId);
+      const task = await ctx.service.updateTaskStatus({
+        taskId,
+        status: "ready-for-review",
+        actor,
+        ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      });
+      const message = await ctx.service.postMessage({
+        body: input.summary ?? `${taskId} is ready for review`,
+        channelId: input.assignee === undefined ? "implementation" : "dm",
+        sender: actor,
+        kind: "review",
+        threadId: taskId,
+        ...(input.assignee !== undefined
+          ? { recipients: [{ kind: "agent" as const, id: input.assignee }] }
+          : {}),
+      });
+      return { task, message };
+    }
+    case "approve": {
+      const taskId = requireTaskId(input.taskId);
+      const task = await ctx.service.updateTaskStatus({
+        taskId,
+        status: "approved",
+        actor,
+        ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      });
+      const message = await ctx.service.postMessage({
+        body: input.summary ?? `${taskId} approved`,
+        channelId: "implementation",
+        sender: actor,
+        kind: "review",
+        threadId: taskId,
+      });
+      return { task, message };
+    }
+    case "changes-requested": {
+      const taskId = requireTaskId(input.taskId);
+      const reason = input.reason?.trim();
+      if (!reason) {
+        throw new Error(
+          "agentroom_task action=changes-requested requires reason.",
+        );
+      }
+      const task = await ctx.service.updateTaskStatus({
+        taskId,
+        status: "changes-requested",
+        actor,
+        reason,
+      });
+      const message = await ctx.service.postMessage({
+        body: reason,
+        channelId: "implementation",
+        sender: actor,
+        kind: "review",
+        threadId: taskId,
+      });
+      return { task, message };
+    }
     case "comment": {
       const body = input.comment?.trim();
       if (body === undefined || body.length === 0) {
@@ -405,9 +641,15 @@ async function runTaskTool(input: {
 
 async function waitForEvent(input: {
   message?: string | undefined;
+  ignoreCase?: boolean | undefined;
+  fromAgentId?: string | undefined;
+  channel?: string | undefined;
+  kind?: z.infer<typeof messageKindSchema> | undefined;
   taskStatus?: string | undefined;
   taskId?: string | undefined;
   status?: z.infer<typeof taskStatusSchema> | undefined;
+  agentId?: string | undefined;
+  agentState?: z.infer<typeof agentStateSchema> | undefined;
   dmToMe?: boolean | undefined;
   timeoutSeconds?: number | undefined;
   since?: string | undefined;
@@ -416,7 +658,9 @@ async function waitForEvent(input: {
   const actor = await currentActor(ctx.service);
   const matchers = buildWaitMatchers(input, actor);
   if (matchers.length === 0) {
-    throw new Error("agentroom_wait requires message, taskStatus, or dmToMe.");
+    throw new Error(
+      "agentroom_wait requires message, taskStatus/taskId+status, agentId+agentState, or dmToMe.",
+    );
   }
 
   const since =
@@ -449,9 +693,15 @@ async function waitForEvent(input: {
 function buildWaitMatchers(
   input: {
     message?: string | undefined;
+    ignoreCase?: boolean | undefined;
+    fromAgentId?: string | undefined;
+    channel?: string | undefined;
+    kind?: z.infer<typeof messageKindSchema> | undefined;
     taskStatus?: string | undefined;
     taskId?: string | undefined;
     status?: z.infer<typeof taskStatusSchema> | undefined;
+    agentId?: string | undefined;
+    agentState?: z.infer<typeof agentStateSchema> | undefined;
     dmToMe?: boolean | undefined;
   },
   actor: ActorRef,
@@ -459,10 +709,11 @@ function buildWaitMatchers(
   const matchers: Array<(event: RoomEvent) => boolean> = [];
 
   if (input.message !== undefined) {
-    const pattern = new RegExp(input.message);
+    const pattern = compileMessagePattern(input.message, input.ignoreCase);
     matchers.push(
       (event) =>
         event.type === "message.posted" &&
+        messageScopeMatches(event, input) &&
         pattern.test(event.payload.message.body),
     );
   }
@@ -482,6 +733,12 @@ function buildWaitMatchers(
     );
   }
 
+  if (input.agentId !== undefined && input.agentState !== undefined) {
+    matchers.push((event) =>
+      agentStateMatches(event, input.agentId!, input.agentState!),
+    );
+  }
+
   if (input.dmToMe === true) {
     if (actor.kind !== "agent") {
       throw new Error("agentroom_wait dmToMe requires an agent identity.");
@@ -489,6 +746,7 @@ function buildWaitMatchers(
     matchers.push(
       (event) =>
         event.type === "message.posted" &&
+        messageScopeMatches(event, input) &&
         (event.payload.message.recipients ?? []).some(
           (recipient) =>
             recipient.kind === "agent" && recipient.id === actor.id,
@@ -497,6 +755,74 @@ function buildWaitMatchers(
   }
 
   return matchers;
+}
+
+function messageScopeMatches(
+  event: RoomEvent,
+  input: {
+    fromAgentId?: string | undefined;
+    channel?: string | undefined;
+    kind?: z.infer<typeof messageKindSchema> | undefined;
+  },
+): boolean {
+  if (event.type !== "message.posted") return false;
+  const message = event.payload.message;
+  if (
+    input.fromAgentId !== undefined &&
+    (message.sender.kind !== "agent" || message.sender.id !== input.fromAgentId)
+  ) {
+    return false;
+  }
+  if (input.channel !== undefined && message.channelId !== input.channel) {
+    return false;
+  }
+  if (input.kind !== undefined && message.kind !== input.kind) {
+    return false;
+  }
+  return true;
+}
+
+function agentStateMatches(
+  event: RoomEvent,
+  agentId: string,
+  state: AgentState,
+): boolean {
+  switch (event.type) {
+    case "agent.heartbeat":
+      return event.payload.agentId === agentId && event.payload.state === state;
+    case "runtime.state_observed":
+      return event.payload.agentId === agentId && event.payload.state === state;
+    case "agent.done":
+      return event.payload.agentId === agentId && state === "done";
+    case "agent.blocked":
+      return event.payload.agentId === agentId && state === "blocked";
+    case "agent.left":
+      return event.payload.agentId === agentId && state === "stopped";
+    case "agent.finished":
+      return event.payload.agentId === agentId && event.payload.state === state;
+    default:
+      return false;
+  }
+}
+
+function compileMessagePattern(
+  value: string,
+  ignoreCase: boolean | undefined,
+): RegExp {
+  let source = value;
+  let flags = ignoreCase ? "i" : "";
+  if (source.startsWith("(?i)")) {
+    source = source.slice(4);
+    flags = "i";
+  }
+  try {
+    return new RegExp(source, flags);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Invalid JavaScript message regex: ${reason}. Use ignoreCase instead of inline (?i) when possible.`,
+    );
+  }
 }
 
 async function roomContext(): Promise<RoomContext> {
@@ -519,34 +845,77 @@ async function roomContext(): Promise<RoomContext> {
 
 async function whoami(): Promise<unknown> {
   const ctx = await roomContext();
-  const envAgentId = process.env.AGENTROOM_AGENT_ID;
-  const paneAgentId =
-    envAgentId === undefined
-      ? await resolveAgentByPane(ctx.service)
-      : undefined;
-  const agentId = envAgentId ?? paneAgentId;
+  const identity = await resolveCurrentIdentity(ctx.service, ctx.cwd);
   return {
-    enrolled: agentId !== undefined,
-    agentId,
-    roomId: process.env.AGENTROOM_ROOM_ID ?? ctx.roomId,
-    role: process.env.AGENTROOM_ROLE,
-    source:
-      envAgentId !== undefined
-        ? "env"
-        : paneAgentId !== undefined
-          ? "pane"
-          : "none",
+    enrolled: identity !== undefined,
+    agentId: identity?.agentId,
+    roomId: identity?.roomId ?? process.env.AGENTROOM_ROOM_ID ?? ctx.roomId,
+    role: identity?.role ?? process.env.AGENTROOM_ROLE,
+    source: identity?.source ?? "none",
     cwd: ctx.cwd,
   };
 }
 
 async function currentActor(service: AgentRoomService): Promise<ActorRef> {
-  if (process.env.AGENTROOM === "1" && process.env.AGENTROOM_AGENT_ID) {
-    return { kind: "agent", id: process.env.AGENTROOM_AGENT_ID };
-  }
-  const resolved = await resolveAgentByPane(service);
-  if (resolved !== undefined) return { kind: "agent", id: resolved };
+  const identity = await resolveCurrentIdentity(
+    service,
+    process.env.AGENTROOM_CWD ?? process.cwd(),
+  );
+  if (identity !== undefined) return { kind: "agent", id: identity.agentId };
   return { kind: "human", id: process.env.USER ?? "local" };
+}
+
+async function resolveCurrentIdentity(
+  service: AgentRoomService,
+  cwd: string,
+): Promise<
+  | {
+      agentId: string;
+      roomId?: string;
+      role?: string;
+      source: "env" | "pane" | "session";
+    }
+  | undefined
+> {
+  const envAgentId = process.env.AGENTROOM_AGENT_ID?.trim();
+  if (envAgentId) {
+    return {
+      agentId: envAgentId,
+      ...(process.env.AGENTROOM_ROOM_ID !== undefined
+        ? { roomId: process.env.AGENTROOM_ROOM_ID }
+        : {}),
+      ...(process.env.AGENTROOM_ROLE !== undefined
+        ? { role: process.env.AGENTROOM_ROLE }
+        : {}),
+      source: "env",
+    };
+  }
+  const paneAgentId = await resolveAgentByPane(service);
+  if (paneAgentId !== undefined) {
+    return {
+      agentId: paneAgentId,
+      ...(process.env.AGENTROOM_ROOM_ID !== undefined
+        ? { roomId: process.env.AGENTROOM_ROOM_ID }
+        : {}),
+      ...(process.env.AGENTROOM_ROLE !== undefined
+        ? { role: process.env.AGENTROOM_ROLE }
+        : {}),
+      source: "pane",
+    };
+  }
+  const session = await readAgentRoomSessionIdentity(
+    cwd,
+    process.env.HERDR_PANE_ID,
+  );
+  if (session !== undefined) {
+    return {
+      agentId: session.agentId,
+      roomId: session.roomId,
+      ...(session.role !== undefined ? { role: session.role } : {}),
+      source: "session",
+    };
+  }
+  return undefined;
 }
 
 async function resolveAgentByPane(
@@ -615,6 +984,30 @@ function requireTaskId(taskId: string | undefined): Id {
   return taskId.trim();
 }
 
+function parseRole(value: string | undefined) {
+  const role = value ?? "implementer";
+  const allowed = new Set([
+    "lead",
+    "planner",
+    "implementer",
+    "reviewer",
+    "runner",
+    "qa",
+    "observer",
+    "custom",
+  ]);
+  if (!allowed.has(role)) throw new Error(`Invalid agent role: ${role}`);
+  return role as
+    | "lead"
+    | "planner"
+    | "implementer"
+    | "reviewer"
+    | "runner"
+    | "qa"
+    | "observer"
+    | "custom";
+}
+
 function trackerRef(
   issueId: string,
   options: {
@@ -626,7 +1019,8 @@ function trackerRef(
   const metadata: Record<string, unknown> = {
     providerKind: options.providerKind ?? "custom",
   };
-  if (options.providerId !== undefined) metadata.providerId = options.providerId;
+  if (options.providerId !== undefined)
+    metadata.providerId = options.providerId;
   return {
     kind: "tracker-issue" as const,
     id: issueId,

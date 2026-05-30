@@ -443,9 +443,12 @@ function Stat(props: { label: string; value: string }) {
 
 function TaskStatusDot(props: { status: string }) {
   const done = ["approved", "merged", "done"].includes(props.status);
-  const blocked = ["blocked", "changes-requested", "canceled"].includes(
-    props.status,
-  );
+  const blocked = [
+    "blocked",
+    "changes-requested",
+    "failed",
+    "canceled",
+  ].includes(props.status);
   return (
     <View
       style={[

@@ -85,6 +85,7 @@ export const taskStatusSchema = z.enum([
   "changes-requested",
   "approved",
   "merged",
+  "failed",
   "done",
   "canceled",
 ]);

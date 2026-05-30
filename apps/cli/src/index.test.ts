@@ -180,6 +180,128 @@ describe("agent-room wait", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+
+  it("filters message waits by sender, channel, kind, and case", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-wait-filter-"));
+    const baseEnv = testEnv("cli-wait-filter-test");
+    const body = `Ready For Review ${Date.now()}`;
+    let waiting: ChildProcessWithoutNullStreams | undefined;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-wait-filter-test", "--runtime", "fake"],
+        baseEnv,
+      );
+
+      waiting = spawn(
+        agentRoomBin,
+        [
+          "wait",
+          "--message",
+          "ready for review",
+          "--ignore-case",
+          "--from",
+          "impl",
+          "--channel",
+          "implementation",
+          "--kind",
+          "status",
+          "--timeout",
+          "5",
+          "--json",
+        ],
+        { cwd, env: baseEnv },
+      );
+      let stdout = "";
+      waiting.stdout.setEncoding("utf8");
+      waiting.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      const exit = waitForExit(waiting, 7000);
+
+      await sleep(200);
+      await execAgentRoom(
+        cwd,
+        ["post", body, "--channel", "implementation", "--kind", "status"],
+        { ...baseEnv, AGENTROOM_AGENT_ID: "other" },
+      );
+      await sleep(200);
+      await execAgentRoom(
+        cwd,
+        ["post", body, "--channel", "implementation", "--kind", "status"],
+        { ...baseEnv, AGENTROOM_AGENT_ID: "impl" },
+      );
+
+      await expect(exit).resolves.toMatchObject({ code: 0 });
+      const event = JSON.parse(stdout) as {
+        payload: { message: { sender: { id: string }; body: string } };
+      };
+      expect(event.payload.message.sender.id).toBe("impl");
+      expect(event.payload.message.body).toBe(body);
+    } finally {
+      if (waiting && waiting.exitCode === null) waiting.kill();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("delegates work and waits on the returned task handle", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-delegate-wait-"));
+    const env = testEnv("cli-delegate-wait-test");
+    let waiting: ChildProcessWithoutNullStreams | undefined;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-delegate-wait-test", "--runtime", "fake"],
+        env,
+      );
+      const delegated = JSON.parse(
+        (
+          await execAgentRoom(
+            cwd,
+            ["delegate", "impl", "Ship waitable delegation", "--json"],
+            env,
+          )
+        ).stdout,
+      ) as { handle: string; task: { id: string; assignee: { id: string } } };
+      expect(delegated.handle).toBe(delegated.task.id);
+      expect(delegated.task.assignee.id).toBe("impl");
+
+      waiting = spawn(
+        agentRoomBin,
+        [
+          "wait-task",
+          delegated.handle,
+          "--state",
+          "done",
+          "--timeout",
+          "5",
+          "--json",
+        ],
+        { cwd, env },
+      );
+      let stdout = "";
+      waiting.stdout.setEncoding("utf8");
+      waiting.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      const exit = waitForExit(waiting, 7000);
+      await sleep(200);
+      await execAgentRoom(
+        cwd,
+        ["done", delegated.handle, "--summary", "complete"],
+        { ...env, AGENTROOM_AGENT_ID: "impl" },
+      );
+
+      await expect(exit).resolves.toMatchObject({ code: 0 });
+      const task = JSON.parse(stdout) as { id: string; status: string };
+      expect(task).toMatchObject({ id: delegated.handle, status: "done" });
+    } finally {
+      if (waiting && waiting.exitCode === null) waiting.kill();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("agent-room events --follow", () => {
@@ -226,6 +348,64 @@ describe("agent-room events --follow", () => {
       expect(event.payload.message.body).toBe(body);
     } finally {
       if (following && following.exitCode === null) following.kill();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("agent-room status", () => {
+  it("posts the standard parseable status template", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-status-template-"));
+    const env = testEnv("cli-status-template-test");
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-status-template-test", "--runtime", "fake"],
+        env,
+      );
+      const message = JSON.parse(
+        (
+          await execAgentRoom(
+            cwd,
+            [
+              "status",
+              "--mode",
+              "editing",
+              "--goal",
+              "Implement status template",
+              "--files",
+              "apps/cli/src/index.ts,docs/CLI_REFERENCE.md",
+              "--needs",
+              "review",
+              "--coordinate-with",
+              "reviewer",
+              "--json",
+            ],
+            env,
+          )
+        ).stdout,
+      ) as { kind: string; body: string; channelId: string };
+      const body = JSON.parse(message.body) as {
+        mode: string;
+        goal: string;
+        filesTouched: string[];
+        needs: string;
+        coordinateWith: string[];
+      };
+
+      expect(message).toMatchObject({
+        kind: "status",
+        channelId: "implementation",
+      });
+      expect(body).toMatchObject({
+        mode: "editing",
+        goal: "Implement status template",
+        filesTouched: ["apps/cli/src/index.ts", "docs/CLI_REFERENCE.md"],
+        needs: "review",
+        coordinateWith: ["reviewer"],
+      });
+    } finally {
       await rm(cwd, { recursive: true, force: true });
     }
   });
@@ -536,6 +716,64 @@ describe("agent-room enroll", () => {
     }
   });
 
+  it("persists enrollment for later shells without pane env", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-whoami-session-"));
+    const enrollEnv = {
+      ...process.env,
+      HERDR_SESSION: "agent-room",
+      HERDR_PANE_ID: "p_222",
+      AGENTROOM: undefined,
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined,
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-whoami-session", "--runtime", "fake"],
+        enrollEnv,
+      );
+      await execAgentRoom(cwd, ["enroll", "--json"], enrollEnv);
+
+      const whoamiEnv = {
+        ...process.env,
+        HERDR_PANE_ID: undefined,
+        HERDR_SESSION: undefined,
+        AGENTROOM: undefined,
+        AGENTROOM_AGENT_ID: undefined,
+        AGENTROOM_ROOM_ID: undefined,
+        AGENTROOM_ROLE: undefined,
+      } as NodeJS.ProcessEnv;
+
+      const whoami = JSON.parse(
+        (await execAgentRoom(cwd, ["whoami", "--json"], whoamiEnv)).stdout,
+      ) as {
+        enrolled: boolean;
+        agentId: string;
+        roomId: string;
+        source: string;
+      };
+
+      expect(whoami).toMatchObject({
+        enrolled: true,
+        agentId: "herdr:agent-room:p_222",
+        roomId: "cli-whoami-session",
+        source: "session",
+      });
+
+      const envFile = (
+        await execAgentRoom(cwd, ["enroll", "--print-env-file"], enrollEnv)
+      ).stdout.trim();
+      expect(envFile).toContain(".agentroom-home/session.env");
+      expect(await readFile(envFile, "utf8")).toContain(
+        "export AGENTROOM_AGENT_ID='herdr:agent-room:p_222'",
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("fails when no pane id is available", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-enroll-fail-"));
     const env = {
@@ -712,12 +950,7 @@ describe("agent-room daemon lifecycle", () => {
     try {
       const help = await execAgentRoom(
         cwd,
-        [
-          "--daemon",
-          "http://127.0.0.1:4317",
-          "--no-auto-start",
-          "--help",
-        ],
+        ["--daemon", "http://127.0.0.1:4317", "--no-auto-start", "--help"],
         env,
       );
 

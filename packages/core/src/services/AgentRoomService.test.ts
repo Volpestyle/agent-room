@@ -125,8 +125,49 @@ describe("AgentRoomService", () => {
       "task.ref_added",
       "tracker.ref_event",
       "task.status_changed",
+      "task.completed",
       "agent.done",
+      "agent.finished",
     ]);
+  });
+
+  it("creates watchable delegations and resolves them when the task finishes", async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: "room-test" });
+
+    const delegated = await service.delegateTask({
+      agentId: "impl",
+      work: "Implement waitable delegation",
+      delegatedBy: { kind: "agent", id: "lead" },
+      notify: { kind: "agent", id: "dashboard" },
+    });
+    await service.updateTaskStatus({
+      taskId: delegated.task.id,
+      status: "done",
+      actor: { kind: "agent", id: "impl" },
+      summary: "complete",
+    });
+
+    expect(delegated.task).toMatchObject({
+      status: "assigned",
+      assignee: { kind: "agent", id: "impl" },
+    });
+    expect(store.events.map((event) => event.type)).toEqual([
+      "task.created",
+      "delegation.created",
+      "task.status_changed",
+      "task.completed",
+      "delegation.resolved",
+    ]);
+    expect(store.events[4]).toMatchObject({
+      payload: {
+        delegationId: delegated.delegation.id,
+        taskId: delegated.task.id,
+        agentId: "impl",
+        state: "done",
+        notify: { kind: "agent", id: "dashboard" },
+      },
+    });
   });
 
   it("projects task detail updates and deletes from events", async () => {
@@ -281,6 +322,16 @@ describe("AgentRoomService", () => {
     await expect(service.getAgent("dashboard")).resolves.toEqual(
       expect.objectContaining({ id: "dashboard", state: "stopped" }),
     );
+    await expect(service.listAgentPresence()).resolves.toEqual([
+      expect.objectContaining({
+        agent: expect.objectContaining({ id: "dashboard", state: "stopped" }),
+        lastHeartbeatAt: expect.any(String),
+        heartbeatStatus: "ready",
+      }),
+      expect.objectContaining({
+        agent: expect.objectContaining({ id: "impl", state: "created" }),
+      }),
+    ]);
     expect(store.events.map((event) => event.type)).toEqual([
       "agent.joined",
       "agent.heartbeat",

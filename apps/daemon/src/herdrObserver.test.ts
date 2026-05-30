@@ -61,6 +61,51 @@ describe("HerdrPaneObserver", () => {
     await observer.stop();
   });
 
+  it("still adopts existing panes when the push subscription fails", async () => {
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+    await provider.adoptAgent({
+      agentId: "p_existing",
+      bindingId: "p_existing",
+      roomId: "room",
+      role: "implementer",
+      displayName: "claude",
+      metadata: { agent: "claude" },
+    });
+
+    // Push socket cannot connect (e.g. wrong/missing socket path). Enrollment
+    // must still happen via the provider CLI rather than aborting.
+    const failingFactory: (
+      socketPath: string,
+    ) => Promise<DuplexLike> = async () => {
+      throw new Error("connect ENOENT herdr.sock");
+    };
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: failingFactory,
+    });
+
+    await observer.start();
+
+    const expectedAgentId = deriveAgentId("agent-room", "p_existing");
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.joined" &&
+          event.payload.agent.id === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
   it("adopts a pane on pane_created and is idempotent", async () => {
     const { socket, factory } = createMockSocket();
     const store = new TestEventStore();

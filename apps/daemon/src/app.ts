@@ -586,10 +586,14 @@ export function createAppWithLifecycle(
       ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
       env: {
         ...(body.env ?? {}),
-        ...agentRoomProtocolEnv(configured, {
-          agentId: body.agentId,
-          role: role.data,
-        }, cwd),
+        ...agentRoomProtocolEnv(
+          configured,
+          {
+            agentId: body.agentId,
+            role: role.data,
+          },
+          cwd,
+        ),
       },
     });
 
@@ -896,9 +900,7 @@ function optionalStringProp<T extends string>(
   key: T,
 ): { [K in T]?: string } {
   const value = optionalString(input[key]);
-  return value === undefined
-    ? {}
-    : ({ [key]: value } as { [K in T]?: string });
+  return value === undefined ? {} : ({ [key]: value } as { [K in T]?: string });
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -921,6 +923,11 @@ function asRecord(value: unknown, name: string): Record<string, unknown> {
   }
   return value as Record<string, unknown>;
 }
+
+// How often each herdr observer re-adopts panes from the provider. Drives
+// enrollment for panes that predate the observer and self-heals after missed
+// push events or a daemon restart.
+const HERDR_RECONCILE_INTERVAL_MS = 15_000;
 
 function startHerdrObservers(input: {
   config?: AgentRoomConfig;
@@ -974,6 +981,7 @@ async function startHerdrObserver(input: {
       service: input.service,
       provider: input.provider,
       roomId: input.roomId,
+      reconcileIntervalMs: HERDR_RECONCILE_INTERVAL_MS,
       logger: (message) => console.log(`[herdr-observer] ${message}`),
     });
     input.observers.push(observer);
@@ -995,11 +1003,11 @@ async function herdrSocketPathForRuntime(input: {
   if (socketPath) return socketPath;
 
   return resolveHerdrSocketPath({
-    ...(input.runtime.session === undefined &&
-    process.env.HERDR_SOCKET_PATH !== undefined
+    ...(process.env.HERDR_SOCKET_PATH !== undefined
       ? { envSocketPath: process.env.HERDR_SOCKET_PATH }
       : {}),
     session: input.session,
+    ...(input.runtime.cli !== undefined ? { cli: input.runtime.cli } : {}),
     ...(process.env.XDG_CONFIG_HOME !== undefined
       ? { xdgConfigHome: process.env.XDG_CONFIG_HOME }
       : {}),
@@ -1053,7 +1061,9 @@ function agentRoomProtocolEnv(
   };
 }
 
-function workTrackerProtocolEnv(config: AgentRoomConfig): Record<string, string> {
+function workTrackerProtocolEnv(
+  config: AgentRoomConfig,
+): Record<string, string> {
   const trackerId = config.workTracker?.default;
   if (trackerId === undefined) return {};
   const provider = config.workTracker?.providers[trackerId];

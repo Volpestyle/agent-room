@@ -11,10 +11,11 @@ Before using AgentRoom, resolve and verify this process's room identity:
 agent-room whoami --json
 ```
 
-The resolved identity comes from one of two sources:
+The resolved identity comes from one of three sources:
 
 - `source: "env"` — `AGENTROOM_AGENT_ID` was set in the process environment (typically by `agent-room launch`).
 - `source: "pane"` — the daemon's runtime observer auto-enrolled the current pane/session and the CLI resolved the agent id against the local event log.
+- `source: "session"` — `agent-room enroll` persisted `.agentroom/session.json`, so later shells can keep the same room identity without re-evaluating exports.
 
 If `enrolled: false` is reported (no env var and no pane binding found), do not assume the current process is part of the room.
 
@@ -60,11 +61,11 @@ agent-room wait --task-status "$TASK:ready-for-review" --timeout 600
 
 ## Known CLI surface (don't waste turns rediscovering)
 
-Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `dm`, `messages`, `wait`, `task {create,list,show,claim,status,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `stop`.
+Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-task`, `wait-agent`, `agents`/`presence`, `delegate`, `task {create,list,show,claim,status,request-review,approve,changes-requested,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `stop`.
 
 `subscribe` and `watch` are not CLI commands. Use `agent-room wait` to block for one matching future event, `agent-room events --follow --json` to stream audit events, `agent-room messages` for channel/DM history, and `agent-room events` for audit snapshots. To inspect a task by id: `agent-room task show <id> --json`.
 
-Channel ids you'll see: `announcements`, `implementation`, `dm`. To read DMs already sent to you: `agent-room messages -c dm --limit 20`. The `--with <agent>` filter matches messages where that agent is sender OR recipient. To **block until a new DM arrives**, use `agent-room wait --dm-to-me`.
+Channel ids you'll see: `announcements`, `implementation`, `dm`. To read DMs already sent to you: `agent-room messages -c dm --limit 20`. The `--with <agent>` filter matches messages where that agent is sender OR recipient. To **block until a new DM arrives**, use `agent-room wait --dm-to-me`. To watch a peer, prefer `agent-room wait --from <agentId> --channel implementation --kind status --message "ready" --ignore-case`.
 
 For room audit or debugging context, use `agent-room events --limit 20 --json`. Runtime `read`, `send`, and `stop` require an AgentRoom binding by default; `--unaudited` is manual recovery only.
 
@@ -86,7 +87,7 @@ An agent may also own its own personal gateway while enrolled in a room. That ag
 Start work:
 
 ```bash
-agent-room post "Starting OAuth callback implementation" --channel implementation --kind status
+agent-room status --mode editing --goal "OAuth callback implementation" --files "apps/api.ts" --needs "none"
 agent-room task claim AR-42
 agent-room task status AR-42 working
 ```
@@ -116,7 +117,7 @@ agent-room block AR-42 --reason "Need redirect URI decision"
 Pass to review with existing commands:
 
 ```bash
-agent-room task status AR-42 ready-for-review --summary "Implemented callback and unit tests pass"
+agent-room task request-review AR-42 --reviewer reviewer --summary "Implemented callback and unit tests pass"
 agent-room dm reviewer "AR-42 is ready for review"
 ```
 

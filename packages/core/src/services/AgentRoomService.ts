@@ -1,6 +1,8 @@
 import type {
   ActorRef,
   Agent,
+  AgentPresence,
+  Delegation,
   HarnessSpec,
   HumanEscalation,
   Id,
@@ -159,6 +161,51 @@ export class AgentRoomService {
 
     await this.events.append(this.event("task.created", { task }, now));
     return task;
+  }
+
+  async delegateTask(input: {
+    agentId: Id;
+    work: string;
+    delegatedBy?: ActorRef;
+    notify?: ActorRef;
+    description?: string;
+    refs?: Ref[];
+  }): Promise<{ task: Task; delegation: Delegation }> {
+    const now = nowIso();
+    const delegatedBy = input.delegatedBy ?? this.systemActor;
+    const assignee: ActorRef = { kind: "agent", id: input.agentId };
+    const task: Task = {
+      id: createId("task", input.work),
+      roomId: this.roomId,
+      title: input.work,
+      status: "assigned",
+      assignee,
+      createdBy: delegatedBy,
+      createdAt: now,
+      updatedAt: now,
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.refs !== undefined && input.refs.length > 0
+        ? { refs: input.refs }
+        : {}),
+    };
+    const delegation: Delegation = {
+      id: createId("dlg", input.agentId),
+      roomId: this.roomId,
+      taskId: task.id,
+      agentId: input.agentId,
+      delegatedBy,
+      state: "open",
+      createdAt: now,
+      ...(input.notify !== undefined ? { notify: input.notify } : {}),
+    };
+
+    await this.events.appendMany([
+      this.event("task.created", { task }, now),
+      this.event("delegation.created", { delegation }, now),
+    ]);
+    return { task, delegation };
   }
 
   async linkTaskRef(input: { taskId: Id; ref: Ref }): Promise<Task> {
@@ -369,7 +416,7 @@ export class AgentRoomService {
       updatedAt: now,
     };
 
-    await this.events.append(
+    const events: RoomEvent[] = [
       this.event(
         "task.status_changed",
         {
@@ -382,7 +429,44 @@ export class AgentRoomService {
         },
         now,
       ),
-    );
+    ];
+    if (isTerminalTaskStatus(input.status)) {
+      events.push(
+        this.event(
+          "task.completed",
+          {
+            taskId: input.taskId,
+            status: input.status,
+            ...(input.actor !== undefined ? { actor: input.actor } : {}),
+            ...(input.summary !== undefined ? { summary: input.summary } : {}),
+          },
+          now,
+        ),
+      );
+      const openDelegations = await this.openDelegationsForTask(input.taskId);
+      for (const delegation of openDelegations) {
+        events.push(
+          this.event(
+            "delegation.resolved",
+            {
+              delegationId: delegation.id,
+              taskId: input.taskId,
+              agentId: delegation.agentId,
+              state: delegationStateForTaskStatus(input.status),
+              ...(delegation.notify !== undefined
+                ? { notify: delegation.notify }
+                : {}),
+              ...(input.summary !== undefined
+                ? { summary: input.summary }
+                : {}),
+            },
+            now,
+          ),
+        );
+      }
+    }
+
+    await this.events.appendMany(events);
 
     return updated;
   }
@@ -425,13 +509,19 @@ export class AgentRoomService {
     });
 
     if (input.actor.kind === "agent") {
-      await this.events.append(
+      await this.events.appendMany([
         this.event("agent.done", {
           agentId: input.actor.id,
           taskId: input.taskId,
           ...(input.summary !== undefined ? { summary: input.summary } : {}),
         }),
-      );
+        this.event("agent.finished", {
+          agentId: input.actor.id,
+          state: "done",
+          taskId: input.taskId,
+          ...(input.summary !== undefined ? { summary: input.summary } : {}),
+        }),
+      ]);
     }
 
     return task;
@@ -466,6 +556,32 @@ export class AgentRoomService {
   async listAgents(): Promise<Agent[]> {
     return [...(await this.agentProjection()).values()].sort((a, b) =>
       a.createdAt.localeCompare(b.createdAt),
+    );
+  }
+
+  async listAgentPresence(): Promise<AgentPresence[]> {
+    const agents = await this.agentProjection();
+    const presence = new Map<Id, AgentPresence>();
+    for (const agent of agents.values()) {
+      presence.set(agent.id, { agent });
+    }
+
+    const events = await this.events.list({ roomId: this.roomId });
+    for (const event of events) {
+      if (event.type !== "agent.heartbeat") continue;
+      const current = presence.get(event.payload.agentId);
+      if (!current) continue;
+      presence.set(event.payload.agentId, {
+        agent: current.agent,
+        lastHeartbeatAt: event.createdAt,
+        ...(event.payload.status !== undefined
+          ? { heartbeatStatus: event.payload.status }
+          : {}),
+      });
+    }
+
+    return [...presence.values()].sort((a, b) =>
+      a.agent.createdAt.localeCompare(b.agent.createdAt),
     );
   }
 
@@ -615,7 +731,9 @@ export class AgentRoomService {
       this.event("tracker.ref_event", {
         issueId: input.issueId,
         providerKind: input.providerKind,
-        ...(input.providerId !== undefined ? { providerId: input.providerId } : {}),
+        ...(input.providerId !== undefined
+          ? { providerId: input.providerId }
+          : {}),
         action: input.action,
         ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
@@ -840,6 +958,17 @@ export class AgentRoomService {
           }
           break;
         }
+        case "agent.finished": {
+          const agent = agents.get(event.payload.agentId);
+          if (agent) {
+            agents.set(event.payload.agentId, {
+              ...agent,
+              state: event.payload.state,
+              updatedAt: event.createdAt,
+            });
+          }
+          break;
+        }
         case "agent.left": {
           const agent = agents.get(event.payload.agentId);
           if (agent) {
@@ -856,6 +985,29 @@ export class AgentRoomService {
 
     return agents;
   }
+
+  private async openDelegationsForTask(taskId: Id): Promise<Delegation[]> {
+    const delegations = new Map<Id, Delegation>();
+    const events = await this.events.list({ roomId: this.roomId });
+
+    for (const event of events) {
+      switch (event.type) {
+        case "delegation.created":
+          if (event.payload.delegation.taskId === taskId) {
+            delegations.set(
+              event.payload.delegation.id,
+              event.payload.delegation,
+            );
+          }
+          break;
+        case "delegation.resolved":
+          delegations.delete(event.payload.delegationId);
+          break;
+      }
+    }
+
+    return [...delegations.values()];
+  }
 }
 
 function mergeRefs(existing: Ref[], next: Ref): Ref[] {
@@ -863,6 +1015,30 @@ function mergeRefs(existing: Ref[], next: Ref): Ref[] {
     (ref) => ref.kind !== next.kind || ref.id !== next.id,
   );
   return [...withoutDuplicate, next];
+}
+
+function isTerminalTaskStatus(status: TaskStatus): boolean {
+  return (
+    status === "done" ||
+    status === "failed" ||
+    status === "blocked" ||
+    status === "canceled"
+  );
+}
+
+function delegationStateForTaskStatus(status: TaskStatus): Delegation["state"] {
+  switch (status) {
+    case "done":
+      return "done";
+    case "failed":
+      return "failed";
+    case "blocked":
+      return "blocked";
+    case "canceled":
+      return "canceled";
+    default:
+      return "done";
+  }
 }
 
 function trackerProviderKind(ref: Ref): string {

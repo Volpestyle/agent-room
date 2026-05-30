@@ -3,6 +3,7 @@ import type {
   Agent,
   AgentState,
   ApprovalRequest,
+  Delegation,
   HumanEscalation,
   Id,
   Message,
@@ -28,6 +29,9 @@ export type RoomEventType =
   | "task.assigned"
   | "task.ref_added"
   | "task.status_changed"
+  | "task.completed"
+  | "delegation.created"
+  | "delegation.resolved"
   | "workspace.registered"
   | "workspace.updated"
   | "agent.joined"
@@ -35,6 +39,7 @@ export type RoomEventType =
   | "agent.heartbeat"
   | "agent.blocked"
   | "agent.done"
+  | "agent.finished"
   | "human_escalation.created"
   | "human_escalation.answered"
   | "approval.requested"
@@ -93,6 +98,27 @@ export type RoomEvent =
         summary?: string;
       }
     >
+  | BaseEvent<
+      "task.completed",
+      {
+        taskId: Id;
+        status: TaskStatus;
+        actor?: ActorRef;
+        summary?: string;
+      }
+    >
+  | BaseEvent<"delegation.created", { delegation: Delegation }>
+  | BaseEvent<
+      "delegation.resolved",
+      {
+        delegationId: Id;
+        taskId: Id;
+        agentId: Id;
+        state: Delegation["state"];
+        notify?: ActorRef;
+        summary?: string;
+      }
+    >
   | BaseEvent<"workspace.registered", { workspace: Workspace }>
   | BaseEvent<
       "workspace.updated",
@@ -114,6 +140,15 @@ export type RoomEvent =
     >
   | BaseEvent<"agent.blocked", { agentId: Id; taskId?: Id; reason: string }>
   | BaseEvent<"agent.done", { agentId: Id; taskId?: Id; summary?: string }>
+  | BaseEvent<
+      "agent.finished",
+      {
+        agentId: Id;
+        state: Extract<AgentState, "done" | "failed" | "stopped">;
+        taskId?: Id;
+        summary?: string;
+      }
+    >
   | BaseEvent<"human_escalation.created", { escalation: HumanEscalation }>
   | BaseEvent<"human_escalation.answered", { escalationId: Id; answer: string }>
   | BaseEvent<"approval.requested", { approval: ApprovalRequest }>
@@ -157,9 +192,7 @@ export type RoomEvent =
         issueId: Id;
         providerKind: string;
         providerId?: string;
-        action:
-          | "linked"
-          | "tracker_update_skipped";
+        action: "linked" | "tracker_update_skipped";
         taskId?: Id;
         reason?: string;
       }

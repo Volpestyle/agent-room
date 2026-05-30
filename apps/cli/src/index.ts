@@ -19,9 +19,12 @@ import { promisify } from "node:util";
 import { Command } from "commander";
 import {
   AgentRoomService,
+  agentStateSchema,
   agentRoleSchema,
   type ActorRef,
+  type Agent,
   type AgentRole,
+  type AgentState,
   type HarnessSpec,
   harnessKindSchema,
   type Importance,
@@ -32,6 +35,7 @@ import {
   type RoomEvent,
   type RuntimeBinding,
   type RuntimeProvider,
+  type Task,
   type TaskStatus,
   taskStatusSchema,
 } from "@agentroom/core";
@@ -45,8 +49,11 @@ import {
   ensureAgentRoomProtocol,
   ensureRuntimeConfig,
   maybeLoadAgentRoomConfig,
+  readAgentRoomSessionIdentity,
   readAgentRoomProtocol,
   resolveStoragePath,
+  writeAgentRoomSessionEnvFile,
+  writeAgentRoomSessionIdentity,
   withDefaultRuntime,
   writeAgentRoomConfig,
   type AgentRoomConfig,
@@ -335,19 +342,13 @@ program
   .description("Print the current AgentRoom enrollment environment")
   .option("--json", "print JSON")
   .action(async (options: { json?: boolean }) => {
-    const envAgentId = process.env.AGENTROOM_AGENT_ID;
-    const resolvedAgentId = envAgentId ?? (await resolveAgentByPane());
-    const source: "env" | "pane" | "none" = envAgentId
-      ? "env"
-      : resolvedAgentId
-        ? "pane"
-        : "none";
+    const identity = await resolveCurrentIdentity();
     const info = {
-      enrolled: resolvedAgentId !== undefined,
-      agentId: resolvedAgentId,
-      roomId: process.env.AGENTROOM_ROOM_ID,
-      role: process.env.AGENTROOM_ROLE,
-      source,
+      enrolled: identity !== undefined,
+      agentId: identity?.agentId,
+      roomId: identity?.roomId ?? process.env.AGENTROOM_ROOM_ID,
+      role: identity?.role ?? process.env.AGENTROOM_ROLE,
+      source: identity?.source ?? "none",
       daemon:
         process.env.AGENTROOM_DAEMON ?? `http://127.0.0.1:${DEFAULT_PORT}`,
     };
@@ -497,6 +498,50 @@ program
   );
 
 program
+  .command("status")
+  .description("Post a structured status update to the implementation channel")
+  .requiredOption("--mode <mode>", "current mode, e.g. editing or reviewing")
+  .requiredOption("--goal <goal>", "current goal")
+  .option("--files <files>", "comma-separated files touched")
+  .option("--reuse <reuse>", "reused components, helpers, or context")
+  .option("--needs <needs>", "blocked needs or review needs")
+  .option(
+    "--coordinate-with <agents>",
+    "comma-separated agents to coordinate with",
+  )
+  .option("-c, --channel <channel>", "channel id", "implementation")
+  .option("--json", "print JSON")
+  .action(
+    async (options: {
+      mode: string;
+      goal: string;
+      files?: string;
+      reuse?: string;
+      needs?: string;
+      coordinateWith?: string;
+      channel: string;
+      json?: boolean;
+    }) => {
+      const service = await serviceForCwd();
+      const status = {
+        mode: options.mode,
+        goal: options.goal,
+        filesTouched: parseOptionalList(options.files),
+        reuse: options.reuse ?? "",
+        needs: options.needs ?? "",
+        coordinateWith: parseOptionalList(options.coordinateWith),
+      };
+      const message = await service.postMessage({
+        body: JSON.stringify(status, null, 2),
+        channelId: options.channel,
+        kind: "status",
+        sender: await currentActor(),
+      });
+      output(message, options.json);
+    },
+  );
+
+program
   .command("dm")
   .description("Send a direct room message to one or more agents")
   .argument("<agentIds>", "comma-separated agent ids")
@@ -555,7 +600,11 @@ program
 program
   .command("wait")
   .description("Wait until a matching room event appears")
-  .option("--message <pattern>", "regex against message body")
+  .option("--message <pattern>", "JavaScript regex against message body")
+  .option("--ignore-case", "compile --message as a case-insensitive regex")
+  .option("--from <agentId>", "only match messages sent by this agent")
+  .option("--channel <channel>", "only match messages in this channel")
+  .option("--kind <kind>", "only match messages of this kind")
   .option(
     "--task-status <taskStatus>",
     "taskId:status, for example task_xxx:done",
@@ -579,6 +628,10 @@ program
   .action(
     async (options: {
       message?: string;
+      ignoreCase?: boolean;
+      from?: string;
+      channel?: string;
+      kind?: string;
       taskStatus?: string;
       dmToMe?: boolean;
       timeout: number;
@@ -617,11 +670,78 @@ program
 
         const remaining = deadline - Date.now();
         if (remaining <= 0)
-          throw new Error(
+          throw new WaitTimeoutError(
             `Timed out waiting for matching event after ${options.timeout}s`,
           );
         await sleep(Math.min(1000, remaining));
       }
+    },
+  );
+
+program
+  .command("wait-task")
+  .description("Wait until a task shadow reaches a terminal or requested state")
+  .argument("<taskId>", "task id returned by delegate or task create")
+  .option(
+    "--state <state>",
+    "task state to wait for; repeat by comma for any of done,failed,blocked,canceled",
+  )
+  .option(
+    "--timeout <seconds>",
+    "seconds to wait before exiting with code 2",
+    parseNonNegativeNumber,
+    300,
+  )
+  .option("--json", "emit the resolved task as JSON")
+  .action(
+    async (
+      taskId: string,
+      options: { state?: string; timeout: number; json?: boolean },
+    ) => {
+      const service = await serviceForCwd();
+      const states = parseWaitTaskStates(options.state);
+      const task = await waitForTaskState(
+        service,
+        taskId,
+        states,
+        options.timeout,
+      );
+      output(task, options.json);
+      process.exitCode = taskStatusExitCode(task.status);
+    },
+  );
+
+program
+  .command("wait-agent")
+  .description("Wait until a room agent reaches the requested state")
+  .argument("<agentId>", "agent id")
+  .option(
+    "--state <state>",
+    "agent state to wait for; defaults to done",
+    "done",
+  )
+  .option(
+    "--timeout <seconds>",
+    "seconds to wait before exiting with code 2",
+    parseNonNegativeNumber,
+    300,
+  )
+  .option("--json", "emit the resolved agent as JSON")
+  .action(
+    async (
+      agentId: string,
+      options: { state: string; timeout: number; json?: boolean },
+    ) => {
+      const service = await serviceForCwd();
+      const state = parseAgentState(options.state);
+      const agent = await waitForAgentState(
+        service,
+        agentId,
+        state,
+        options.timeout,
+      );
+      output(agent, options.json);
+      process.exitCode = agentStateExitCode(agent.state);
     },
   );
 
@@ -658,9 +778,7 @@ task
     ) => {
       const service = await serviceForCwd();
       const refs = options.trackerIssue
-        ? [
-            trackerRef(options.trackerIssue, trackerRefOptions(options)),
-          ]
+        ? [trackerRef(options.trackerIssue, trackerRefOptions(options))]
         : [];
       const created = await service.createTask({
         title,
@@ -797,6 +915,94 @@ task
     },
   );
 
+task
+  .command("request-review")
+  .description("Mark a task ready for review and optionally DM a reviewer")
+  .argument("<taskId>", "task id")
+  .option("-r, --reviewer <agentId>", "reviewer agent id")
+  .option("-s, --summary <summary>", "review request summary")
+  .option("--json", "print JSON")
+  .action(
+    async (
+      taskId: string,
+      options: { reviewer?: string; summary?: string; json?: boolean },
+    ) => {
+      const service = await serviceForCwd();
+      const actor = await currentActor();
+      const updated = await service.updateTaskStatus({
+        taskId,
+        status: "ready-for-review",
+        actor,
+        ...(options.summary !== undefined ? { summary: options.summary } : {}),
+      });
+      const reviewMessage = await service.postMessage({
+        body: options.summary ?? `${taskId} is ready for review`,
+        channelId: options.reviewer === undefined ? "implementation" : "dm",
+        threadId: taskId,
+        sender: actor,
+        kind: "review",
+        ...(options.reviewer !== undefined
+          ? { recipients: [{ kind: "agent" as const, id: options.reviewer }] }
+          : {}),
+      });
+      output({ task: updated, message: reviewMessage }, options.json);
+    },
+  );
+
+task
+  .command("approve")
+  .description("Approve a task review")
+  .argument("<taskId>", "task id")
+  .option("-s, --summary <summary>", "approval summary")
+  .option("--json", "print JSON")
+  .action(
+    async (taskId: string, options: { summary?: string; json?: boolean }) => {
+      const service = await serviceForCwd();
+      const actor = await currentActor();
+      const updated = await service.updateTaskStatus({
+        taskId,
+        status: "approved",
+        actor,
+        ...(options.summary !== undefined ? { summary: options.summary } : {}),
+      });
+      const message = await service.postMessage({
+        body: options.summary ?? `${taskId} approved`,
+        channelId: "implementation",
+        threadId: taskId,
+        sender: actor,
+        kind: "review",
+      });
+      output({ task: updated, message }, options.json);
+    },
+  );
+
+task
+  .command("changes-requested")
+  .description("Request changes on a task review")
+  .argument("<taskId>", "task id")
+  .requiredOption("-r, --reason <reason>", "requested change summary")
+  .option("--json", "print JSON")
+  .action(
+    async (taskId: string, options: { reason: string; json?: boolean }) => {
+      const service = await serviceForCwd();
+      const actor = await currentActor();
+      const updated = await service.updateTaskStatus({
+        taskId,
+        status: "changes-requested",
+        actor,
+        reason: options.reason,
+      });
+      const message = await service.postMessage({
+        body: options.reason,
+        channelId: "implementation",
+        threadId: taskId,
+        sender: actor,
+        kind: "review",
+      });
+      output({ task: updated, message }, options.json);
+    },
+  );
+
 program
   .command("ask-human")
   .description("Create a human escalation question")
@@ -855,6 +1061,28 @@ program
       output(done, options.json);
     },
   );
+
+program
+  .command("agents")
+  .alias("presence")
+  .description("Show enrolled room agents, roles, state, and last heartbeat")
+  .option("--json", "print JSON")
+  .action(async (options: { json?: boolean }) => {
+    const service = await serviceForCwd();
+    const presence = await service.listAgentPresence();
+    if (options.json) {
+      output(presence, true);
+      return;
+    }
+    for (const entry of presence) {
+      const heartbeat = entry.lastHeartbeatAt ?? "no-heartbeat";
+      const status =
+        entry.heartbeatStatus === undefined ? "" : ` ${entry.heartbeatStatus}`;
+      console.log(
+        `${entry.agent.id}\t${entry.agent.role}\t${entry.agent.state}\t${heartbeat}${status}`,
+      );
+    }
+  });
 
 const workspace = program
   .command("workspace")
@@ -1091,6 +1319,62 @@ runtime
   });
 
 program
+  .command("delegate")
+  .description("Assign work to an agent and return a waitable task handle")
+  .argument("<agentId>", "agent id")
+  .argument("<work...>", "work description")
+  .option("--notify <agentId>", "agent to notify when the delegation resolves")
+  .option("--description <description>", "longer task description")
+  .option("--json", "print JSON")
+  .action(
+    async (
+      agentId: string,
+      workParts: string[],
+      options: { notify?: string; description?: string; json?: boolean },
+    ) => {
+      const service = await serviceForCwd();
+      const actor = await currentActor();
+      const work = workParts.join(" ").trim();
+      if (!work) throw new Error("delegate requires a work description.");
+      const notify =
+        options.notify !== undefined
+          ? ({ kind: "agent", id: options.notify } as const)
+          : actor.kind === "agent"
+            ? actor
+            : undefined;
+      const result = await service.delegateTask({
+        agentId,
+        work,
+        delegatedBy: actor,
+        ...(notify !== undefined ? { notify } : {}),
+        ...(options.description !== undefined
+          ? { description: options.description }
+          : {}),
+      });
+      const message = await service.postMessage({
+        body: `Delegated ${result.task.id}: ${work}`,
+        channelId: "dm",
+        sender: actor,
+        recipients: [{ kind: "agent", id: agentId }],
+        kind: "handoff",
+        threadId: result.task.id,
+      });
+      output(
+        {
+          ...result,
+          message,
+          handle: result.task.id,
+          wait: {
+            command: `agent-room wait-task ${result.task.id}`,
+            taskId: result.task.id,
+          },
+        },
+        options.json,
+      );
+    },
+  );
+
+program
   .command("launch")
   .description("Launch an opted-in agent through a runtime provider")
   .argument("<agentId>", "agent id")
@@ -1198,6 +1482,10 @@ program
   )
   .option("--cwd <cwd>", "working directory", process.cwd())
   .option("--shell", "print shell exports for `eval` instead of JSON")
+  .option(
+    "--print-env-file",
+    "write shell exports to .agentroom/session.env and print the path",
+  )
   .option("--json", "print JSON")
   .action(
     async (options: {
@@ -1209,6 +1497,7 @@ program
       command: string;
       cwd: string;
       shell?: boolean;
+      printEnvFile?: boolean;
       json?: boolean;
     }) => {
       const session = process.env.HERDR_SESSION;
@@ -1263,6 +1552,22 @@ program
       const env: Record<string, string> = {
         ...agentRoomProtocolEnv(config, { agentId, role }, appConfig),
       };
+
+      await writeAgentRoomSessionIdentity(process.cwd(), {
+        agentId,
+        roomId: config.roomId,
+        role,
+        bindingId,
+        paneId,
+        env,
+        updatedAt: new Date().toISOString(),
+      });
+
+      if (options.printEnvFile) {
+        const envFile = await writeAgentRoomSessionEnvFile(process.cwd(), env);
+        output(options.json ? { envFile } : envFile, options.json);
+        return;
+      }
 
       if (options.shell) {
         printShellExports(env);
@@ -1422,7 +1727,7 @@ program
 
 program.parseAsync(normalizeRootArgv(process.argv)).catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  process.exitCode = error instanceof WaitTimeoutError ? error.exitCode : 1;
 });
 
 function normalizeRootArgv(argv: string[]): string[] {
@@ -2662,15 +2967,75 @@ function roomDir(): string {
   return agentRoomDir();
 }
 
+type IdentitySource = "env" | "pane" | "session";
+
+interface ResolvedIdentity {
+  agentId: string;
+  roomId?: string;
+  role?: string;
+  source: IdentitySource;
+}
+
 async function currentActor(): Promise<ActorRef> {
-  if (process.env.AGENTROOM === "1" && process.env.AGENTROOM_AGENT_ID) {
-    return { kind: "agent" as const, id: process.env.AGENTROOM_AGENT_ID };
+  const identity = await resolveCurrentIdentity();
+  if (identity !== undefined) {
+    return { kind: "agent" as const, id: identity.agentId };
   }
-  const resolved = await resolveAgentByPane();
-  if (resolved) {
-    return { kind: "agent" as const, id: resolved };
-  }
+  warnIfLikelyAgentShell();
   return { kind: "human" as const, id: process.env.USER ?? "local" };
+}
+
+async function resolveCurrentIdentity(): Promise<ResolvedIdentity | undefined> {
+  const envAgentId = process.env.AGENTROOM_AGENT_ID?.trim();
+  if (envAgentId) {
+    return {
+      agentId: envAgentId,
+      ...(process.env.AGENTROOM_ROOM_ID !== undefined
+        ? { roomId: process.env.AGENTROOM_ROOM_ID }
+        : {}),
+      ...(process.env.AGENTROOM_ROLE !== undefined
+        ? { role: process.env.AGENTROOM_ROLE }
+        : {}),
+      source: "env",
+    };
+  }
+
+  const paneAgentId = await resolveAgentByPane();
+  if (paneAgentId !== undefined) {
+    return {
+      agentId: paneAgentId,
+      ...(process.env.AGENTROOM_ROOM_ID !== undefined
+        ? { roomId: process.env.AGENTROOM_ROOM_ID }
+        : {}),
+      ...(process.env.AGENTROOM_ROLE !== undefined
+        ? { role: process.env.AGENTROOM_ROLE }
+        : {}),
+      source: "pane",
+    };
+  }
+
+  const session = await readAgentRoomSessionIdentity(
+    process.cwd(),
+    process.env.HERDR_PANE_ID,
+  );
+  if (session !== undefined) {
+    return {
+      agentId: session.agentId,
+      roomId: session.roomId,
+      ...(session.role !== undefined ? { role: session.role } : {}),
+      source: "session",
+    };
+  }
+
+  return undefined;
+}
+
+function warnIfLikelyAgentShell(): void {
+  if (process.env.AGENTROOM === "1" || process.env.HERDR_PANE_ID) {
+    console.warn(
+      "agent-room: warning: command is posting as a human because no AgentRoom identity was resolved. Run 'agent-room enroll --json' first.",
+    );
+  }
 }
 
 function agentRoomProtocolEnv(
@@ -2782,18 +3147,27 @@ function printShellExports(env: Record<string, string>): void {
 
 type EventMatcher = (event: RoomEvent) => boolean;
 
+class WaitTimeoutError extends Error {
+  readonly exitCode = 2;
+}
+
 async function waitMatchers(options: {
   message?: string;
+  ignoreCase?: boolean;
+  from?: string;
+  channel?: string;
+  kind?: string;
   taskStatus?: string;
   dmToMe?: boolean;
 }): Promise<EventMatcher[]> {
   const matchers: EventMatcher[] = [];
 
   if (options.message !== undefined) {
-    const pattern = new RegExp(options.message);
+    const pattern = compileMessagePattern(options.message, options.ignoreCase);
     matchers.push(
       (event) =>
         event.type === "message.posted" &&
+        messageScopeMatches(event, options) &&
         pattern.test(event.payload.message.body),
     );
   }
@@ -2819,6 +3193,7 @@ async function waitMatchers(options: {
     matchers.push(
       (event) =>
         event.type === "message.posted" &&
+        messageScopeMatches(event, options) &&
         (event.payload.message.recipients ?? []).some(
           (recipient) => recipient.kind === "agent" && recipient.id === agentId,
         ),
@@ -2826,6 +3201,50 @@ async function waitMatchers(options: {
   }
 
   return matchers;
+}
+
+function messageScopeMatches(
+  event: RoomEvent,
+  options: { from?: string; channel?: string; kind?: string },
+): boolean {
+  if (event.type !== "message.posted") return false;
+  const message = event.payload.message;
+  if (
+    options.from !== undefined &&
+    (message.sender.kind !== "agent" || message.sender.id !== options.from)
+  ) {
+    return false;
+  }
+  if (options.channel !== undefined && message.channelId !== options.channel) {
+    return false;
+  }
+  if (
+    options.kind !== undefined &&
+    message.kind !== parseMessageKind(options.kind)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function compileMessagePattern(
+  value: string,
+  ignoreCase: boolean | undefined,
+): RegExp {
+  let source = value;
+  let flags = ignoreCase ? "i" : "";
+  if (source.startsWith("(?i)")) {
+    source = source.slice(4);
+    flags = "i";
+  }
+  try {
+    return new RegExp(source, flags);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Invalid --message JavaScript regex: ${reason}. Use --ignore-case instead of inline (?i) when possible.`,
+    );
+  }
 }
 
 function parseTaskStatusMatcher(value: string): {
@@ -2843,6 +3262,139 @@ function parseTaskStatusMatcher(value: string): {
     taskId: value.slice(0, separator),
     status: parseTaskStatus(value.slice(separator + 1)),
   };
+}
+
+function parseWaitTaskStates(value: string | undefined): Set<TaskStatus> {
+  if (value === undefined) {
+    return new Set(["done", "failed", "blocked", "canceled"]);
+  }
+  return new Set(
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+      .map((entry) => parseTaskStatus(entry)),
+  );
+}
+
+async function waitForTaskState(
+  service: AgentRoomService,
+  taskId: string,
+  states: Set<TaskStatus>,
+  timeout: number,
+): Promise<Task> {
+  const existing = await service.getTask(taskId);
+  if (!existing) throw new Error(`Task not found: ${taskId}`);
+  if (states.has(existing.status)) return existing;
+
+  let cursor = await service.eventCursor("end");
+  const deadline = Date.now() + timeout * 1000;
+  while (true) {
+    const batch = await service.listEventsFromCursor(cursor);
+    cursor = batch.cursor;
+    const match = batch.events.find(
+      (event) =>
+        event.type === "task.status_changed" &&
+        event.payload.taskId === taskId &&
+        states.has(event.payload.status),
+    );
+    if (match !== undefined) {
+      const task = await service.getTask(taskId);
+      if (!task)
+        throw new Error(`Task not found after status change: ${taskId}`);
+      return task;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0)
+      throw new WaitTimeoutError(
+        `Timed out waiting for task ${taskId} to reach ${[...states].join(",")} after ${timeout}s`,
+      );
+    await sleep(Math.min(1000, remaining));
+  }
+}
+
+async function waitForAgentState(
+  service: AgentRoomService,
+  agentId: string,
+  state: AgentState,
+  timeout: number,
+): Promise<Agent> {
+  const existing = await service.getAgent(agentId);
+  if (!existing) throw new Error(`Agent not found: ${agentId}`);
+  if (existing.state === state) return existing;
+
+  let cursor = await service.eventCursor("end");
+  const deadline = Date.now() + timeout * 1000;
+  while (true) {
+    const batch = await service.listEventsFromCursor(cursor);
+    cursor = batch.cursor;
+    const match = batch.events.find((event) => {
+      if (event.type === "agent.heartbeat") {
+        return (
+          event.payload.agentId === agentId && event.payload.state === state
+        );
+      }
+      if (event.type === "runtime.state_observed") {
+        return (
+          event.payload.agentId === agentId && event.payload.state === state
+        );
+      }
+      if (event.type === "agent.done") {
+        return event.payload.agentId === agentId && state === "done";
+      }
+      if (event.type === "agent.blocked") {
+        return event.payload.agentId === agentId && state === "blocked";
+      }
+      if (event.type === "agent.left") {
+        return event.payload.agentId === agentId && state === "stopped";
+      }
+      if (event.type === "agent.finished") {
+        return (
+          event.payload.agentId === agentId && event.payload.state === state
+        );
+      }
+      return false;
+    });
+    if (match !== undefined) {
+      const agent = await service.getAgent(agentId);
+      if (!agent)
+        throw new Error(`Agent not found after state change: ${agentId}`);
+      return agent;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0)
+      throw new WaitTimeoutError(
+        `Timed out waiting for agent ${agentId} to reach ${state} after ${timeout}s`,
+      );
+    await sleep(Math.min(1000, remaining));
+  }
+}
+
+function taskStatusExitCode(status: TaskStatus): number {
+  switch (status) {
+    case "failed":
+      return 3;
+    case "blocked":
+      return 4;
+    case "canceled":
+      return 5;
+    default:
+      return 0;
+  }
+}
+
+function agentStateExitCode(state: AgentState): number {
+  switch (state) {
+    case "failed":
+      return 3;
+    case "blocked":
+    case "needs-human":
+      return 4;
+    case "stopped":
+      return 5;
+    default:
+      return 0;
+  }
 }
 
 function parseSinceOption(value: string): string {
@@ -2882,6 +3434,12 @@ function parseTaskStatus(value: string): TaskStatus {
 function parseAgentRole(value: string): AgentRole {
   const result = agentRoleSchema.safeParse(value);
   if (!result.success) throw new Error(`Invalid agent role: ${value}`);
+  return result.data;
+}
+
+function parseAgentState(value: string): AgentState {
+  const result = agentStateSchema.safeParse(value);
+  if (!result.success) throw new Error(`Invalid agent state: ${value}`);
   return result.data;
 }
 
@@ -2926,6 +3484,14 @@ function parseAgentRecipients(value: string): ActorRef[] {
   return recipients;
 }
 
+function parseOptionalList(value: string | undefined): string[] {
+  if (value === undefined) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function trackerRef(
   issueId: string,
   options: {
@@ -2936,7 +3502,8 @@ function trackerRef(
 ): Ref {
   const providerKind = options.providerKind ?? "custom";
   const metadata: Record<string, unknown> = { providerKind };
-  if (options.providerId !== undefined) metadata.providerId = options.providerId;
+  if (options.providerId !== undefined)
+    metadata.providerId = options.providerId;
   return {
     kind: "tracker-issue",
     id: issueId,
@@ -2968,9 +3535,7 @@ function trackerRefOptions(input: {
   };
 }
 
-function workTrackerHealth(
-  config: AgentRoomConfig | undefined,
-): {
+function workTrackerHealth(config: AgentRoomConfig | undefined): {
   ok: boolean;
   tracker: string;
   kind: string;

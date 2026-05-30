@@ -195,6 +195,11 @@ Expose room tools to agents through the MCP server:
 agentroom-mcp
 ```
 
+The MCP surface includes identity/context, post/DM/messages, directed-message
+reads, task shadow actions, filtered waits, agent presence, and
+`agentroom_delegate_task`, which returns a watchable task handle for
+`agentroom_wait`.
+
 Pair mobile over a private tailnet:
 
 ```bash

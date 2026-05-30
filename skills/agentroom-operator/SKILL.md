@@ -59,6 +59,31 @@ agent-room send impl "Use AgentRoom, claim your assigned task, and post a short 
 
 Use `agent-room send/read/stop` for bound agents so runtime input and output are audited. These commands require an AgentRoom binding by default; use `--unaudited` only for manual recovery when the session is not AgentRoom-bound.
 
+## Delegate and await
+
+Use `delegate` when a worker already exists and the lead needs a completion handle instead of a free-text handoff:
+
+```bash
+agent-room agents
+agent-room delegate impl "Implement OAuth callback" --notify dashboard --json
+agent-room wait-task TASK_ID --state done,failed,blocked --json
+```
+
+`delegate` creates an assigned task shadow, emits `delegation.created`, and DMs the assignee. Terminal task states emit `task.completed` and `delegation.resolved`; `wait-task` exits 0 for `done`, 3 for `failed`, 4 for `blocked`, and 5 for `canceled`. Use `wait-agent <agentId> --state done|idle` when the unit of work is agent-state based rather than task based.
+
+Canonical lead flow:
+
+```bash
+agent-room enroll --json
+agent-room whoami --json
+agent-room agents
+agent-room delegate WORKER "Clear task statement" --notify dashboard --json
+agent-room wait-task TASK_ID --state done,failed,blocked --json
+agent-room task request-review TASK_ID --reviewer reviewer --summary "Ready for review"
+```
+
+For manual enrollment, `agent-room enroll` persists `.agentroom/session.json`, so later shells keep the same identity. Use `agent-room enroll --print-env-file` when a harness specifically needs a sourceable env file.
+
 ## Adopt an existing pane
 
 For panes that already exist outside an AgentRoom `launch` flow — typically a coding agent the human opened directly — the running daemon adopts them automatically after the runtime reports an agent identity for the pane. The agent id is derived from the runtime's session and pane identifiers (e.g. `herdr:<session>:<pane>`) and CLI writes from inside the pane resolve identity via the daemon, so no shell-level configuration is required. Plain shells, log panes, and dashboard panes should not become room agents unless they are explicitly enrolled or launched.

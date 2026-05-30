@@ -22,11 +22,19 @@ export interface HerdrPaneObserverOptions {
   logger?: (message: string) => void;
   reconnectDelayMs?: number;
   socketFactory?: SocketFactory;
+  /**
+   * When set (> 0), re-run pane adoption from the provider on this interval.
+   * This is the reliability backbone: it enrolls panes that already existed
+   * before the observer connected and self-heals after missed push events or a
+   * daemon restart. Left unset (e.g. in tests) the observer only adopts once.
+   */
+  reconcileIntervalMs?: number;
 }
 
 export class HerdrPaneObserver {
   private readonly client: HerdrSocketClient;
   private stopped = false;
+  private reconcileTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly opts: HerdrPaneObserverOptions) {
     this.client = new HerdrSocketClient({
@@ -49,20 +57,49 @@ export class HerdrPaneObserver {
   }
 
   async start(): Promise<void> {
-    await this.client.start([
-      { type: "pane.created" },
-      { type: "pane.agent_detected" },
-      { type: "pane.closed" },
-    ]);
-    this.log(
-      `observing herdr session=${this.opts.session} socket=${this.opts.socketPath}`,
-    );
+    // Best-effort real-time subscription. A failed or unavailable push socket
+    // must not prevent enrollment: adoption below runs off the provider CLI,
+    // which works independently of the push socket.
+    try {
+      await this.client.start([
+        { type: "pane.created" },
+        { type: "pane.agent_detected" },
+        { type: "pane.closed" },
+      ]);
+      this.log(
+        `observing herdr session=${this.opts.session} socket=${this.opts.socketPath}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(
+        `push subscription unavailable (${message}); relying on periodic reconcile`,
+      );
+    }
     await this.adoptExistingPanes();
+    this.startReconcileTimer();
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.reconcileTimer) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = undefined;
+    }
     await this.client.stop();
+  }
+
+  private startReconcileTimer(): void {
+    const interval = this.opts.reconcileIntervalMs;
+    if (interval === undefined || interval <= 0 || this.reconcileTimer) return;
+    this.reconcileTimer = setInterval(() => {
+      if (this.stopped) return;
+      void this.adoptExistingPanes().catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`periodic reconcile error: ${message}`);
+      });
+    }, interval);
+    // Never let the reconcile timer keep the process alive on its own.
+    this.reconcileTimer.unref?.();
   }
 
   isConnected(): boolean {
@@ -205,7 +242,11 @@ export class HerdrPaneObserver {
     }
 
     const role: AgentRole = this.opts.defaultRole ?? "implementer";
-    if (shouldRegisterAgent(existingAgent, input.displayName)) {
+    const isNewRegistration = shouldRegisterAgent(
+      existingAgent,
+      input.displayName,
+    );
+    if (isNewRegistration) {
       await this.opts.service.registerAgent({
         id: input.agentId,
         role,
@@ -229,7 +270,8 @@ export class HerdrPaneObserver {
       agent.bindingId,
       agent.metadata,
     );
-    if (shouldBindRuntime(existingAgent?.runtime, runtime)) {
+    const rebound = shouldBindRuntime(existingAgent?.runtime, runtime);
+    if (rebound) {
       await this.opts.service.bindRuntime({
         agentId: input.agentId,
         runtime,
@@ -239,7 +281,11 @@ export class HerdrPaneObserver {
       agentId: input.agentId,
       state: input.state ?? agent.state,
     });
-    this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+    // Only announce on a genuine (re)adoption. Periodic reconcile re-runs this
+    // for every pane on each tick; without this guard it would spam the log.
+    if (isNewRegistration || rebound) {
+      this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+    }
   }
 
   private async reconcileExistingBindings(
@@ -436,6 +482,7 @@ function bindingFor(
 export function resolveHerdrSocketPath(input: {
   envSocketPath?: string;
   session?: string;
+  cli?: string;
   xdgConfigHome?: string;
   home?: string;
 }): string | undefined {
@@ -443,6 +490,10 @@ export function resolveHerdrSocketPath(input: {
     return input.envSocketPath;
   }
   if (!input.session) return undefined;
+  // The config dir matches the CLI binary name: `herdr` -> ~/.config/herdr,
+  // `herdr-dev` -> ~/.config/herdr-dev. Defaulting to "herdr" hardcoded the
+  // wrong directory for any non-default CLI.
+  const configDir = input.cli && input.cli.length > 0 ? input.cli : "herdr";
   const base =
     input.xdgConfigHome && input.xdgConfigHome.length > 0
       ? input.xdgConfigHome
@@ -450,5 +501,5 @@ export function resolveHerdrSocketPath(input: {
         ? `${input.home}/.config`
         : undefined;
   if (!base) return undefined;
-  return `${base}/herdr/sessions/${input.session}/herdr.sock`;
+  return `${base}/${configDir}/sessions/${input.session}/herdr.sock`;
 }
