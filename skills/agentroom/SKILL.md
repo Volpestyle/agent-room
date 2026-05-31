@@ -34,6 +34,7 @@ Follow the room protocol alongside this skill. The room protocol may be more spe
 - Ask another agent before interrupting its active work.
 - Use `agent-room ask-human` for decisions that require the user.
 - Use `agent-room block --reason "…"` when blocked and `agent-room done --summary "…"` when finished (after tests/checks, or state clearly what was not checked). These report **your agent state** for room coordination — they are not a task tracker.
+- Use `agent-room report --summary "…"` for narrative updates the user or an external projection should see. The user-visible feed combines these reports with objective tracker/provider events imported by webhooks; neither is a task store.
 - Do not send input to another agent unless your role permits it.
 - Do not read all runtime sessions unless your role permits it.
 - Prefer structured commands over plain chat.
@@ -67,7 +68,7 @@ Practical consequences: do not assume a DM you send is "delivered" the instant y
 
 ## Known CLI surface (don't waste turns rediscovering)
 
-Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-agent`, `agents`/`presence`, `delegate`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.
+Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-agent`, `agents`/`presence`, `delegate`, `ask-human`, `block`, `done`, `report`, `feed`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.
 
 AgentRoom has **no task commands** — issues and their status live in the configured work tracker, reached through that tracker's MCP/CLI/skill. `subscribe` and `watch` are not CLI commands either: use `agent-room wait` to block for one matching future event, `agent-room wait-agent` to block on a peer's state, `agent-room events --follow --json` to stream audit events, and `agent-room messages` for channel/DM history.
 
@@ -120,5 +121,6 @@ agent-room dm reviewer "ENG-123 ready for review"
 Finish — update the issue in the tracker, then report your agent state:
 
 ```bash
+agent-room report --summary "ENG-123 is implemented and ready for review"
 agent-room done --summary "Implemented callback and unit tests pass"
 ```

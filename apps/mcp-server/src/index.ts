@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     },
     {
       instructions:
-        "AgentRoom coordination tools for room messages, DMs, waits, and audit context. Prefer bounded reads. AgentRoom does not track tasks — use the configured work tracker's MCP, CLI, or skill for all issue/task tracking.",
+        "AgentRoom coordination tools for room messages, DMs, waits, audit context, and user-visible reports. Prefer bounded reads. AgentRoom does not track tasks — use the configured work tracker's MCP, CLI, or skill for issue/task state, and use AgentRoom reports only for narrative updates.",
     },
   );
 
@@ -328,6 +328,61 @@ function registerTools(server: McpServer): void {
         input.type === undefined
           ? events
           : events.filter((event) => event.type === input.type),
+      );
+    },
+  );
+
+  server.registerTool(
+    "agentroom_feed",
+    {
+      description:
+        "Read the user-visible feed: objective tracker/provider webhook events plus narrative agent reports.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await roomContext();
+      return jsonResult(
+        await ctx.service.listUserFeed({
+          limit: input.limit ?? DEFAULT_EVENT_LIMIT,
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    "agentroom_report",
+    {
+      description:
+        "Post a concise narrative report to the user-visible feed. This is for surfacing notable progress, not for tracking task state.",
+      inputSchema: {
+        summary: z.string().min(1),
+        title: z.string().optional(),
+        details: z.string().optional(),
+        importance: importanceSchema.optional(),
+        visibleToUser: z.boolean().optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await roomContext();
+      const actor = await currentActor(ctx.service);
+      if (actor.kind !== "agent") {
+        throw new Error("agentroom_report requires an agent identity.");
+      }
+      return jsonResult(
+        await ctx.service.createAgentReport({
+          agentId: actor.id,
+          summary: input.summary,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.details !== undefined ? { details: input.details } : {}),
+          ...(input.importance !== undefined
+            ? { importance: input.importance as Importance }
+            : {}),
+          ...(input.visibleToUser !== undefined
+            ? { visibleToUser: input.visibleToUser }
+            : {}),
+        }),
       );
     },
   );

@@ -108,6 +108,43 @@ export interface Ref {
   metadata?: Record<string, unknown>;
 }
 
+export interface TrackerEventActor {
+  id?: string;
+  name?: string;
+  type?: string;
+}
+
+export interface TrackerEvent {
+  id: Id;
+  roomId: Id;
+  providerKind: string;
+  providerId?: string;
+  eventType: string;
+  action?: string;
+  issueRef?: string;
+  title?: string;
+  status?: string;
+  url?: string;
+  actor?: TrackerEventActor;
+  summary?: string;
+  raw?: unknown;
+  visibleToUser: boolean;
+  createdAt: ISODateTime;
+}
+
+export interface AgentReport {
+  id: Id;
+  roomId: Id;
+  agentId: Id;
+  title?: string;
+  summary: string;
+  details?: string;
+  importance: Importance;
+  refs?: Ref[];
+  visibleToUser: boolean;
+  createdAt: ISODateTime;
+}
+
 export interface Message {
   id: Id;
   roomId: Id;

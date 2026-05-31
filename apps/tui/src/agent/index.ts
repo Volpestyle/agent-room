@@ -86,19 +86,30 @@ function resolveThinkingLevel(override?: ThinkingLevel): ThinkingLevel {
   return "medium";
 }
 
+// Preferred default model id per provider. Each is validated against the live
+// pi-ai registry before use; if it has rotted out of the registry we fall back
+// deterministically to the first model the provider still offers. The default
+// resolver below treats an empty result as "no usable model here" and moves on,
+// so we never construct a ResolvedModel with an empty modelId.
+const PREFERRED_DEFAULT_MODEL_IDS: Partial<Record<KnownProvider, string>> = {
+  anthropic: "claude-sonnet-4-5-20250929",
+  openai: "gpt-5.1",
+  "openai-codex": "gpt-5.5",
+  google: "gemini-2.5-flash",
+};
+
 function defaultModelFor(provider: KnownProvider): string {
-  switch (provider) {
-    case "anthropic":
-      return "claude-sonnet-4-5-20250929";
-    case "openai":
-      return "gpt-4o";
-    case "openai-codex":
-      return "gpt-5.5";
-    case "google":
-      return "gemini-2.0-flash";
-    default:
-      return "";
+  let available: readonly { id: string }[];
+  try {
+    available = getModels(provider);
+  } catch {
+    available = [];
   }
+  const preferred = PREFERRED_DEFAULT_MODEL_IDS[provider];
+  if (preferred && available.some((entry) => entry.id === preferred)) {
+    return preferred;
+  }
+  return available[0]?.id ?? "";
 }
 
 export function resolveModelOrError(
@@ -138,9 +149,11 @@ export function resolveModelOrError(
   for (const provider of DEFAULT_PROVIDER_ORDER) {
     const status = auth.status(provider);
     if (!status.configured) continue;
+    const modelId = defaultModelFor(provider);
+    if (modelId === "") continue;
     return {
       provider,
-      modelId: defaultModelFor(provider),
+      modelId,
       source:
         status.source === "stored-oauth"
           ? "stored-oauth"

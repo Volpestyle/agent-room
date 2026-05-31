@@ -55,6 +55,8 @@ import {
   workTrackerLabel,
   writeAgentRoomConfig,
   type AgentRoomConfig,
+  type ChatOutboundSourceConfig,
+  type ChatRouteTargetConfig,
   type ClankyChatGatewayOwner,
   type ConfiguredRuntimeKind,
   type HerdrLayoutConfig,
@@ -256,22 +258,33 @@ program
     "agent",
   )
   .action(
-    async (options: {
-      room?: string;
-      name?: string;
-      runtime: string;
-      runtimeSession?: string;
-      runtimeCli?: string;
-      workTracker: string;
-      trackerTeam?: string;
-      clanky?: boolean;
-      clankyHome: string;
-      clankyProfile: string;
-      clankyChatOwner: string;
-    }) => {
+    async (
+      options: {
+        room?: string;
+        name?: string;
+        runtime: string;
+        runtimeSession?: string;
+        runtimeCli?: string;
+        workTracker: string;
+        trackerTeam?: string;
+        clanky?: boolean;
+        clankyHome: string;
+        clankyProfile: string;
+        clankyChatOwner: string;
+      },
+      command: Command,
+    ) => {
       const dir = roomDir();
       await mkdir(dir, { recursive: true });
-      const defaultRuntime = parseConfiguredRuntime(options.runtime);
+      // Honor an explicit --runtime exactly (tests and power users rely on
+      // `init --runtime fake`). When the user left it at the default, fall back
+      // herdr -> tmux if herdr is not installed so a fresh room never lands on a
+      // runtime whose CLI is missing.
+      const runtimeExplicit =
+        command.getOptionValueSource("runtime") === "cli";
+      const defaultRuntime = runtimeExplicit
+        ? parseConfiguredRuntime(options.runtime)
+        : await resolveFreshSetupRuntime(parseConfiguredRuntime(options.runtime));
       const roomId = resolveInitRoomId({
         room: options.room,
       });
@@ -823,6 +836,41 @@ program
   });
 
 program
+  .command("report")
+  .description("Post a narrative agent report to the user-visible feed")
+  .requiredOption("-s, --summary <summary>", "short report summary")
+  .option("--title <title>", "report title")
+  .option("--details <details>", "longer report details")
+  .option("-i, --importance <importance>", "low|normal|high|urgent", "normal")
+  .option("--internal", "record the report but hide it from the user feed")
+  .option("--json", "print JSON")
+  .action(
+    async (options: {
+      summary: string;
+      title?: string;
+      details?: string;
+      importance: string;
+      internal?: boolean;
+      json?: boolean;
+    }) => {
+      const service = await serviceForCwd();
+      const actor = await currentActor();
+      if (actor.kind !== "agent") {
+        throw new Error("report requires an enrolled agent identity");
+      }
+      const report = await service.createAgentReport({
+        agentId: actor.id,
+        summary: options.summary,
+        importance: parseImportance(options.importance),
+        ...(options.title !== undefined ? { title: options.title } : {}),
+        ...(options.details !== undefined ? { details: options.details } : {}),
+        ...(options.internal === true ? { visibleToUser: false } : {}),
+      });
+      output(report, options.json);
+    },
+  );
+
+program
   .command("agents")
   .alias("presence")
   .description("Show enrolled room agents, roles, state, and last heartbeat")
@@ -929,6 +977,21 @@ program
     },
   );
 
+program
+  .command("feed")
+  .description("Show the user-visible objective and narrative feed")
+  .option("-n, --limit <number>", "number of feed events", parseInteger, 20)
+  .option("--json", "print JSON")
+  .action(async (options: { limit: number; json?: boolean }) => {
+    const service = await serviceForCwd();
+    const events = await service.listUserFeed({ limit: options.limit });
+    if (options.json) {
+      output(events, true);
+      return;
+    }
+    for (const event of events) outputFeedLine(event);
+  });
+
 async function followEvents(options: {
   limit: number;
   pollInterval: number;
@@ -972,21 +1035,38 @@ function outputEventLine(event: RoomEvent, json?: boolean): void {
   console.log(`${event.createdAt} ${event.type} ${event.id}`);
 }
 
+function outputFeedLine(
+  event: Extract<RoomEvent, { type: "tracker.event" | "agent.report" }>,
+): void {
+  if (event.type === "tracker.event") {
+    const item = event.payload.event;
+    const issue = item.issueRef === undefined ? "" : ` ${item.issueRef}`;
+    const action = item.action === undefined ? item.eventType : item.action;
+    const summary = item.summary ?? item.title ?? item.status ?? "";
+    console.log(
+      `${event.createdAt} tracker ${item.providerKind}${issue} ${action} ${summary}`.trimEnd(),
+    );
+    return;
+  }
+
+  const report = event.payload.report;
+  const title = report.title === undefined ? "" : `${report.title}: `;
+  console.log(
+    `${event.createdAt} report ${report.agentId} ${report.importance} ${title}${report.summary}`,
+  );
+}
+
 program
   .command("doctor")
   .description("Check local prerequisites")
   .option("--json", "print JSON")
   .action(async (options: { json?: boolean }) => {
-    const config = await maybeLoadAgentRoomConfig();
-    const checks = {
-      node: process.version,
-      agentroomDir: await exists(roomDir()),
-      config: config ? agentRoomConfigPath() : undefined,
-      defaultRuntime: config?.runtime.default,
-      herdr: await commandAvailable("herdr"),
-      tmux: await commandAvailable("tmux"),
-    };
-    output(checks, options.json);
+    const report = await buildDoctorReport();
+    if (options.json) {
+      output(report, true);
+      return;
+    }
+    printDoctorReport(report);
   });
 
 const runtime = program
@@ -1076,6 +1156,63 @@ runtime
     await provider.sendInput({ agentId: "demo", text: "echo hello" });
     const outputText = await provider.readAgent({ agentId: "demo", lines: 10 });
     output(outputText, options.json);
+  });
+
+const gateway = program
+  .command("gateway")
+  .description("Chat gateway commands");
+
+gateway
+  .command("routes")
+  .description("Print the configured chat gateway route table (read-only)")
+  .option("--json", "print JSON")
+  .action(async (options: { json?: boolean }) => {
+    const config = await maybeLoadAgentRoomConfig();
+    const routes = Object.entries(config?.chat?.routes ?? {}).map(
+      ([id, route]) => ({
+        id,
+        provider: route.provider,
+        target: route.target,
+        ...(route.conversationId !== undefined
+          ? { conversationId: route.conversationId }
+          : {}),
+        ...(route.conversationKind !== undefined
+          ? { conversationKind: route.conversationKind }
+          : {}),
+        ...(route.threadId !== undefined ? { threadId: route.threadId } : {}),
+        ...(route.outbound !== undefined ? { outbound: route.outbound } : {}),
+      }),
+    );
+    if (options.json) {
+      output(routes, true);
+      return;
+    }
+    if (routes.length === 0) {
+      console.log("No chat gateway routes configured.");
+      return;
+    }
+    for (const route of routes) {
+      console.log(`${route.id}:`);
+      console.log(`  provider: ${route.provider}`);
+      console.log(`  target: ${formatGatewayRouteTarget(route.target)}`);
+      console.log(
+        `  conversation: ${route.conversationId ?? "(gateway default)"}${
+          route.conversationKind !== undefined
+            ? ` (${route.conversationKind})`
+            : ""
+        }`,
+      );
+      if (route.threadId !== undefined) {
+        console.log(`  thread: ${route.threadId}`);
+      }
+      console.log(
+        `  outbound: ${
+          route.outbound !== undefined
+            ? formatGatewayOutboundSource(route.outbound)
+            : "(derived from target)"
+        }`,
+      );
+    }
   });
 
 program
@@ -3581,6 +3718,56 @@ function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
   throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
 }
 
+function formatGatewayRouteTarget(target: ChatRouteTargetConfig): string {
+  switch (target.type) {
+    case "room-channel":
+      return `room-channel #${target.channelId}`;
+    case "agent-dm":
+      return `agent-dm ${target.agentId}`;
+    case "agent-stdin":
+      return `agent-stdin ${target.agentId}`;
+  }
+}
+
+function formatGatewayOutboundSource(source: ChatOutboundSourceConfig): string {
+  switch (source.type) {
+    case "room-channel":
+      return `room-channel #${source.channelId}`;
+    case "agent-dm":
+      return `agent-dm ${source.agentId}`;
+    case "agent-message":
+      return `agent-message ${source.agentId}${
+        source.channelId !== undefined ? ` #${source.channelId}` : ""
+      }`;
+  }
+}
+
+/**
+ * Resolve the runtime to write when the user did NOT pass --runtime. We never
+ * leave a fresh room on `fake` (the in-process contract-test runtime that never
+ * actually runs an agent). Prefer the requested default runtime (herdr); if its
+ * CLI is not installed but tmux is, fall back to tmux so the room is usable out
+ * of the box. Detection-only — nothing is installed here.
+ */
+async function resolveFreshSetupRuntime(
+  preferred: ConfiguredRuntimeKind,
+): Promise<ConfiguredRuntimeKind> {
+  if (preferred !== "herdr") return preferred;
+  if (await commandAvailable("herdr")) return "herdr";
+  if (await commandAvailable("tmux")) {
+    console.log(
+      "herdr CLI not found on PATH — defaulting this room to the tmux runtime. " +
+        "Install herdr and run `agent-room runtime use herdr` to switch.",
+    );
+    return "tmux";
+  }
+  console.log(
+    "Neither herdr nor tmux found on PATH — defaulting to herdr. " +
+      "Install herdr (or run `agent-room doctor` for install hints) before launching agents.",
+  );
+  return "herdr";
+}
+
 function resolveInitRoomId(options: { room: string | undefined }): string {
   return (
     normalizedConfigValue(options.room) ?? defaultRoomIdFromEnv(process.env)
@@ -3681,6 +3868,146 @@ async function commandAvailable(command: string): Promise<boolean> {
       return true;
     } catch {
       return false;
+    }
+  }
+}
+
+interface DoctorPrerequisite {
+  name: string;
+  required: boolean;
+  present: boolean;
+  /** Copy-pasteable hint for installing the tool when it is missing. */
+  installHint: string;
+}
+
+interface DoctorReport {
+  node: string;
+  agentroomDir: boolean;
+  config: string | undefined;
+  // `config.runtime.default` is a free-form string in config; a configured
+  // runtime id need not be one of the built-in kinds.
+  defaultRuntime: string | undefined;
+  /** The runtime CLI the configured default depends on (herdr/tmux), if any. */
+  runtimeCli: string | undefined;
+  prerequisites: DoctorPrerequisite[];
+  warnings: string[];
+}
+
+/**
+ * Copy-pasteable install hints per prerequisite. Detection-only: doctor never
+ * runs these — it reports the command so the user can run it themselves.
+ */
+const DOCTOR_INSTALL_HINTS: {
+  node: string;
+  pnpm: string;
+  herdr: string;
+  tmux: string;
+  [key: string]: string | undefined;
+} = {
+  node: "Install Node.js >= 24: https://nodejs.org or `brew install node`",
+  pnpm: "Install pnpm: `npm install -g pnpm` or `brew install pnpm`",
+  herdr: "Install herdr (the default runtime): see /Users/jamesvolpe/dev/herdr/README.md",
+  tmux: "Install tmux: `brew install tmux` or your package manager",
+};
+
+/**
+ * The runtime CLI command a configured runtime default depends on. `fake` has no
+ * external CLI (it is the in-process contract-test runtime).
+ */
+function runtimeCliForDefault(
+  runtime: string | undefined,
+  config: AgentRoomConfig | undefined,
+): string | undefined {
+  if (runtime === undefined) return undefined;
+  if (runtime === "fake") return undefined;
+  const runtimeConfig = config?.runtimes?.[runtime];
+  if (runtimeConfig !== undefined && runtimeConfig.type === "fake") {
+    // The configured default points at a fake runtime entry — no external CLI.
+    return undefined;
+  }
+  if (runtimeConfig !== undefined && runtimeConfig.cli !== undefined) {
+    return runtimeConfig.cli;
+  }
+  return runtime;
+}
+
+async function buildDoctorReport(): Promise<DoctorReport> {
+  const config = await maybeLoadAgentRoomConfig();
+  const defaultRuntime = config?.runtime.default;
+  const runtimeCli = runtimeCliForDefault(defaultRuntime, config);
+
+  const prerequisites: DoctorPrerequisite[] = [];
+  prerequisites.push({
+    name: "node",
+    required: true,
+    present: true,
+    installHint: DOCTOR_INSTALL_HINTS.node,
+  });
+  prerequisites.push({
+    name: "pnpm",
+    required: true,
+    present: await commandAvailable("pnpm"),
+    installHint: DOCTOR_INSTALL_HINTS.pnpm,
+  });
+
+  // Only check the CLI the configured default runtime actually needs. `fake`
+  // needs nothing external. With no config we cannot know the eventual runtime,
+  // so we skip the runtime-CLI check rather than guess.
+  if (runtimeCli !== undefined) {
+    const hint =
+      DOCTOR_INSTALL_HINTS[runtimeCli] ??
+      `Install '${runtimeCli}' and ensure it is on your PATH`;
+    prerequisites.push({
+      name: runtimeCli,
+      required: true,
+      present: await commandAvailable(runtimeCli),
+      installHint: hint,
+    });
+  }
+
+  const warnings: string[] = [];
+  if (defaultRuntime === "fake") {
+    warnings.push(
+      "Default runtime is 'fake' — agents launched against it never actually run. " +
+        "'fake' is for contract tests only. Set a real runtime with `agent-room runtime use herdr` (or tmux).",
+    );
+  }
+  for (const prerequisite of prerequisites) {
+    if (prerequisite.required && !prerequisite.present) {
+      warnings.push(
+        `Missing required tool '${prerequisite.name}'. ${prerequisite.installHint}`,
+      );
+    }
+  }
+
+  return {
+    node: process.version,
+    agentroomDir: await exists(roomDir()),
+    config: config ? agentRoomConfigPath() : undefined,
+    defaultRuntime,
+    runtimeCli,
+    prerequisites,
+    warnings,
+  };
+}
+
+function printDoctorReport(report: DoctorReport): void {
+  console.log(`node: ${report.node}`);
+  console.log(`agentroom dir: ${report.agentroomDir ? "yes" : "no"}`);
+  console.log(`config: ${report.config ?? "(none)"}`);
+  console.log(`default runtime: ${report.defaultRuntime ?? "(none)"}`);
+  console.log("");
+  console.log("prerequisites:");
+  for (const prerequisite of report.prerequisites) {
+    const mark = prerequisite.present ? "ok" : "MISSING";
+    const suffix = prerequisite.present ? "" : ` — ${prerequisite.installHint}`;
+    console.log(`  [${mark}] ${prerequisite.name}${suffix}`);
+  }
+  if (report.warnings.length > 0) {
+    console.log("");
+    console.log("warnings:");
+    for (const warning of report.warnings) {
+      console.log(`  WARNING: ${warning}`);
     }
   }
 }

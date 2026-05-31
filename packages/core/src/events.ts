@@ -1,12 +1,14 @@
 import type {
   ActorRef,
   Agent,
+  AgentReport,
   AgentState,
   ApprovalRequest,
   HumanEscalation,
   Id,
   Message,
   RuntimeBinding,
+  TrackerEvent,
   Workspace,
 } from "./domain.js";
 import type {
@@ -39,6 +41,8 @@ export type RoomEventType =
   | "chat.inbound_received"
   | "chat.outbound_sent"
   | "tracker.ref_event"
+  | "tracker.event"
+  | "agent.report"
   | "decision.recorded"
   | "handoff.created";
 
@@ -132,6 +136,8 @@ export type RoomEvent =
         reason?: string;
       }
     >
+  | BaseEvent<"tracker.event", { event: TrackerEvent }>
+  | BaseEvent<"agent.report", { report: AgentReport }>
   | BaseEvent<"decision.recorded", { decision: string; refs?: unknown[] }>
   | BaseEvent<
       "handoff.created",

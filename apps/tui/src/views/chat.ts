@@ -17,6 +17,11 @@ import { buildLoginCallbacks } from "../auth/login-flow.js";
 import { showLoginOverlay } from "../auth/login-overlay.js";
 import { dashboardActor } from "../agent/identity.js";
 import {
+  formatAutoReplyConversationHistory,
+  resolveDashboardWakeNames,
+  shouldAutoReplyToConnectorMessage,
+} from "../dashboard-autoreply.js";
+import {
   DASHBOARD_THINKING_LEVELS,
   parseDashboardThinkingLevel,
   type DashboardAgent,
@@ -35,6 +40,7 @@ import type { DashboardState, DashboardStore } from "../state.js";
 import type {
   AgentRoomConfigResponse,
   AgentRoomSetupPatch,
+  Message,
   RuntimeAgent,
 } from "../types.js";
 import type { View } from "./types.js";
@@ -45,7 +51,10 @@ const SLASH_COMMANDS = [
   { name: "config", description: "Show AgentRoom configuration summary" },
   { name: "protocol", description: "Show editable room protocol" },
   { name: "clear", description: "Clear the chat transcript" },
-  { name: "copy", description: "Copy the last dashboard reply to the clipboard" },
+  {
+    name: "copy",
+    description: "Copy the last dashboard reply to the clipboard",
+  },
   { name: "refresh", description: "Force a dashboard refresh" },
   {
     name: "post",
@@ -159,6 +168,19 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
   let lastAssistantText = "";
   let activeLoader: Loader | undefined;
   let traceMode = parseTraceMode(process.env.AGENTROOM_TUI_TRACE) ?? "full";
+  const autoReplyStartedAtMs = Date.now();
+  const autoReplyActor = dashboardActor();
+  const autoReplyWakeNames = resolveDashboardWakeNames({
+    dashboardId: autoReplyActor.id,
+    ...(autoReplyActor.displayName !== undefined
+      ? { displayName: autoReplyActor.displayName }
+      : {}),
+    env: process.env,
+  });
+  const autoReplySeenMessageIds = new Set<string>();
+  const autoReplyQueue: Message[] = [];
+  let autoReplyDraining = false;
+  let autoReplyRetryTimer: NodeJS.Timeout | undefined;
 
   function addLine(line: Component): void {
     transcript.addChild(line);
@@ -338,8 +360,153 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     }
   }
 
+  function enqueueConnectorAutoReplies(state: DashboardState): void {
+    for (const message of state.messages) {
+      if (autoReplySeenMessageIds.has(message.id)) continue;
+      autoReplySeenMessageIds.add(message.id);
+      if (
+        shouldAutoReplyToConnectorMessage(message, {
+          wakeNames: autoReplyWakeNames,
+          startedAtMs: autoReplyStartedAtMs,
+        })
+      ) {
+        autoReplyQueue.push(message);
+      }
+    }
+    if (autoReplyQueue.length > 0) scheduleAutoReplyDrain();
+  }
+
+  function scheduleAutoReplyDrain(delayMs = 0): void {
+    if (autoReplyRetryTimer !== undefined) return;
+    autoReplyRetryTimer = setTimeout(() => {
+      autoReplyRetryTimer = undefined;
+      void drainAutoReplyQueue();
+    }, delayMs);
+  }
+
+  async function drainAutoReplyQueue(): Promise<void> {
+    if (autoReplyDraining) {
+      scheduleAutoReplyDrain(500);
+      return;
+    }
+    if (busy) {
+      scheduleAutoReplyDrain(500);
+      return;
+    }
+    autoReplyDraining = true;
+    try {
+      while (autoReplyQueue.length > 0) {
+        if (busy) {
+          scheduleAutoReplyDrain(500);
+          return;
+        }
+        const message = autoReplyQueue.shift();
+        if (message !== undefined) await runConnectorAutoReply(message);
+      }
+    } finally {
+      autoReplyDraining = false;
+      if (autoReplyQueue.length > 0) scheduleAutoReplyDrain(0);
+    }
+  }
+
+  async function runConnectorAutoReply(message: Message): Promise<void> {
+    if ("reason" in currentAgent) {
+      addErrorNote(
+        `Discord message addressed ${dashboardActor().id}, but the dashboard agent is disabled.`,
+      );
+      return;
+    }
+
+    const sender = message.sender.displayName ?? message.sender.id;
+    const channelId = message.channelId ?? "announcements";
+    const promptStartedAtMs = Date.now();
+    addLine(
+      new Markdown(
+        palette.human("discord ▸ ") + `**${sender}:** ${message.body}`,
+        1,
+        0,
+        markdownTheme,
+      ),
+    );
+    setBusy(true);
+    lastAssistantText = "";
+    try {
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "working",
+          status: "responding to Discord",
+        })
+        .catch(() => undefined);
+      await currentAgent.prompt(
+        buildConnectorAutoReplyPrompt(message, store.get(), autoReplyWakeNames),
+      );
+      const reply = lastAssistantText.trim();
+      if (reply.length === 0 || isAutoReplySkipText(reply)) return;
+      if (
+        await dashboardAlreadyPostedInChannel(
+          channelId,
+          message.threadId,
+          promptStartedAtMs,
+        )
+      ) {
+        return;
+      }
+      await api.postMessage({
+        body: reply,
+        channelId,
+        sender: dashboardActor(),
+        kind: "answer",
+        ...(message.threadId !== undefined
+          ? { threadId: message.threadId }
+          : {}),
+      });
+      void poller.tick();
+    } catch (error) {
+      addErrorNote(
+        `Discord auto-reply failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "needs-human",
+          status: error instanceof Error ? error.message : String(error),
+        })
+        .catch(() => undefined);
+    } finally {
+      setBusy(false);
+      void api
+        .agentHeartbeat(dashboardActor().id, {
+          state: "idle",
+          status: "ready",
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  async function dashboardAlreadyPostedInChannel(
+    channelId: string,
+    threadId: string | undefined,
+    sinceMs: number,
+  ): Promise<boolean> {
+    const result = await api.listMessages({
+      channelId,
+      ...(threadId !== undefined ? { threadId } : {}),
+      limit: 20,
+    });
+    return result.messages.some((candidate) => {
+      if (
+        candidate.sender.kind !== "agent" ||
+        candidate.sender.id !== dashboardActor().id
+      ) {
+        return false;
+      }
+      const createdAt = Date.parse(candidate.createdAt);
+      return Number.isFinite(createdAt) && createdAt >= sinceMs;
+    });
+  }
+
   renderBanner(currentAgent);
   attachAgent(currentAgent);
+  store.subscribe((state) => enqueueConnectorAutoReplies(state));
 
   async function runLogin(providerArg: string): Promise<void> {
     const providerId = normalizeLoginProvider(providerArg);
@@ -541,9 +708,13 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       const protocol = await api.protocol();
       addLine(
         new Markdown(
-          [`## AgentRoom protocol`, "", `Source: \`${protocol.path}\``, "", protocol.content].join(
-            "\n",
-          ),
+          [
+            `## AgentRoom protocol`,
+            "",
+            `Source: \`${protocol.path}\``,
+            "",
+            protocol.content,
+          ].join("\n"),
           1,
           0,
           markdownTheme,
@@ -848,7 +1019,9 @@ function setupSummaryMarkdown(
   const config = configResponse.config;
   const trackerId = config.workTracker?.default;
   const tracker =
-    trackerId === undefined ? undefined : config.workTracker?.providers[trackerId];
+    trackerId === undefined
+      ? undefined
+      : config.workTracker?.providers[trackerId];
   const clanky = config.clanky;
   const mcpServers = Object.entries(config.mcp?.servers ?? {});
   const chatGateways = Object.keys(config.chat?.gateways ?? {});
@@ -884,7 +1057,9 @@ function setupSummaryMarkdown(
           .map(([id, server]) => {
             const target =
               server.url ??
-              [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+              [server.command, ...(server.args ?? [])]
+                .filter(Boolean)
+                .join(" ");
             return `- \`${id}\`: ${server.type}${server.disabled ? " (disabled)" : ""}${target ? ` — ${target}` : ""}`;
           })
           .join("\n"),
@@ -925,7 +1100,9 @@ function setupHelpMarkdown(): string {
   ].join("\n");
 }
 
-function parseSetupTrackerKind(value: string | undefined): SetupTrackerKind | undefined {
+function parseSetupTrackerKind(
+  value: string | undefined,
+): SetupTrackerKind | undefined {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "github") return "github-issues";
   return SETUP_TRACKER_KINDS.find((kind) => kind === normalized);
@@ -940,7 +1117,9 @@ function parseSetupMcp(args: string[]): SetupMcpPatch | string {
   }
   if (isMcpRemoveCommand(first)) {
     const id = rest[0];
-    return id === undefined ? "usage: /setup mcp remove <id>" : { id, remove: true };
+    return id === undefined
+      ? "usage: /setup mcp remove <id>"
+      : { id, remove: true };
   }
 
   const id = first;
@@ -952,8 +1131,7 @@ function parseSetupMcp(args: string[]): SetupMcpPatch | string {
 
   const target = parts[0]!;
   const type =
-    transport ??
-    (isMcpUrl(target) ? "streamable-http" : ("stdio" as const));
+    transport ?? (isMcpUrl(target) ? "streamable-http" : ("stdio" as const));
   if (type === "stdio") {
     return {
       id,
@@ -987,7 +1165,9 @@ function isMcpRemoveCommand(value: string): boolean {
   return normalized === "remove" || normalized === "delete";
 }
 
-function parseClankyChatOwner(value: string | undefined): ClankyChatOwner | undefined {
+function parseClankyChatOwner(
+  value: string | undefined,
+): ClankyChatOwner | undefined {
   const normalized = value?.trim().toLowerCase();
   return CLANKY_CHAT_OWNERS.find((owner) => owner === normalized);
 }
@@ -1002,6 +1182,45 @@ function promptWithDashboardContext(
   state: DashboardState,
 ): string {
   return `${dashboardContext(state)}\n\nUser request:\n${text}`;
+}
+
+function buildConnectorAutoReplyPrompt(
+  message: Message,
+  state: DashboardState,
+  wakeNames: readonly string[],
+): string {
+  const sender = message.sender.displayName ?? message.sender.id;
+  const channelId = message.channelId ?? "announcements";
+  const history = formatAutoReplyConversationHistory({
+    message,
+    messages: state.messages,
+  });
+  return [
+    dashboardContext(state),
+    "",
+    "Discord auto-reply request:",
+    `- roomChannelId: ${channelId}`,
+    ...(message.threadId !== undefined
+      ? [`- threadId: ${message.threadId}`]
+      : []),
+    `- sourceMessageId: ${message.id}`,
+    `- sender: ${sender}`,
+    `- matchedWakeNames: ${wakeNames.join(", ")}`,
+    "",
+    "The newest Discord connector message addressed the AgentRoom dashboard bot by name. Treat it as a user-facing Discord request.",
+    "Use dashboard tools for room, runtime, tracker, or agent actions when useful. Do not call post_message merely to send the final Discord reply; return the final Discord reply as your assistant text and the dashboard will post it to the same room channel.",
+    "If no visible Discord reply is needed, return exactly [SKIP].",
+    "",
+    ...(history.length > 0
+      ? ["Recent conversation in this room channel/thread:", history, ""]
+      : []),
+    "Newest Discord message:",
+    message.body,
+  ].join("\n");
+}
+
+function isAutoReplySkipText(text: string): boolean {
+  return /^\[SKIP\]$/i.test(text.trim());
 }
 
 export function dashboardContext(state: DashboardState): string {
@@ -1053,18 +1272,16 @@ export function dashboardContext(state: DashboardState): string {
   const agents = visibleRuntimeAgents.length
     ? visibleRuntimeAgents
         .slice(0, 12)
-        .map(
-          ({ providerId, agent }) => {
-            const label = runtimeAgentLabel(agent);
-            const parts = [
-              `state=${agent.state}`,
-              `binding=${agent.bindingId}`,
-              ...(label ? [`agent=${label}`] : []),
-              ...(agent.sessionId ? [`workspace=${agent.sessionId}`] : []),
-            ];
-            return `${providerId}:${agent.id}[${parts.join(", ")}]`;
-          },
-        )
+        .map(({ providerId, agent }) => {
+          const label = runtimeAgentLabel(agent);
+          const parts = [
+            `state=${agent.state}`,
+            `binding=${agent.bindingId}`,
+            ...(label ? [`agent=${label}`] : []),
+            ...(agent.sessionId ? [`workspace=${agent.sessionId}`] : []),
+          ];
+          return `${providerId}:${agent.id}[${parts.join(", ")}]`;
+        })
         .join(", ")
     : "none";
   const roomAgents = visibleRoomAgents.length

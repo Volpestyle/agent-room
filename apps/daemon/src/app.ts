@@ -50,6 +50,7 @@ import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { HerdrPaneObserver, resolveHerdrSocketPath } from "./herdrObserver.js";
 import { ProviderRegistry } from "./providerRegistry.js";
 import { RuntimeMessageNotifier } from "./runtimeMessageNotifier.js";
+import { ChatGatewayOutboundTail } from "./chatGatewayOutboundTail.js";
 import {
   ChatGatewayRegistry,
   type ChatGatewayFactory,
@@ -80,6 +81,14 @@ export interface CreateAppOptions {
   startMessageNotifier?: boolean;
   /** Poll cadence for the message notifier's event-log tail. */
   messageNotifierPollIntervalMs?: number;
+  /**
+   * Tail the event log and mirror outbound-eligible messages authored outside
+   * the inline HTTP path (CLI `agent-room post`, MCP) to chat gateways. Defaults
+   * to on; tests that assert only the inline-dispatch path can disable it.
+   */
+  startChatOutboundTail?: boolean;
+  /** Poll cadence for the chat outbound tail's event-log tail. */
+  chatOutboundTailPollIntervalMs?: number;
 }
 
 export interface CreateAppResult {
@@ -201,6 +210,25 @@ export function createAppWithLifecycle(
           logger: (message) => console.log(`[message-notifier] ${message}`),
         });
   void messageNotifier?.start();
+
+  // Mirror outbound-eligible messages authored outside the inline HTTP path
+  // (CLI/MCP) to chat gateways. The inline POST /v1/messages path still
+  // dispatches its own posts synchronously; the tail dedupes those structurally
+  // via the `chat.outbound_sent` marker so they are never double-sent.
+  const chatOutboundTail =
+    options.startChatOutboundTail === false
+      ? undefined
+      : new ChatGatewayOutboundTail({
+          store,
+          dispatcher: chatDispatcher,
+          roomId,
+          ready: chatStartup,
+          ...(options.chatOutboundTailPollIntervalMs !== undefined
+            ? { pollIntervalMs: options.chatOutboundTailPollIntervalMs }
+            : {}),
+          logger: (message) => console.log(`[chat-outbound-tail] ${message}`),
+        });
+  void chatOutboundTail?.start();
 
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
@@ -1057,6 +1085,7 @@ export function createAppWithLifecycle(
     chatStartup,
     shutdown: async () => {
       await messageNotifier?.stop();
+      await chatOutboundTail?.stop();
       await Promise.all(herdrObservers.map((observer) => observer.stop()));
       await chatRegistry.stop();
     },

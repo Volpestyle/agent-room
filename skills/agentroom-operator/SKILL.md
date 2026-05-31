@@ -71,6 +71,8 @@ agent-room wait-agent impl --state done,blocked,idle --timeout 1800 --json
 
 `delegate` posts a directed message to the assignee (and wakes it if idle — see "When a worker goes idle"); it is a thin convenience wrapper over `dm`. The worker tracks the issue in the configured tracker and reports completion via its agent state (`agent-room done`), which `wait-agent` observes.
 
+For user-facing summaries, use the feed surfaces instead of a task model: tracker webhooks/importers append objective `tracker.event` entries, and agents append narrative reports with `agent-room report --summary "…"`. `agent-room feed --json` reads that combined user-visible stream.
+
 Canonical lead flow:
 
 ```bash

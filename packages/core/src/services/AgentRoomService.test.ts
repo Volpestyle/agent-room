@@ -188,6 +188,71 @@ describe("AgentRoomService", () => {
     ]);
   });
 
+  it("records objective tracker events and narrative agent reports in the user feed", async () => {
+    const store = new TestStore();
+    const service = new AgentRoomService(store, { roomId: "room-test" });
+
+    await service.recordTrackerEvent({
+      providerKind: "linear",
+      providerId: "linear",
+      eventType: "Issue",
+      action: "update",
+      issueRef: "ENG-123",
+      title: "Ship objective feed",
+      status: "In Progress",
+      url: "https://linear.app/acme/issue/ENG-123",
+      actor: { id: "u1", name: "James", type: "user" },
+      summary: "ENG-123 moved to In Progress",
+      raw: { type: "Issue", action: "update" },
+    });
+    await service.createAgentReport({
+      agentId: "dashboard",
+      title: "Room summary",
+      summary: "Implementation is underway.",
+      importance: "high",
+      refs: [{ kind: "tracker-issue", id: "ENG-123" }],
+    });
+    await service.createAgentReport({
+      agentId: "dashboard",
+      summary: "Internal note",
+      visibleToUser: false,
+    });
+
+    expect(store.events.map((event) => event.type)).toEqual([
+      "tracker.event",
+      "agent.report",
+      "agent.report",
+    ]);
+    await expect(service.listUserFeed()).resolves.toEqual([
+      expect.objectContaining({
+        type: "tracker.event",
+        payload: expect.objectContaining({
+          event: expect.objectContaining({
+            providerKind: "linear",
+            eventType: "Issue",
+            issueRef: "ENG-123",
+            visibleToUser: true,
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "agent.report",
+        payload: expect.objectContaining({
+          report: expect.objectContaining({
+            agentId: "dashboard",
+            title: "Room summary",
+            summary: "Implementation is underway.",
+            importance: "high",
+            visibleToUser: true,
+          }),
+        }),
+      }),
+    ]);
+    await expect(service.listUserFeed({ limit: 1 })).resolves.toEqual([
+      expect.objectContaining({ type: "agent.report" }),
+    ]);
+  });
+
   it("finds the latest agent bound to a given binding id", async () => {
     const store = new TestStore();
     const service = new AgentRoomService(store, { roomId: "room-test" });

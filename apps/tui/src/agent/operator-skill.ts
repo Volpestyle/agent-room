@@ -82,7 +82,7 @@ function loadOperatorSkillPrompt(
   return [
     "Embedded AgentRoom operator skill:",
     `Source: ${skillPath}`,
-    "This is maintained skill guidance for this Pi dashboard agent. Follow it where applicable, but adapt CLI examples to your available AgentRoom HTTP tools. You still do not have direct shell or filesystem access; do not claim to run CLI commands unless a runtime agent did it or the operator provided the output.",
+    "This is maintained skill guidance for this Pi dashboard agent. Follow it where applicable, adapting CLI examples to the dashboard tools available to you: AgentRoom HTTP tools, runtime controls, and the user feed/report tools.",
     "",
     "<agentroom_operator_skill>",
     body,

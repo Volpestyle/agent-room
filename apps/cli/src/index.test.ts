@@ -354,6 +354,65 @@ describe("agent-room status", () => {
   });
 });
 
+describe("agent-room report and feed", () => {
+  it("records a narrative report in the user-visible feed", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-report-feed-"));
+    const env = {
+      ...testEnv("cli-report-feed-test"),
+      AGENTROOM: "1",
+      AGENTROOM_AGENT_ID: "dashboard",
+    };
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-report-feed-test", "--runtime", "fake"],
+        env,
+      );
+      const report = JSON.parse(
+        (
+          await execAgentRoom(
+            cwd,
+            [
+              "report",
+              "--title",
+              "Room summary",
+              "--summary",
+              "Implementation is moving",
+              "--importance",
+              "high",
+              "--json",
+            ],
+            env,
+          )
+        ).stdout,
+      ) as { agentId: string; title?: string; summary: string };
+
+      expect(report).toMatchObject({
+        agentId: "dashboard",
+        title: "Room summary",
+        summary: "Implementation is moving",
+      });
+
+      const feed = JSON.parse(
+        (await execAgentRoom(cwd, ["feed", "--json"], env)).stdout,
+      ) as Array<{ type: string; payload: { report?: { summary: string } } }>;
+      expect(feed).toEqual([
+        expect.objectContaining({
+          type: "agent.report",
+          payload: {
+            report: expect.objectContaining({
+              summary: "Implementation is moving",
+            }),
+          },
+        }),
+      ]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("agent-room runtime command safety", () => {
   it("requires a runtime binding before audited reads", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-runtime-safety-"));

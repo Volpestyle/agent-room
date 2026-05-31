@@ -62,7 +62,7 @@ describe("dashboard operator skill loading", () => {
     expect(prompt).toContain("# AgentRoom Protocol");
     expect(prompt).toContain("Use the room work tracker.");
     expect(prompt).toContain("Embedded AgentRoom operator skill");
-    expect(prompt).toContain("do not have direct shell or filesystem access");
+    expect(prompt).toContain("user feed/report tools");
     expect(prompt).toContain("# AgentRoom Operator");
     expect(prompt).toContain("Use AgentRoom tools to manage runtime agents.");
     expect(prompt).not.toContain("name: agentroom-operator");

@@ -49,6 +49,17 @@ const DASHBOARD_AGENT_CAPABILITIES = [
   "agentroom-operator",
 ] as const;
 
+// Single source of truth for the global hotkeys: the dispatcher routes from
+// `match` and the footer/help hint renders from `hint`, so the advertised keys
+// can never drift from the routed ones. Ctrl+R is intentionally excluded — it is
+// the offline-only daemon-recovery key, surfaced in the offline banner instead.
+const GLOBAL_HOTKEYS = {
+  nextView: { match: Key.ctrl("g"), hint: "Ctrl+G next" },
+  prevView: { match: Key.ctrl("l"), hint: "Ctrl+L prev" },
+  viewPicker: { match: Key.escape, hint: "Esc view picker" },
+  quit: { match: Key.ctrl("c"), hint: "Ctrl+C quit" },
+} as const;
+
 export interface DashboardOptions {
   terminal: Terminal;
   api: ApiClient;
@@ -289,12 +300,15 @@ export class Dashboard {
   }
 
   hotkeyHint(): string {
+    const globalHints = Object.values(GLOBAL_HOTKEYS)
+      .map((binding) => binding.hint)
+      .join(" · ");
     return (
       this.views
         .map((v) => `${palette.accent(v.label)} ${palette.faint(v.hotkey)}`)
         .join("  ") +
       "  " +
-      palette.muted("Ctrl+G next · Ctrl+L prev · Esc view picker · Ctrl+C quit")
+      palette.muted(globalHints)
     );
   }
 
@@ -415,7 +429,7 @@ export class Dashboard {
   }
 
   private onGlobalInput(data: string): { consume?: boolean } | undefined {
-    if (matchesKey(data, Key.ctrl("c"))) {
+    if (matchesKey(data, GLOBAL_HOTKEYS.quit.match)) {
       void this.shutdown();
       return { consume: true };
     }
@@ -428,15 +442,15 @@ export class Dashboard {
       }
       return { consume: true };
     }
-    if (matchesKey(data, Key.ctrl("g"))) {
+    if (matchesKey(data, GLOBAL_HOTKEYS.nextView.match)) {
       this.cycleView(1);
       return { consume: true };
     }
-    if (matchesKey(data, Key.ctrl("l"))) {
+    if (matchesKey(data, GLOBAL_HOTKEYS.prevView.match)) {
       this.cycleView(-1);
       return { consume: true };
     }
-    if (matchesKey(data, Key.escape)) {
+    if (matchesKey(data, GLOBAL_HOTKEYS.viewPicker.match)) {
       // Suppress the menu whenever ANY overlay is visible — including overlays
       // opened outside the Dashboard (e.g. the login overlay), which the TUI
       // tracks centrally but which never populate this.overlayHandle. Without

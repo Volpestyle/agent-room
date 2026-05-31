@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   Agent,
+  AgentReport,
   AgentPresence,
   HarnessSpec,
   HumanEscalation,
@@ -8,7 +9,10 @@ import type {
   Importance,
   Message,
   MessageKind,
+  Ref,
   RuntimeBinding,
+  TrackerEvent,
+  TrackerEventActor,
   Workspace,
 } from "../domain.js";
 import type { RoomEvent } from "../events.js";
@@ -25,6 +29,11 @@ import type {
   EventQuery,
   EventStore,
 } from "../ports/EventStore.js";
+
+type UserFeedEvent = Extract<
+  RoomEvent,
+  { type: "tracker.event" | "agent.report" }
+>;
 
 export interface AgentRoomServiceOptions {
   roomId: Id;
@@ -430,6 +439,86 @@ export class AgentRoomService {
     );
   }
 
+  async recordTrackerEvent(input: {
+    providerKind: string;
+    providerId?: string;
+    eventType: string;
+    action?: string;
+    issueRef?: string;
+    title?: string;
+    status?: string;
+    url?: string;
+    actor?: TrackerEventActor;
+    summary?: string;
+    raw?: unknown;
+    visibleToUser?: boolean;
+  }): Promise<TrackerEvent> {
+    const now = nowIso();
+    const event: TrackerEvent = {
+      id: createId("trk"),
+      roomId: this.roomId,
+      providerKind: input.providerKind,
+      eventType: input.eventType,
+      visibleToUser: input.visibleToUser ?? true,
+      createdAt: now,
+      ...(input.providerId !== undefined
+        ? { providerId: input.providerId }
+        : {}),
+      ...(input.action !== undefined ? { action: input.action } : {}),
+      ...(input.issueRef !== undefined ? { issueRef: input.issueRef } : {}),
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.url !== undefined ? { url: input.url } : {}),
+      ...(input.actor !== undefined ? { actor: input.actor } : {}),
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      ...(input.raw !== undefined ? { raw: input.raw } : {}),
+    };
+
+    await this.events.append(this.event("tracker.event", { event }, now));
+    return event;
+  }
+
+  async createAgentReport(input: {
+    agentId: Id;
+    title?: string;
+    summary: string;
+    details?: string;
+    importance?: Importance;
+    refs?: Ref[];
+    visibleToUser?: boolean;
+  }): Promise<AgentReport> {
+    const now = nowIso();
+    const report: AgentReport = {
+      id: createId("rep"),
+      roomId: this.roomId,
+      agentId: input.agentId,
+      summary: input.summary,
+      importance: input.importance ?? "normal",
+      visibleToUser: input.visibleToUser ?? true,
+      createdAt: now,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.details !== undefined ? { details: input.details } : {}),
+      ...(input.refs !== undefined && input.refs.length > 0
+        ? { refs: input.refs }
+        : {}),
+    };
+
+    await this.events.append(this.event("agent.report", { report }, now));
+    return report;
+  }
+
+  async listUserFeed(query: { limit?: number } = {}): Promise<UserFeedEvent[]> {
+    let events = (await this.events.list({ roomId: this.roomId })).filter(
+      (event): event is UserFeedEvent =>
+        (event.type === "tracker.event" &&
+          event.payload.event.visibleToUser !== false) ||
+        (event.type === "agent.report" &&
+          event.payload.report.visibleToUser !== false),
+    );
+    if (query.limit !== undefined) events = events.slice(-query.limit);
+    return events;
+  }
+
   async askHuman(input: {
     question: string;
     from: ActorRef;
@@ -600,7 +689,6 @@ export class AgentRoomService {
 
     return agents;
   }
-
 }
 
 function sameActor(left: ActorRef, right: ActorRef): boolean {
