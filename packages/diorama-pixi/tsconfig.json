@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../diorama-core"
+    },
+    {
+      "path": "../diorama-town"
+    }
+  ],
+  "include": [
+    "src/**/*.ts",
+    "example/**/*.ts"
+  ]
+}

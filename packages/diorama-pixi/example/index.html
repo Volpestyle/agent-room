@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clankton — diorama-pixi harness</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0e110e;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        color: #cfd6cf;
+        overflow: hidden;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      #app canvas {
+        display: block;
+        box-shadow: 0 0 0 1px #2a302a;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        padding: 8px 10px;
+        background: rgba(14, 17, 14, 0.8);
+        border: 1px solid #2a302a;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.5;
+        pointer-events: none;
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">WASD / arrows to move · Clankton spike</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -13,7 +13,9 @@ export default defineConfig({
       '@agentroom/runtime-fake': `${root}packages/runtime-fake/src/index.ts`,
       '@agentroom/runtime-herdr': `${root}packages/runtime-herdr/src/index.ts`,
       '@agentroom/runtime-tmux': `${root}packages/runtime-tmux/src/index.ts`,
-      '@agentroom/chat-discord': `${root}packages/integrations/chat-discord/src/index.ts`
+      '@agentroom/chat-discord': `${root}packages/integrations/chat-discord/src/index.ts`,
+      '@agentroom/diorama-core': `${root}packages/diorama-core/src/index.ts`,
+      '@agentroom/diorama-town': `${root}packages/diorama-town/src/index.ts`
     }
   },
   test: {

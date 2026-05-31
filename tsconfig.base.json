@@ -48,6 +48,12 @@
       ],
       "@agentroom/diorama-core": [
         "packages/diorama-core/src/index.ts"
+      ],
+      "@agentroom/diorama-town": [
+        "packages/diorama-town/src/index.ts"
+      ],
+      "@agentroom/diorama-pixi": [
+        "packages/diorama-pixi/src/index.ts"
       ]
     }
   }
