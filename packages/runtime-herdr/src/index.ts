@@ -13,6 +13,7 @@ import {
   type RuntimeProvider,
   type RuntimeSession,
   type SendInputRequest,
+  type SendKeysRequest,
   type StartAgentRequest,
 } from "@agentroom/core";
 
@@ -61,6 +62,7 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     stopAgent: true,
     readOutput: true,
     sendInput: true,
+    sendKeys: true,
     attachInteractive: true,
     subscribeEvents: false,
     semanticAgentState: true,
@@ -161,20 +163,8 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     const pane =
       created.rootPane ??
       (await this.primaryPaneForWorkspace(created.workspace.workspace_id));
-    const command = shellCommand(
-      {
-        AGENTROOM: "1",
-        AGENTROOM_AGENT_ID: request.agentId,
-        AGENTROOM_ROOM_ID: request.roomId,
-        AGENTROOM_ROLE: request.role,
-        ...(request.env ?? {}),
-        ...(request.harness.env ?? {}),
-      },
-      request.harness.command,
-      request.harness.args ?? [],
-    );
 
-    await this.run(["pane", "run", pane.pane_id, command]);
+    await this.runAgentCommand(pane.pane_id, request);
 
     return {
       id: request.agentId,
@@ -311,6 +301,16 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     }
   }
 
+  async sendKeys(request: SendKeysRequest): Promise<void> {
+    const paneId =
+      request.bindingId ?? (await this.resolvePaneId(request.agentId));
+    // herdr's `pane send-keys` takes one named key per invocation; send the
+    // sequence in order so the foreground TUI sees each keypress discretely.
+    for (const key of request.keys) {
+      await this.run(["pane", "send-keys", paneId, key]);
+    }
+  }
+
   async attach(agentId: string): Promise<void> {
     const pane =
       (await this.tryGetPane(agentId)) ??
@@ -323,6 +323,11 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     paneId: string,
     request: StartAgentRequest,
   ): Promise<void> {
+    // `pane run` types the launch command into the pane's foreground program.
+    // If the pane already runs an agent, the command would be swallowed as that
+    // agent's input (and the launched harness would never start with AGENTROOM_*
+    // env). Refuse loudly instead of silently misfiring.
+    await this.assertPaneFree(paneId, request.agentId);
     const command = shellCommand(
       {
         AGENTROOM: "1",
@@ -337,6 +342,18 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
     );
 
     await this.run(["pane", "run", paneId, command]);
+  }
+
+  private async assertPaneFree(paneId: string, agentId: string): Promise<void> {
+    const pane = await this.tryGetPane(paneId);
+    if (pane && !isReusableShellPane(pane)) {
+      throw new Error(
+        `Herdr pane ${paneId} already has agent '${pane.agent}' running; ` +
+          `refusing to launch ${agentId} into an occupied pane (the command would ` +
+          `be delivered as input to the running program instead of starting a new ` +
+          `enrolled process). Free the pane or use a layout that allocates a fresh pane.`,
+      );
+    }
   }
 
   private async ensureWorkspace(
@@ -507,39 +524,58 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
   ): Promise<{ tab: HerdrTabInfo; pane: HerdrPaneInfo }> {
     const tabs = await this.listTabs(workspaceId);
     const panes = await this.listPanes(workspaceId);
-    const tab =
-      tabs.find(
-        (candidate) =>
-          panesForTab(panes, candidate.tab_id).length < panesPerTab,
-      ) ?? (await this.createTab(workspaceId, cwd, agentId)).tab;
 
-    const existingPanes = panesForTab(panes, tab.tab_id);
+    // Always launch into a FRESHLY allocated pane; never reuse a pre-existing one.
+    // `pane run` types the launch command into whatever foreground program the pane
+    // is running, and Herdr only reports *detected coding agents* (`pane.agent`) —
+    // so a pane running the dashboard TUI, an editor, a REPL, or an un-detected
+    // agent looks "idle" yet would swallow the command (and the harness would never
+    // start with AGENTROOM_* env). Splitting an existing tab or opening a new tab
+    // both yield a brand-new shell at a clean prompt.
 
-    if (existingPanes.length === 0) {
-      return { tab, pane: await this.primaryPaneForTab(tab.tab_id) };
+    // Prefer a tab that still has capacity: split it to add a new, empty pane.
+    const tabWithCapacity = tabs.find(
+      (candidate) => panesForTab(panes, candidate.tab_id).length < panesPerTab,
+    );
+    if (tabWithCapacity) {
+      const tabPanes = panesForTab(panes, tabWithCapacity.tab_id);
+      await this.labelTabForAgent(tabWithCapacity, tabPanes.length, agentId);
+      // A tab just created elsewhere can show 0 panes in this stale snapshot; its
+      // root pane is itself fresh, so use it directly.
+      if (tabPanes.length === 0) {
+        return {
+          tab: tabWithCapacity,
+          pane: await this.primaryPaneForTab(tabWithCapacity.tab_id),
+        };
+      }
+      const newPane = await this.splitPane(
+        selectSplitTarget(tabPanes, this.layout.split).pane_id,
+        cwd,
+        splitDirectionForNextPane(tabPanes.length),
+      );
+      if (this.layout.balance) await this.balanceTab(tabWithCapacity.tab_id);
+      return { tab: tabWithCapacity, pane: newPane };
     }
 
-    if (existingPanes.length === 1 && isDefaultTabLabel(tab.label)) {
+    // Every tab is full — open a new tab whose root pane is freshly spawned.
+    const created = await this.createTab(workspaceId, cwd, agentId);
+    return {
+      tab: created.tab,
+      pane:
+        created.rootPane ?? (await this.primaryPaneForTab(created.tab.tab_id)),
+    };
+  }
+
+  private async labelTabForAgent(
+    tab: HerdrTabInfo,
+    paneCount: number,
+    agentId: string,
+  ): Promise<void> {
+    if (paneCount <= 1 && isDefaultTabLabel(tab.label)) {
       await this.renameTab(tab.tab_id, agentId);
-      return { tab, pane: existingPanes[0]! };
-    } else if (
-      existingPanes.length > 0 &&
-      !tabLabelContains(tab.label, agentId)
-    ) {
+    } else if (!tabLabelContains(tab.label, agentId)) {
       await this.renameTab(tab.tab_id, combinedTabLabel(tab.label, agentId));
     }
-
-    if (existingPanes.length < panesPerTab) {
-      const newPane = await this.splitPane(
-        selectSplitTarget(existingPanes, this.layout.split).pane_id,
-        cwd,
-        splitDirectionForNextPane(existingPanes.length),
-      );
-      if (this.layout.balance) await this.balanceTab(tab.tab_id);
-      return { tab, pane: newPane };
-    }
-
-    return { tab, pane: existingPanes[0]! };
   }
 
   private async resolvePaneId(agentIdOrPaneId: string): Promise<string> {
@@ -766,6 +802,13 @@ function normalizePaneInfo(input: unknown): HerdrPaneInfo {
 
 function panesForTab(panes: HerdrPaneInfo[], tabId: string): HerdrPaneInfo[] {
   return panes.filter((pane) => pane.tab_id === tabId);
+}
+
+function isReusableShellPane(pane: HerdrPaneInfo): boolean {
+  return (
+    pane.agent === undefined &&
+    (pane.agent_status === undefined || pane.agent_status === "unknown")
+  );
 }
 
 function isDefaultTabLabel(label?: string): boolean {

@@ -198,15 +198,130 @@ describe("HerdrRuntimeProvider", () => {
     expect(calls).toContainEqual(["pane", "run", "w1-2", expect.any(String)]);
   });
 
-  it("places pane-grid agents two per tab by reusing the first pane then splitting and balancing", async () => {
+  it("never reuses an existing pane for a pane-grid launch; always allocates a fresh one", async () => {
+    // Herdr only reports *detected coding agents* (`pane.agent`), so a pane running
+    // an un-detected program (the dashboard TUI, an editor, a REPL) looks idle yet
+    // would swallow a `pane run` as input. Launches must always split / open a new
+    // tab to a guaranteed-fresh shell, never reuse a pre-existing pane.
+    const calls: string[][] = [];
+    let nextPane = 2;
+    let nextTab = 2;
+    const panes: Array<{ pane_id: string; tab_id: string; agent?: string }> = [
+      { pane_id: "w1-1", tab_id: "w1:1" },
+    ];
+    const tabs: Array<{ tab_id: string; label: string }> = [
+      { tab_id: "w1:1", label: "1" },
+    ];
+    const runtime = new HerdrRuntimeProvider({
+      layout: { mode: "pane-grid", workspace: "room", panesPerTab: 2 },
+      runner: async (args) => {
+        calls.push(args);
+        if (matches(args, ["workspace", "list"]))
+          return envelope({
+            type: "workspace_list",
+            workspaces: [{ workspace_id: "w1", label: "room" }],
+          });
+        if (matches(args, ["tab", "list", "--workspace", "w1"]))
+          return envelope({
+            type: "tab_list",
+            tabs: tabs.map((t) => ({
+              ...t,
+              workspace_id: "w1",
+              pane_count: panes.filter((p) => p.tab_id === t.tab_id).length,
+            })),
+          });
+        if (matches(args, ["pane", "list", "--workspace", "w1"]))
+          return envelope({
+            type: "pane_list",
+            panes: panes.map((p) => ({ ...p, workspace_id: "w1" })),
+          });
+        if (args[0] === "pane" && args[1] === "get") {
+          const p = panes.find((x) => x.pane_id === args[2]);
+          return envelope({
+            type: "pane_info",
+            pane: {
+              pane_id: args[2],
+              workspace_id: "w1",
+              ...(p?.tab_id ? { tab_id: p.tab_id } : {}),
+              ...(p?.agent ? { agent: p.agent } : {}),
+            },
+          });
+        }
+        if (args[0] === "tab" && args[1] === "rename") {
+          const t = tabs.find((x) => x.tab_id === args[2]);
+          if (t) t.label = args[3]!;
+          return "";
+        }
+        if (args[0] === "tab" && args[1] === "create") {
+          const tabId = `w1:${nextTab++}`;
+          const labelIdx = args.indexOf("--label");
+          tabs.push({
+            tab_id: tabId,
+            label: labelIdx >= 0 ? args[labelIdx + 1]! : tabId,
+          });
+          const paneId = `w1-${nextPane++}`;
+          panes.push({ pane_id: paneId, tab_id: tabId });
+          return envelope({
+            type: "tab_created",
+            tab: { tab_id: tabId, workspace_id: "w1" },
+            root_pane: { pane_id: paneId, workspace_id: "w1", tab_id: tabId },
+          });
+        }
+        if (args[0] === "pane" && args[1] === "split") {
+          const src = args[2]!;
+          const tabId = panes.find((p) => p.pane_id === src)?.tab_id ?? "w1:1";
+          const paneId = `w1-${nextPane++}`;
+          panes.push({ pane_id: paneId, tab_id: tabId });
+          return envelope({
+            type: "pane_info",
+            pane: { pane_id: paneId, workspace_id: "w1", tab_id: tabId },
+          });
+        }
+        if (args[0] === "tab" && args[1] === "balance") return "";
+        if (args[0] === "pane" && args[1] === "run") {
+          const p = panes.find((x) => x.pane_id === args[2]);
+          if (p) p.agent = "bash"; // pane is now occupied
+          return "";
+        }
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    });
+
+    const first = await runtime.startAgent({
+      agentId: "impl",
+      roomId: "room",
+      role: "implementer",
+      harness: { kind: "shell", command: "bash" },
+      cwd: "/tmp/project",
+    });
+    const second = await runtime.startAgent({
+      agentId: "reviewer",
+      roomId: "room",
+      role: "reviewer",
+      harness: { kind: "shell", command: "bash" },
+      cwd: "/tmp/project",
+    });
+
+    // First agent: the capacity tab is split into a brand-new pane (w1-2).
+    expect(first.bindingId).toBe("w1-2");
+    // Second agent: tab now full -> a new tab is opened; its fresh root pane (w1-3).
+    expect(second.bindingId).toBe("w1-3");
+    expect(first.bindingId).not.toBe(second.bindingId);
+    // The pre-existing pane is never launched into.
+    expect(calls).not.toContainEqual(["pane", "run", "w1-1", expect.any(String)]);
+    expect(calls).toContainEqual(["pane", "run", "w1-2", expect.any(String)]);
+    expect(calls).toContainEqual(["pane", "run", "w1-3", expect.any(String)]);
+    expect(
+      calls.some((c) => c[0] === "pane" && c[1] === "split" && c[2] === "w1-1"),
+    ).toBe(true);
+  });
+
+  it("does not run a pane-grid launch command inside an active agent pane", async () => {
     const calls: string[][] = [];
     const runtime = new HerdrRuntimeProvider({
       layout: { mode: "pane-grid", workspace: "room", panesPerTab: 2 },
       runner: async (args) => {
         calls.push(args);
-        const runCount = calls.filter(
-          (call) => call[0] === "pane" && call[1] === "run",
-        ).length;
         if (matches(args, ["workspace", "list"])) {
           return envelope({
             type: "workspace_list",
@@ -220,7 +335,7 @@ describe("HerdrRuntimeProvider", () => {
               {
                 tab_id: "w1:1",
                 workspace_id: "w1",
-                label: runCount === 0 ? "1" : "impl",
+                label: "1",
                 pane_count: 1,
               },
             ],
@@ -234,15 +349,14 @@ describe("HerdrRuntimeProvider", () => {
                 pane_id: "w1-1",
                 workspace_id: "w1",
                 tab_id: "w1:1",
+                agent: "claude",
+                agent_status: "working",
                 focused: true,
-                ...(runCount > 0 ? { agent: "bash" } : {}),
               },
             ],
           });
         }
-        if (matches(args, ["tab", "rename", "w1:1", "impl"])) return "";
-        if (matches(args, ["tab", "rename", "w1:1", "impl/reviewer"]))
-          return "";
+        if (matches(args, ["tab", "rename", "w1:1", "reviewer"])) return "";
         if (
           matches(args, [
             "pane",
@@ -270,14 +384,7 @@ describe("HerdrRuntimeProvider", () => {
       },
     });
 
-    const first = await runtime.startAgent({
-      agentId: "impl",
-      roomId: "room",
-      role: "implementer",
-      harness: { kind: "shell", command: "bash" },
-      cwd: "/tmp/project",
-    });
-    const second = await runtime.startAgent({
+    const agent = await runtime.startAgent({
       agentId: "reviewer",
       roomId: "room",
       role: "reviewer",
@@ -285,21 +392,14 @@ describe("HerdrRuntimeProvider", () => {
       cwd: "/tmp/project",
     });
 
-    expect(first.bindingId).toBe("w1-1");
-    expect(second.bindingId).toBe("w1-2");
-    expect(calls).toContainEqual(["tab", "rename", "w1:1", "impl"]);
-    expect(calls).toContainEqual(["tab", "rename", "w1:1", "impl/reviewer"]);
-    expect(calls).toContainEqual([
+    expect(agent.bindingId).toBe("w1-2");
+    expect(calls).toContainEqual(["pane", "run", "w1-2", expect.any(String)]);
+    expect(calls).not.toContainEqual([
       "pane",
-      "split",
+      "run",
       "w1-1",
-      "--direction",
-      "right",
-      "--cwd",
-      "/tmp/project",
-      "--no-focus",
+      expect.any(String),
     ]);
-    expect(calls).toContainEqual(["tab", "balance", "w1:1"]);
   });
 
   it("resolves AgentRoom ids to Herdr pane ids for read and send", async () => {
