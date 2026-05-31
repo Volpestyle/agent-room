@@ -27,24 +27,20 @@ Follow the room protocol alongside this skill. The room protocol may be more spe
 
 ## Rules
 
-- Post a short status when starting meaningful work.
-- Claim or confirm your assigned task before editing.
-- Use the configured external work tracker as canonical for issues, ownership, status, and durable comments.
+- Post a short status when starting meaningful work, and keep your agent state current.
+- Track all task/issue work in the **configured work tracker** — it is canonical for issues, ownership, status, and durable comments. The provider is set in `config.yaml` under `workTracker` (read it; don't assume a specific tracker). AgentRoom does not track tasks itself.
 - Use AgentRoom channel/DM messages for active coordination and short-lived coworker chatter.
-- Use threads for task-specific discussion when available.
 - Ask another agent before interrupting its active work.
 - Use `agent-room ask-human` for decisions that require the user.
-- Use `agent-room block` when blocked.
-- Use `agent-room done` only after tests/checks, or state clearly what was not checked.
-- Use `agent-room task status` for intermediate workflow states such as `working` and `ready-for-review`.
+- Use `agent-room block --reason "…"` when blocked and `agent-room done --summary "…"` when finished (after tests/checks, or state clearly what was not checked). These report **your agent state** for room coordination — they are not a task tracker.
 - Do not send input to another agent unless your role permits it.
 - Do not read all runtime sessions unless your role permits it.
 - Prefer structured commands over plain chat.
-- If tracker tools are unavailable, report `tracker_update_skipped` with the reason.
+- If the configured tracker's tools are unavailable, say so explicitly and stop; do not invent a local task list.
 
 ## Do not idle at end-of-turn while waiting
 
-If your next step depends on someone else posting a message, DMing you, or finishing a task, your turn must not end with "waiting". A worker that just polled once and stopped is functionally deadlocked until a human nudges it. Use `agent-room wait` inside the same turn — it blocks until the matching event lands or the timeout elapses.
+If your next step depends on someone else posting a message, DMing you, or finishing their work, your turn must not end with "waiting". A worker that just polled once and stopped is functionally deadlocked until a human nudges it. Use `agent-room wait` (for messages) or `agent-room wait-agent` (for a peer's state) inside the same turn — it blocks until the matching event lands or the timeout elapses.
 
 ```bash
 # Wait for review feedback to land as a DM:
@@ -53,15 +49,15 @@ agent-room wait --dm-to-me --timeout 600 --json
 # Wait for the reviewer to post the trigger phrase:
 agent-room wait --message 'ready for review' --timeout 600 --json
 
-# Wait for a specific task to flip status:
-agent-room wait --task-status "$TASK:ready-for-review" --timeout 600
+# Wait for a peer to reach done/idle:
+agent-room wait-agent <agentId> --state done,idle --timeout 600 --json
 ```
 
 `wait` exits 0 with the matching event (JSON with `--json`) or non-zero on timeout. `--since now` (default) only matches events that arrive after the command starts. Pair it with the action you want to take next, so the worker stays in-turn until the work is real.
 
 ## Message delivery contract
 
-Room messages are pull-based: a `post`/`dm`/`delegate` appends an event to the log — it does not interrupt the recipient. So a directed message reaches you in one of two ways:
+Room messages are pull-based: a `post`/`dm`/`delegate` appends a message event to the log — it does not interrupt the recipient. So a directed message reaches you in one of two ways:
 
 - **You are in `agent-room wait`** — you consume the event in-turn. This is the reliable path; always end a turn that depends on someone else inside `wait`.
 - **You ended your turn idle (or were still booting/busy)** — the daemon detects the directed message and injects a one-shot wake nudge into your runtime so you act on it instead of leaving it unread. It never fires mid-turn; a message that arrives while you are working or still booting is held and delivered the moment you become reachable (coalesced if several queued). This is a safety net, not a substitute for `wait`: on a runtime that cannot report when your prompt is live it is best-effort, and a wake that stays undeliverable too long is eventually abandoned.
@@ -70,9 +66,9 @@ Practical consequences: do not assume a DM you send is "delivered" the instant y
 
 ## Known CLI surface (don't waste turns rediscovering)
 
-Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-task`, `wait-agent`, `agents`/`presence`, `delegate`, `task {create,list,show,claim,status,request-review,approve,changes-requested,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.
+Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-agent`, `agents`/`presence`, `delegate`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.
 
-`subscribe` and `watch` are not CLI commands. Use `agent-room wait` to block for one matching future event, `agent-room events --follow --json` to stream audit events, `agent-room messages` for channel/DM history, and `agent-room events` for audit snapshots. To inspect a task by id: `agent-room task show <id> --json`.
+AgentRoom has **no task commands** — issues and their status live in the configured work tracker, reached through that tracker's MCP/CLI/skill. `subscribe` and `watch` are not CLI commands either: use `agent-room wait` to block for one matching future event, `agent-room wait-agent` to block on a peer's state, `agent-room events --follow --json` to stream audit events, and `agent-room messages` for channel/DM history.
 
 Channel ids you'll see: `announcements`, `implementation`, `dm`. To read DMs already sent to you: `agent-room messages -c dm --limit 20`. The `--with <agent>` filter matches messages where that agent is sender OR recipient. To **block until a new DM arrives**, use `agent-room wait --dm-to-me`. To watch a peer, prefer `agent-room wait --from <agentId> --channel implementation --kind status --message "ready" --ignore-case`.
 
@@ -93,45 +89,35 @@ An agent may also own its own personal gateway while enrolled in a room. That ag
 
 ## Workflow
 
-Start work:
+Start work — set your room state, and claim/assign the issue in the configured tracker (via its MCP/CLI), not in AgentRoom:
 
 ```bash
 agent-room status --mode editing --goal "OAuth callback implementation" --files "apps/api.ts" --needs "none"
-agent-room task claim AR-42
-agent-room task status AR-42 working
 ```
 
-Coordinate locally:
+Coordinate locally (reference issues by their tracker id):
 
 ```bash
 agent-room post "Editing packages/core now" --channel implementation --kind status
-agent-room dm reviewer "AR-42 is ready for review"
+agent-room dm reviewer "ENG-123 is ready for review"
 agent-room messages --channel implementation --limit 20
-```
-
-Update durable tracker state through the configured tracker MCP, CLI, or skill. Link the resulting external issue to the local task shadow:
-
-```bash
-agent-room task link-tracker AR-42 ENG-123 --kind linear --provider linear
-agent-room task comment AR-42 "Room-local note: implementation is ready for review"
 ```
 
 Ask for human input or mark a blocker:
 
 ```bash
-agent-room ask-human "Which staging redirect URI should be canonical?" --task AR-42
-agent-room block AR-42 --reason "Need redirect URI decision"
+agent-room ask-human "Which staging redirect URI should be canonical?"
+agent-room block --reason "Need redirect URI decision"
 ```
 
-Pass to review with existing commands:
+Hand to review — move the issue's status in the configured tracker, then ping the reviewer over the room:
 
 ```bash
-agent-room task request-review AR-42 --reviewer reviewer --summary "Implemented callback and unit tests pass"
-agent-room dm reviewer "AR-42 is ready for review"
+agent-room dm reviewer "ENG-123 ready for review"
 ```
 
-Finish:
+Finish — update the issue in the tracker, then report your agent state:
 
 ```bash
-agent-room done AR-42 --summary "Implemented callback and unit tests pass"
+agent-room done --summary "Implemented callback and unit tests pass"
 ```

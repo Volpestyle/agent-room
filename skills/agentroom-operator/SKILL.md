@@ -54,22 +54,22 @@ If allocating a shell first, treat it as a bound shell session until a coding-ag
 agent-room launch impl --harness shell --command "bash" --cwd .
 agent-room send impl "AGENT_COMMAND"
 agent-room read impl --lines 40
-agent-room send impl "Use AgentRoom, claim your assigned task, and post a short status before editing."
+agent-room send impl "Use AgentRoom, pick up your assigned issue in the configured work tracker, and post a short status before editing."
 ```
 
 Use `agent-room send/read/stop` for bound agents so runtime input and output are audited. These commands require an AgentRoom binding by default; use `--unaudited` only for manual recovery when the session is not AgentRoom-bound.
 
 ## Delegate and await
 
-Use `delegate` when a worker already exists and the lead needs a completion handle instead of a free-text handoff:
+AgentRoom does not track the task itself — the work item lives in the **configured work tracker**. Assignment is a directed message that points the worker at a tracker issue, plus a wait on the worker's agent state:
 
 ```bash
 agent-room agents
-agent-room delegate impl "Implement OAuth callback" --notify dashboard --json
-agent-room wait-task TASK_ID --state done,failed,blocked --json
+agent-room delegate impl "Pick up ENG-123: implement OAuth callback" --json
+agent-room wait-agent impl --state done,blocked,idle --timeout 1800 --json
 ```
 
-`delegate` creates an assigned task shadow, emits `delegation.created`, and DMs the assignee (which wakes the assignee if it is idle — see "When a worker goes idle"). Terminal task states emit `task.completed` and `delegation.resolved`; `wait-task` exits 0 for `done`, 3 for `failed`, 4 for `blocked`, and 5 for `canceled`. Use `wait-agent <agentId> --state done|idle` when the unit of work is agent-state based rather than task based.
+`delegate` posts a directed message to the assignee (and wakes it if idle — see "When a worker goes idle"); it is a thin convenience wrapper over `dm`. The worker tracks the issue in the configured tracker and reports completion via its agent state (`agent-room done`), which `wait-agent` observes.
 
 Canonical lead flow:
 
@@ -77,9 +77,10 @@ Canonical lead flow:
 agent-room enroll --json
 agent-room whoami --json
 agent-room agents
-agent-room delegate WORKER "Clear task statement" --notify dashboard --json
-agent-room wait-task TASK_ID --state done,failed,blocked --json
-agent-room task request-review TASK_ID --reviewer reviewer --summary "Ready for review"
+agent-room delegate WORKER "Pick up ENG-123: <clear statement>" --json
+agent-room wait-agent WORKER --state done,blocked,idle --timeout 1800 --json
+# Review lives in the configured tracker; move the issue there, then ping the reviewer over the room:
+agent-room dm reviewer "ENG-123 ready for review"
 ```
 
 For manual enrollment, `agent-room enroll` persists `.agentroom/session.json`, so later shells keep the same identity. Use `agent-room enroll --print-env-file` when a harness specifically needs a sourceable env file.
@@ -161,7 +162,7 @@ Room participation and gateway ownership are separate choices:
 
 One Discord channel or DM should have exactly one owner. Do not attach both an agent-owned gateway and a room-owned gateway to the same conversation.
 
-Discord is a projection surface, not AgentRoom's source of truth. AgentRoom owns rooms, tasks, channels, routing, and the event log; Discord messages are imported/mirrored through the gateway. Use AgentRoom tools for room coordination and `discord-mcp` for Discord-only operations like reading a separate channel, loading attachment pixels, sending a one-off Discord message, or adding reactions.
+Discord is a projection surface, not AgentRoom's source of truth. AgentRoom owns rooms, channels, routing, and the event log (task tracking lives in the configured work tracker); Discord messages are imported/mirrored through the gateway. Use AgentRoom tools for room coordination and `discord-mcp` for Discord-only operations like reading a separate channel, loading attachment pixels, sending a one-off Discord message, or adding reactions.
 
 ### Lead-as-public-face pattern (multi-agent room)
 
@@ -184,7 +185,7 @@ provider:  discord-main
 route:     guild=..., channel=#room-announcements  ->  agent-stdin:clanky-lead
 ```
 
-The lead receives Discord input, then uses `agent-room post`/`agent-room dm`/`agent-room task` to delegate. Workers see only the room.
+The lead receives Discord input, then uses `agent-room post`/`agent-room dm`/`agent-room delegate` to coordinate. Workers see only the room.
 
 ### Multi-agent attribution
 
