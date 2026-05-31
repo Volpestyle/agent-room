@@ -75,21 +75,6 @@ export const actorRefSchema = z
     }),
   );
 
-export const taskStatusSchema = z.enum([
-  "planned",
-  "assigned",
-  "claimed",
-  "working",
-  "blocked",
-  "ready-for-review",
-  "changes-requested",
-  "approved",
-  "merged",
-  "failed",
-  "done",
-  "canceled",
-]);
-
 export const refSchema = z
   .object({
     kind: z.enum([
@@ -131,41 +116,6 @@ export const messageCreateSchema = z.object({
   importance: importanceSchema.default("normal"),
 });
 
-export const taskCreateSchema = z.object({
-  roomId: z.string().default("default"),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  assigneeId: z.string().optional(),
-  refs: z.array(refSchema).default([]),
-  createdBy: actorRefSchema.default({ kind: "human", id: "local" }),
-});
-
-export const taskLinkRefSchema = z.object({
-  ref: refSchema,
-});
-
-export const taskDetailsUpdateSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().optional(),
-  actor: actorRefSchema.optional(),
-});
-
-export const taskDeleteSchema = z.object({
-  actor: actorRefSchema.optional(),
-  reason: z.string().optional(),
-});
-
-export const taskClaimSchema = z.object({
-  assignee: actorRefSchema.default({ kind: "agent", id: "local" }),
-});
-
-export const taskStatusUpdateSchema = z.object({
-  status: taskStatusSchema,
-  actor: actorRefSchema.optional(),
-  reason: z.string().optional(),
-  summary: z.string().optional(),
-});
-
 export const humanEscalationCreateSchema = z.object({
   question: z.string().min(1),
   from: actorRefSchema.default({ kind: "human", id: "local" }),
@@ -181,7 +131,4 @@ export const workspaceRegisterSchema = z.object({
 });
 
 export type MessageCreateInput = z.infer<typeof messageCreateSchema>;
-export type TaskCreateInput = z.infer<typeof taskCreateSchema>;
-export type TaskDetailsUpdateInput = z.infer<typeof taskDetailsUpdateSchema>;
-export type TaskDeleteInput = z.infer<typeof taskDeleteSchema>;
 export type WorkspaceRegisterInput = z.infer<typeof workspaceRegisterSchema>;

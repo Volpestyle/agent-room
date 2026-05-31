@@ -47,15 +47,15 @@ describe("agentroom daemon app", () => {
         auth: { apiTokenRequired: true },
       });
 
-      const deniedResponse = await app.request("/v1/tasks");
+      const deniedResponse = await app.request("/v1/workspaces");
       expect(deniedResponse.status).toBe(401);
 
-      const bearerResponse = await app.request("/v1/tasks", {
+      const bearerResponse = await app.request("/v1/workspaces", {
         headers: { authorization: "Bearer mobile-secret" },
       });
       expect(bearerResponse.status).toBe(200);
 
-      const headerResponse = await app.request("/v1/tasks", {
+      const headerResponse = await app.request("/v1/workspaces", {
         headers: { "x-agentroom-api-token": "mobile-secret" },
       });
       expect(headerResponse.status).toBe(200);
@@ -292,138 +292,6 @@ describe("agentroom daemon app", () => {
       expect.objectContaining({ id: "dashboard", state: "stopped" }),
     ]);
     expect(agents[0]?.runtime).toBeUndefined();
-  });
-
-  it("creates, claims, updates, and lists tasks", async () => {
-    const app = createApp(await appOptions());
-
-    const createResponse = await app.request("/v1/tasks", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        title: "Ship MVP",
-        assigneeId: "impl",
-        refs: [
-          {
-            kind: "tracker-issue",
-            id: "ENG-123",
-            label: "ENG-123",
-            metadata: { providerKind: "linear" },
-          },
-        ],
-      }),
-    });
-    expect(createResponse.status).toBe(201);
-    const { task } = (await createResponse.json()) as {
-      task: { id: string; status: string };
-    };
-
-    const updateResponse = await app.request(`/v1/tasks/${task.id}`, {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        title: "Ship polished MVP",
-        description: "Include task editing in the TUI",
-        actor: { kind: "human", id: "tester" },
-      }),
-    });
-    expect(updateResponse.status).toBe(200);
-    await expect(updateResponse.json()).resolves.toMatchObject({
-      task: {
-        id: task.id,
-        title: "Ship polished MVP",
-        description: "Include task editing in the TUI",
-      },
-    });
-
-    const claimResponse = await app.request(`/v1/tasks/${task.id}/claim`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ assignee: { kind: "agent", id: "impl" } }),
-    });
-    expect(claimResponse.status).toBe(200);
-
-    const statusResponse = await app.request(`/v1/tasks/${task.id}/status`, {
-      method: "PATCH",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        status: "done",
-        actor: { kind: "agent", id: "impl" },
-        summary: "Done",
-      }),
-    });
-    expect(statusResponse.status).toBe(200);
-
-    const listResponse = await app.request("/v1/tasks");
-    const { tasks } = (await listResponse.json()) as {
-      tasks: Array<{
-        id: string;
-        title: string;
-        description?: string;
-        status: string;
-        assignee?: { id: string };
-      }>;
-    };
-    expect(tasks).toEqual([
-      expect.objectContaining({
-        id: task.id,
-        title: "Ship polished MVP",
-        description: "Include task editing in the TUI",
-        status: "done",
-        assignee: { kind: "agent", id: "impl" },
-        refs: [
-          {
-            kind: "tracker-issue",
-            id: "ENG-123",
-            label: "ENG-123",
-            metadata: { providerKind: "linear" },
-          },
-        ],
-      }),
-    ]);
-  });
-
-  it("deletes tasks from the active task list", async () => {
-    const app = createApp(await appOptions());
-
-    const createResponse = await app.request("/v1/tasks", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ title: "Duplicate task" }),
-    });
-    expect(createResponse.status).toBe(201);
-    const { task } = (await createResponse.json()) as {
-      task: { id: string };
-    };
-
-    const deleteResponse = await app.request(`/v1/tasks/${task.id}`, {
-      method: "DELETE",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        actor: { kind: "human", id: "tester" },
-        reason: "duplicate",
-      }),
-    });
-    expect(deleteResponse.status).toBe(200);
-
-    const listResponse = await app.request("/v1/tasks");
-    await expect(listResponse.json()).resolves.toEqual({ tasks: [] });
-
-    const eventsResponse = await app.request("/v1/events?limit=10");
-    const { events } = (await eventsResponse.json()) as {
-      events: Array<{ type: string; payload: unknown }>;
-    };
-    expect(events.map((event) => event.type)).toEqual([
-      "task.created",
-      "task.deleted",
-    ]);
-    expect(events[1]).toMatchObject({
-      payload: {
-        taskId: task.id,
-        actor: { kind: "human", id: "tester" },
-        reason: "duplicate",
-      },
-    });
   });
 
   it("launches a fake runtime agent and audits input and output events", async () => {

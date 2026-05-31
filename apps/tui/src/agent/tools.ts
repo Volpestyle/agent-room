@@ -223,17 +223,6 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     },
   });
 
-  const listTasks = defineTool({
-    name: "list_tasks",
-    label: "List room tasks",
-    description: "Return all local task shadows in the room.",
-    parameters: Type.Object({}),
-    execute: async () => {
-      const tasks = await api.listTasks();
-      return jsonContent(tasks);
-    },
-  });
-
   const listWorkspaces = defineTool({
     name: "list_workspaces",
     label: "List workspaces",
@@ -262,94 +251,6 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
       void poller.tick();
       return ok(`workspace ${workspace.workspace.label} registered`, {
         workspace: workspace.workspace,
-      });
-    },
-  });
-
-  const createTask = defineTool({
-    name: "create_task",
-    label: "Create a task",
-    description: "Create a local task. Optionally assign it.",
-    parameters: Type.Object({
-      title: Type.String(),
-      description: Type.Optional(Type.String()),
-      assigneeId: Type.Optional(Type.String()),
-    }),
-    execute: async (_callId, params) => {
-      const created = await api.createTask({
-        title: params.title,
-        createdBy: dashboardActor(),
-        ...(params.description !== undefined
-          ? { description: params.description }
-          : {}),
-        ...(params.assigneeId !== undefined
-          ? { assigneeId: params.assigneeId }
-          : {}),
-      });
-      void poller.tick();
-      return ok(`task created (${created.task.id})`, {
-        taskId: created.task.id,
-      });
-    },
-  });
-
-  const claimTask = defineTool({
-    name: "claim_task",
-    label: "Claim a task for an agent",
-    description: "Assign an existing task to an agent or human.",
-    parameters: Type.Object({
-      taskId: Type.String(),
-      assigneeId: Type.String(),
-      assigneeKind: Type.Optional(
-        Type.Union([Type.Literal("agent"), Type.Literal("human")]),
-      ),
-    }),
-    execute: async (_callId, params) => {
-      const claimed = await api.claimTask(params.taskId, {
-        kind: params.assigneeKind ?? "agent",
-        id: params.assigneeId,
-      });
-      void poller.tick();
-      return ok(`task ${params.taskId} → ${params.assigneeId}`, {
-        task: claimed.task,
-      });
-    },
-  });
-
-  const updateTaskStatus = defineTool({
-    name: "update_task_status",
-    label: "Update task status",
-    description:
-      "Update a task's lifecycle status (working/blocked/ready-for-review/done/etc.).",
-    parameters: Type.Object({
-      taskId: Type.String(),
-      status: Type.Union([
-        Type.Literal("planned"),
-        Type.Literal("assigned"),
-        Type.Literal("claimed"),
-        Type.Literal("working"),
-        Type.Literal("blocked"),
-        Type.Literal("ready-for-review"),
-        Type.Literal("changes-requested"),
-        Type.Literal("approved"),
-        Type.Literal("merged"),
-        Type.Literal("failed"),
-        Type.Literal("done"),
-        Type.Literal("canceled"),
-      ]),
-      reason: Type.Optional(Type.String()),
-      summary: Type.Optional(Type.String()),
-    }),
-    execute: async (_callId, params) => {
-      const updated = await api.updateTaskStatus(params.taskId, {
-        status: params.status,
-        actor: dashboardActor(),
-        ...(params.reason !== undefined ? { reason: params.reason } : {}),
-        ...(params.summary !== undefined ? { summary: params.summary } : {}),
-      });
-      void poller.tick();
-      return ok(`task ${params.taskId} status → ${params.status}`, {
-        task: updated.task,
       });
     },
   });
@@ -626,12 +527,8 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
   return [
     listMessages,
     postMessage,
-    listTasks,
     listWorkspaces,
     registerWorkspace,
-    createTask,
-    claimTask,
-    updateTaskStatus,
     listEvents,
     getRoomProtocol,
     listProviders,

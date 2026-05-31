@@ -44,23 +44,15 @@ export class Poller {
       // Probe connectivity first so we can distinguish "daemon is down" from a
       // single endpoint returning an error while the daemon is up.
       const health = await this.api.health();
-      const [
-        events,
-        agents,
-        messages,
-        tasks,
-        workspaces,
-        providers,
-        config,
-      ] = await Promise.all([
-        this.api.listEvents(120),
-        this.api.listAgents(),
-        this.api.listMessages({ limit: 120 }),
-        this.api.listTasks(),
-        this.api.listWorkspaces(),
-        this.api.listRuntimeProviders(),
-        this.api.dashboardConfig().catch(() => undefined),
-      ]);
+      const [events, agents, messages, workspaces, providers, config] =
+        await Promise.all([
+          this.api.listEvents(120),
+          this.api.listAgents(),
+          this.api.listMessages({ limit: 120 }),
+          this.api.listWorkspaces(),
+          this.api.listRuntimeProviders(),
+          this.api.dashboardConfig().catch(() => undefined),
+        ]);
       const runtimeAgents: RuntimeAgentSnapshot[] = [];
       await Promise.all(
         providers.providers.map(async (provider) => {
@@ -81,7 +73,6 @@ export class Poller {
         events: events.events,
         agents: agents.agents,
         messages: messages.messages,
-        tasks: tasks.tasks,
         workspaces: workspaces.workspaces,
         providers: providers.providers,
         runtimeAgents,

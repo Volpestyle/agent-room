@@ -14,15 +14,12 @@ import type {
   Importance,
   Message,
   MessageKind,
-  Ref,
   RoomEvent,
   RuntimeBinding,
   RuntimeAgent,
   RuntimeAgentLaunchInput,
   RuntimeProviderSummary,
   RuntimeSession,
-  Task,
-  TaskStatus,
   Workspace,
 } from "./types.js";
 
@@ -50,25 +47,6 @@ export interface MessageCreateInput {
   kind?: MessageKind;
   body: string;
   importance?: Importance;
-}
-
-export interface TaskCreateInput {
-  title: string;
-  description?: string;
-  assigneeId?: string;
-  refs?: Ref[];
-  createdBy: ActorRef;
-}
-
-export interface TaskDetailsUpdateInput {
-  title?: string;
-  description?: string;
-  actor?: ActorRef;
-}
-
-export interface TaskDeleteInput {
-  actor?: ActorRef;
-  reason?: string;
 }
 
 export interface RoomAgentRegisterInput {
@@ -214,7 +192,6 @@ export function createApiClient(options: ApiClientOptions = {}) {
           body: JSON.stringify(input),
         },
       ),
-    listTasks: () => apiRequest<{ tasks: Task[] }>("/v1/tasks"),
     listWorkspaces: () =>
       apiRequest<{ workspaces: Workspace[] }>("/v1/workspaces"),
     registerWorkspace: (input: WorkspaceRegisterInput) =>
@@ -222,45 +199,6 @@ export function createApiClient(options: ApiClientOptions = {}) {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    createTask: (input: TaskCreateInput) =>
-      apiRequest<{ task: Task }>("/v1/tasks", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    updateTaskDetails: (taskId: string, input: TaskDetailsUpdateInput) =>
-      apiRequest<{ task: Task }>(`/v1/tasks/${encodeURIComponent(taskId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      }),
-    deleteTask: (taskId: string, input: TaskDeleteInput = {}) =>
-      apiRequest<{ ok: true }>(`/v1/tasks/${encodeURIComponent(taskId)}`, {
-        method: "DELETE",
-        body: JSON.stringify(input),
-      }),
-    claimTask: (taskId: string, assignee: ActorRef) =>
-      apiRequest<{ task: Task }>(
-        `/v1/tasks/${encodeURIComponent(taskId)}/claim`,
-        {
-          method: "POST",
-          body: JSON.stringify({ assignee }),
-        },
-      ),
-    updateTaskStatus: (
-      taskId: string,
-      input: {
-        status: TaskStatus;
-        actor?: ActorRef;
-        reason?: string;
-        summary?: string;
-      },
-    ) =>
-      apiRequest<{ task: Task }>(
-        `/v1/tasks/${encodeURIComponent(taskId)}/status`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(input),
-        },
-      ),
     listRuntimeProviders: () =>
       apiRequest<{ providers: RuntimeProviderSummary[] }>(
         "/v1/runtime/providers",

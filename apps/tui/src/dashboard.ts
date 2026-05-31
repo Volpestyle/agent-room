@@ -37,7 +37,6 @@ import {
   FieldEditorOverlay,
   type SettingsAction,
 } from "./views/settings.js";
-import { createTasksView } from "./views/tasks.js";
 import { createWorkspacesView } from "./views/workspaces.js";
 import type { View } from "./views/types.js";
 
@@ -252,7 +251,6 @@ export class Dashboard {
       createOverviewView(options.store),
       createWorkspacesView(options.store),
       createAgentsView(options.store),
-      createTasksView(options.store),
       createMessagesView(options.store),
       createEventsView(options.store),
       createSettingsView({

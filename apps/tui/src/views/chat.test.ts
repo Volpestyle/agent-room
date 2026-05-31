@@ -61,7 +61,6 @@ describe("dashboard chat context", () => {
         },
       ],
       messages: [],
-      tasks: [],
       workspaces: [],
       providers: [
         {

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { setTimeout as sleep } from "node:timers/promises";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -7,11 +9,9 @@ import {
   type AgentState,
   AgentRoomService,
   type EventCursor,
-  type Id,
   type Importance,
   type MessageKind,
   type RoomEvent,
-  type TaskStatus,
 } from "@agentroom/core";
 import {
   createDefaultAgentRoomConfig,
@@ -25,7 +25,6 @@ import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { z } from "zod";
 
 const DEFAULT_MESSAGE_LIMIT = 20;
-const DEFAULT_TASK_LIMIT = 20;
 const DEFAULT_EVENT_LIMIT = 20;
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 300;
 const MAX_LIMIT = 100;
@@ -47,21 +46,6 @@ const messageKindSchema = z.enum([
 
 const importanceSchema = z.enum(["low", "normal", "high", "urgent"]);
 
-const taskStatusSchema = z.enum([
-  "planned",
-  "assigned",
-  "claimed",
-  "working",
-  "blocked",
-  "ready-for-review",
-  "changes-requested",
-  "approved",
-  "merged",
-  "failed",
-  "done",
-  "canceled",
-]);
-
 const agentStateSchema = z.enum([
   "created",
   "starting",
@@ -76,19 +60,6 @@ const agentStateSchema = z.enum([
   "failed",
   "stopped",
   "unknown",
-]);
-
-const taskActionSchema = z.enum([
-  "create",
-  "list",
-  "show",
-  "claim",
-  "status",
-  "comment",
-  "link-tracker",
-  "request-review",
-  "approve",
-  "changes-requested",
 ]);
 
 interface RoomContext {
@@ -106,7 +77,7 @@ async function main(): Promise<void> {
     },
     {
       instructions:
-        "AgentRoom coordination tools for room messages, DMs, watchable delegated task handles, task shadows, waits, and audit context. Prefer bounded reads. Use the configured work tracker MCP, CLI, or skill as the durable tracker, then link external issue refs with agentroom_task action=link-tracker.",
+        "AgentRoom coordination tools for room messages, DMs, waits, and audit context. Prefer bounded reads. AgentRoom does not track tasks — use the configured work tracker's MCP, CLI, or skill for all issue/task tracking.",
     },
   );
 
@@ -123,6 +94,49 @@ function registerTools(server: McpServer): void {
       inputSchema: {},
     },
     async () => jsonResult(await whoami()),
+  );
+
+  server.registerTool(
+    "agentroom_ios_logs",
+    {
+      description:
+        "Read structured logs reported by AgentRoom iOS clients (connect/push/api lifecycle + errors). Debug mobile client behavior from the host without inspecting the phone.",
+      inputSchema: {
+        clientId: z.string().optional(),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
+        sinceSeq: z.number().int().min(0).optional(),
+      },
+    },
+    async (input) => {
+      let events = await readClientEvents();
+      if (input.clientId !== undefined) {
+        events = events.filter((event) => event.clientId === input.clientId);
+      }
+      const since = input.sinceSeq;
+      if (since !== undefined) {
+        events = events.filter((event) => event.seq > since);
+      }
+      return jsonResult({ events: events.slice(-(input.limit ?? 100)) });
+    },
+  );
+
+  server.registerTool(
+    "agentroom_ios_state",
+    {
+      description:
+        "Read the latest reported state of each AgentRoom iOS client (connection, push token/status, last error, build, APNs env).",
+      inputSchema: {
+        clientId: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const states = await readClientStates();
+      const clients =
+        input.clientId !== undefined
+          ? states.filter((state) => state.clientId === input.clientId)
+          : states;
+      return jsonResult({ clients });
+    },
   );
 
   server.registerTool(
@@ -182,10 +196,9 @@ function registerTools(server: McpServer): void {
     "agentroom_context",
     {
       description:
-        "Read a compact AgentRoom snapshot: identity, recent messages, task shadows, and audit events.",
+        "Read a compact AgentRoom snapshot: identity, recent messages, and audit events.",
       inputSchema: {
         messagesLimit: z.number().int().min(1).max(MAX_LIMIT).optional(),
-        tasksLimit: z.number().int().min(1).max(MAX_LIMIT).optional(),
         eventsLimit: z.number().int().min(0).max(MAX_LIMIT).optional(),
         channel: z.string().optional(),
         withAgentId: z.string().optional(),
@@ -201,9 +214,6 @@ function registerTools(server: McpServer): void {
           ? { participant: { kind: "agent", id: input.withAgentId } }
           : {}),
       });
-      const tasks = (await ctx.service.listTasks()).slice(
-        -(input.tasksLimit ?? DEFAULT_TASK_LIMIT),
-      );
       const events =
         input.eventsLimit === 0
           ? []
@@ -218,7 +228,6 @@ function registerTools(server: McpServer): void {
         generatedAt: new Date().toISOString(),
         actor,
         messages,
-        tasks,
         events,
       });
     },
@@ -387,94 +396,16 @@ function registerTools(server: McpServer): void {
   );
 
   server.registerTool(
-    "agentroom_delegate_task",
-    {
-      description:
-        "Assign work to a room agent and return a watchable task/delegation handle.",
-      inputSchema: {
-        agentId: z.string().min(1),
-        work: z.string().min(1),
-        description: z.string().optional(),
-        notifyAgentId: z.string().optional(),
-      },
-    },
-    async (input) => {
-      const ctx = await roomContext();
-      const actor = await currentActor(ctx.service);
-      const notify =
-        input.notifyAgentId !== undefined
-          ? ({ kind: "agent", id: input.notifyAgentId } as const)
-          : actor.kind === "agent"
-            ? actor
-            : undefined;
-      const result = await ctx.service.delegateTask({
-        agentId: input.agentId,
-        work: input.work,
-        delegatedBy: actor,
-        ...(notify !== undefined ? { notify } : {}),
-        ...(input.description !== undefined
-          ? { description: input.description }
-          : {}),
-      });
-      const message = await ctx.service.postMessage({
-        body: `Delegated ${result.task.id}: ${input.work}`,
-        channelId: "dm",
-        sender: actor,
-        recipients: [{ kind: "agent", id: input.agentId }],
-        kind: "handoff",
-        threadId: result.task.id,
-      });
-      return jsonResult({
-        ...result,
-        message,
-        handle: result.task.id,
-        await: {
-          tool: "agentroom_wait",
-          arguments: { taskId: result.task.id },
-        },
-      });
-    },
-  );
-
-  server.registerTool(
-    "agentroom_task",
-    {
-      description:
-        "Create, list, show, claim, update, comment on, or tracker-link an AgentRoom task shadow.",
-      inputSchema: {
-        action: taskActionSchema,
-        taskId: z.string().optional(),
-        title: z.string().optional(),
-        description: z.string().optional(),
-        assignee: z.string().optional(),
-        status: taskStatusSchema.optional(),
-        reason: z.string().optional(),
-        summary: z.string().optional(),
-        comment: z.string().optional(),
-        issueId: z.string().optional(),
-        providerKind: z.string().optional(),
-        providerId: z.string().optional(),
-        url: z.string().optional(),
-        limit: z.number().int().min(1).max(MAX_LIMIT).optional(),
-      },
-    },
-    async (input) => jsonResult(await runTaskTool(input)),
-  );
-
-  server.registerTool(
     "agentroom_wait",
     {
       description:
-        "Block until a matching future AgentRoom message, DM, or task-status event arrives.",
+        "Block until a matching future AgentRoom message, DM, or agent-state event arrives.",
       inputSchema: {
         message: z.string().optional(),
         ignoreCase: z.boolean().optional(),
         fromAgentId: z.string().optional(),
         channel: z.string().optional(),
         kind: messageKindSchema.optional(),
-        taskStatus: z.string().optional(),
-        taskId: z.string().optional(),
-        status: taskStatusSchema.optional(),
         agentId: z.string().optional(),
         agentState: agentStateSchema.optional(),
         dmToMe: z.boolean().optional(),
@@ -491,153 +422,6 @@ function registerTools(server: McpServer): void {
   );
 }
 
-async function runTaskTool(input: {
-  action: z.infer<typeof taskActionSchema>;
-  taskId?: string | undefined;
-  title?: string | undefined;
-  description?: string | undefined;
-  assignee?: string | undefined;
-  status?: z.infer<typeof taskStatusSchema> | undefined;
-  reason?: string | undefined;
-  summary?: string | undefined;
-  comment?: string | undefined;
-  issueId?: string | undefined;
-  providerKind?: string | undefined;
-  providerId?: string | undefined;
-  url?: string | undefined;
-  limit?: number | undefined;
-}): Promise<unknown> {
-  const ctx = await roomContext();
-  const actor = await currentActor(ctx.service);
-
-  switch (input.action) {
-    case "create":
-      if (input.title === undefined || input.title.trim().length === 0) {
-        throw new Error("agentroom_task action=create requires title.");
-      }
-      return await ctx.service.createTask({
-        title: input.title,
-        createdBy: actor,
-        ...(input.description !== undefined
-          ? { description: input.description }
-          : {}),
-        ...(input.assignee !== undefined
-          ? { assignee: { kind: "agent", id: input.assignee } }
-          : {}),
-        ...(input.issueId !== undefined
-          ? {
-              refs: [trackerRef(input.issueId, trackerRefOptions(input))],
-            }
-          : {}),
-      });
-    case "list":
-      return (await ctx.service.listTasks()).slice(
-        -(input.limit ?? DEFAULT_TASK_LIMIT),
-      );
-    case "show":
-      return await requireTask(ctx.service, input.taskId);
-    case "claim":
-      return await ctx.service.claimTask({
-        taskId: requireTaskId(input.taskId),
-        assignee:
-          input.assignee !== undefined
-            ? { kind: "agent", id: input.assignee }
-            : actor,
-      });
-    case "status":
-      if (input.status === undefined) {
-        throw new Error("agentroom_task action=status requires status.");
-      }
-      return await ctx.service.updateTaskStatus({
-        taskId: requireTaskId(input.taskId),
-        status: input.status as TaskStatus,
-        actor,
-        ...(input.reason !== undefined ? { reason: input.reason } : {}),
-        ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      });
-    case "request-review": {
-      const taskId = requireTaskId(input.taskId);
-      const task = await ctx.service.updateTaskStatus({
-        taskId,
-        status: "ready-for-review",
-        actor,
-        ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      });
-      const message = await ctx.service.postMessage({
-        body: input.summary ?? `${taskId} is ready for review`,
-        channelId: input.assignee === undefined ? "implementation" : "dm",
-        sender: actor,
-        kind: "review",
-        threadId: taskId,
-        ...(input.assignee !== undefined
-          ? { recipients: [{ kind: "agent" as const, id: input.assignee }] }
-          : {}),
-      });
-      return { task, message };
-    }
-    case "approve": {
-      const taskId = requireTaskId(input.taskId);
-      const task = await ctx.service.updateTaskStatus({
-        taskId,
-        status: "approved",
-        actor,
-        ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      });
-      const message = await ctx.service.postMessage({
-        body: input.summary ?? `${taskId} approved`,
-        channelId: "implementation",
-        sender: actor,
-        kind: "review",
-        threadId: taskId,
-      });
-      return { task, message };
-    }
-    case "changes-requested": {
-      const taskId = requireTaskId(input.taskId);
-      const reason = input.reason?.trim();
-      if (!reason) {
-        throw new Error(
-          "agentroom_task action=changes-requested requires reason.",
-        );
-      }
-      const task = await ctx.service.updateTaskStatus({
-        taskId,
-        status: "changes-requested",
-        actor,
-        reason,
-      });
-      const message = await ctx.service.postMessage({
-        body: reason,
-        channelId: "implementation",
-        sender: actor,
-        kind: "review",
-        threadId: taskId,
-      });
-      return { task, message };
-    }
-    case "comment": {
-      const body = input.comment?.trim();
-      if (body === undefined || body.length === 0) {
-        throw new Error("agentroom_task action=comment requires comment.");
-      }
-      return await ctx.service.postMessage({
-        body,
-        channelId: "implementation",
-        sender: actor,
-        kind: "status",
-        threadId: requireTaskId(input.taskId),
-      });
-    }
-    case "link-tracker":
-      if (input.issueId === undefined || input.issueId.trim().length === 0) {
-        throw new Error("agentroom_task action=link-tracker requires issueId.");
-      }
-      return await ctx.service.linkTaskRef({
-        taskId: requireTaskId(input.taskId),
-        ref: trackerRef(input.issueId, trackerRefOptions(input)),
-      });
-  }
-}
 
 async function waitForEvent(input: {
   message?: string | undefined;
@@ -645,9 +429,6 @@ async function waitForEvent(input: {
   fromAgentId?: string | undefined;
   channel?: string | undefined;
   kind?: z.infer<typeof messageKindSchema> | undefined;
-  taskStatus?: string | undefined;
-  taskId?: string | undefined;
-  status?: z.infer<typeof taskStatusSchema> | undefined;
   agentId?: string | undefined;
   agentState?: z.infer<typeof agentStateSchema> | undefined;
   dmToMe?: boolean | undefined;
@@ -659,7 +440,7 @@ async function waitForEvent(input: {
   const matchers = buildWaitMatchers(input, actor);
   if (matchers.length === 0) {
     throw new Error(
-      "agentroom_wait requires message, taskStatus/taskId+status, agentId+agentState, or dmToMe.",
+      "agentroom_wait requires message, agentId+agentState, or dmToMe.",
     );
   }
 
@@ -697,9 +478,6 @@ function buildWaitMatchers(
     fromAgentId?: string | undefined;
     channel?: string | undefined;
     kind?: z.infer<typeof messageKindSchema> | undefined;
-    taskStatus?: string | undefined;
-    taskId?: string | undefined;
-    status?: z.infer<typeof taskStatusSchema> | undefined;
     agentId?: string | undefined;
     agentState?: z.infer<typeof agentStateSchema> | undefined;
     dmToMe?: boolean | undefined;
@@ -715,21 +493,6 @@ function buildWaitMatchers(
         event.type === "message.posted" &&
         messageScopeMatches(event, input) &&
         pattern.test(event.payload.message.body),
-    );
-  }
-
-  const taskStatus =
-    input.taskStatus ??
-    (input.taskId !== undefined && input.status !== undefined
-      ? `${input.taskId}:${input.status}`
-      : undefined);
-  if (taskStatus !== undefined) {
-    const parsed = parseTaskStatusMatcher(taskStatus);
-    matchers.push(
-      (event) =>
-        event.type === "task.status_changed" &&
-        event.payload.taskId === parsed.taskId &&
-        event.payload.status === parsed.status,
     );
   }
 
@@ -841,6 +604,61 @@ async function roomContext(): Promise<RoomContext> {
     service: new AgentRoomService(events, { roomId: config.room.id }),
     events,
   };
+}
+
+interface ClientLogEvent {
+  seq: number;
+  ts: string;
+  clientId: string;
+  level: string;
+  category: string;
+  message: string;
+  fields?: Record<string, unknown>;
+}
+
+interface ClientStateRow {
+  clientId: string;
+  [key: string]: unknown;
+}
+
+async function clientTelemetryDir(): Promise<string> {
+  const cwd = process.env.AGENTROOM_CWD ?? process.cwd();
+  const config = await loadAgentRoomConfig(cwd).catch(() =>
+    createDefaultAgentRoomConfig({
+      roomId: defaultRoomIdFromEnv(process.env),
+      roomName: "AgentRoom",
+      defaultRuntime: "herdr",
+    }),
+  );
+  return dirname(resolveStoragePath(config, cwd));
+}
+
+async function readClientEvents(): Promise<ClientLogEvent[]> {
+  const path = join(await clientTelemetryDir(), "client-logs.jsonl");
+  const raw = await readFile(path, "utf8").catch(() => "");
+  const events: ClientLogEvent[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as ClientLogEvent;
+      if (typeof event.seq === "number") events.push(event);
+    } catch {
+      // skip malformed line
+    }
+  }
+  return events;
+}
+
+async function readClientStates(): Promise<ClientStateRow[]> {
+  const path = join(await clientTelemetryDir(), "client-states.json");
+  const raw = await readFile(path, "utf8").catch(() => "");
+  if (!raw.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as ClientStateRow[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function whoami(): Promise<unknown> {
@@ -968,22 +786,6 @@ function normalizeRecipients(input: {
     .filter((entry) => entry.length > 0);
 }
 
-async function requireTask(
-  service: AgentRoomService,
-  taskId: string | undefined,
-) {
-  const task = await service.getTask(requireTaskId(taskId));
-  if (task === undefined) throw new Error(`Task not found: ${taskId}`);
-  return task;
-}
-
-function requireTaskId(taskId: string | undefined): Id {
-  if (taskId === undefined || taskId.trim().length === 0) {
-    throw new Error("taskId is required.");
-  }
-  return taskId.trim();
-}
-
 function parseRole(value: string | undefined) {
   const role = value ?? "implementer";
   const allowed = new Set([
@@ -1008,59 +810,6 @@ function parseRole(value: string | undefined) {
     | "custom";
 }
 
-function trackerRef(
-  issueId: string,
-  options: {
-    providerKind?: string;
-    providerId?: string;
-    url?: string;
-  } = {},
-) {
-  const metadata: Record<string, unknown> = {
-    providerKind: options.providerKind ?? "custom",
-  };
-  if (options.providerId !== undefined)
-    metadata.providerId = options.providerId;
-  return {
-    kind: "tracker-issue" as const,
-    id: issueId,
-    ...(options.url !== undefined ? { url: options.url } : {}),
-    metadata,
-  };
-}
-
-function trackerRefOptions(input: {
-  providerKind?: string | undefined;
-  providerId?: string | undefined;
-  url?: string | undefined;
-}): {
-  providerKind?: string;
-  providerId?: string;
-  url?: string;
-} {
-  return {
-    ...(input.providerKind !== undefined
-      ? { providerKind: input.providerKind }
-      : {}),
-    ...(input.providerId !== undefined ? { providerId: input.providerId } : {}),
-    ...(input.url !== undefined ? { url: input.url } : {}),
-  };
-}
-
-function parseTaskStatusMatcher(value: string): {
-  taskId: string;
-  status: TaskStatus;
-} {
-  const separator = value.lastIndexOf(":");
-  if (separator <= 0 || separator === value.length - 1) {
-    throw new Error(`Invalid taskStatus '${value}'. Expected taskId:status.`);
-  }
-  const status = taskStatusSchema.parse(value.slice(separator + 1));
-  return {
-    taskId: value.slice(0, separator),
-    status,
-  };
-}
 
 function parseSince(value: string): string {
   const timestamp = Date.parse(value);

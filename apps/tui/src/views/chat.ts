@@ -839,8 +839,8 @@ function setupSummaryMarkdown(
     `API token: ${health.auth?.apiTokenRequired ? "required" : "not required locally"}`,
     "",
     "### Work tracker",
-    trackerId === undefined
-      ? "Native task shadows only."
+    trackerId === undefined || tracker?.type === "native"
+      ? "No external tracker (`native`) — agents track tasks in a markdown checklist. Run `/setup tracker linear <teamId>` to use Linear."
       : `\`${trackerId}\` (${tracker?.type ?? "unknown"})${tracker?.teamId ? `, team ${tracker.teamId}` : ""}`,
     "",
     "### Clanky",
@@ -978,7 +978,6 @@ export function dashboardContext(state: DashboardState): string {
     visibleRoomAgents,
     state.runtimeAgents,
   );
-  const taskSummary = summarizeTasks(state);
   const recentMessages = state.messages
     .slice(-5)
     .map(
@@ -999,7 +998,6 @@ export function dashboardContext(state: DashboardState): string {
     `- roomAgents: ${roomAgents}`,
     `- runtimeAgents: ${agents}`,
     ...(agentAliases ? [`- agentAliases: ${agentAliases}`] : []),
-    `- tasks: ${taskSummary}`,
     ...(recentMessages ? [`- recentMessages: ${recentMessages}`] : []),
     ...(state.lastError ? [`- lastError: ${state.lastError}`] : []),
     "Use this context for dashboard questions and do not ask for details already present here.",
@@ -1012,17 +1010,6 @@ function isDetectedRuntimeAgent(agent: RuntimeAgent): boolean {
 
 function isActiveRoomAgent(agent: { state: string }): boolean {
   return agent.state !== "stopped";
-}
-
-function summarizeTasks(state: DashboardState): string {
-  if (state.tasks.length === 0) return "none";
-  const counts = new Map<string, number>();
-  for (const task of state.tasks) {
-    counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([status, count]) => `${status}=${count}`)
-    .join(", ");
 }
 
 function effortLabel(agent: DashboardAgent): string {

@@ -3,14 +3,10 @@ import type {
   Agent,
   AgentState,
   ApprovalRequest,
-  Delegation,
   HumanEscalation,
   Id,
   Message,
-  Ref,
   RuntimeBinding,
-  Task,
-  TaskStatus,
   Workspace,
 } from "./domain.js";
 import type {
@@ -23,15 +19,6 @@ export type RoomEventType =
   | "message.posted"
   | "thread.created"
   | "reaction.added"
-  | "task.created"
-  | "task.updated"
-  | "task.deleted"
-  | "task.assigned"
-  | "task.ref_added"
-  | "task.status_changed"
-  | "task.completed"
-  | "delegation.created"
-  | "delegation.resolved"
   | "workspace.registered"
   | "workspace.updated"
   | "agent.joined"
@@ -67,58 +54,6 @@ export interface BaseEvent<T extends RoomEventType, P> {
 
 export type RoomEvent =
   | BaseEvent<"message.posted", { message: Message }>
-  | BaseEvent<"task.created", { task: Task }>
-  | BaseEvent<
-      "task.updated",
-      {
-        taskId: Id;
-        title?: string;
-        description?: string;
-        actor?: ActorRef;
-      }
-    >
-  | BaseEvent<
-      "task.deleted",
-      {
-        taskId: Id;
-        actor?: ActorRef;
-        reason?: string;
-      }
-    >
-  | BaseEvent<"task.assigned", { taskId: Id; assignee: ActorRef }>
-  | BaseEvent<"task.ref_added", { taskId: Id; ref: Ref }>
-  | BaseEvent<
-      "task.status_changed",
-      {
-        taskId: Id;
-        status: TaskStatus;
-        previousStatus?: TaskStatus;
-        actor?: ActorRef;
-        reason?: string;
-        summary?: string;
-      }
-    >
-  | BaseEvent<
-      "task.completed",
-      {
-        taskId: Id;
-        status: TaskStatus;
-        actor?: ActorRef;
-        summary?: string;
-      }
-    >
-  | BaseEvent<"delegation.created", { delegation: Delegation }>
-  | BaseEvent<
-      "delegation.resolved",
-      {
-        delegationId: Id;
-        taskId: Id;
-        agentId: Id;
-        state: Delegation["state"];
-        notify?: ActorRef;
-        summary?: string;
-      }
-    >
   | BaseEvent<"workspace.registered", { workspace: Workspace }>
   | BaseEvent<
       "workspace.updated",

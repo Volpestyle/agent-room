@@ -9,6 +9,7 @@
     { "path": "packages/runtime-herdr" },
     { "path": "packages/runtime-tmux" },
     { "path": "packages/integrations/chat-discord" },
+    { "path": "packages/diorama-core" },
     { "path": "apps/daemon" },
     { "path": "apps/tui" },
     { "path": "apps/cli" },

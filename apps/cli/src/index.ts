@@ -32,13 +32,9 @@ import {
   importanceSchema,
   type MessageKind,
   messageKindSchema,
-  type Ref,
   type RoomEvent,
   type RuntimeBinding,
   type RuntimeProvider,
-  type Task,
-  type TaskStatus,
-  taskStatusSchema,
 } from "@agentroom/core";
 import {
   agentRoomDir,
@@ -418,6 +414,51 @@ program
     }
   });
 
+const iosCommand = program
+  .command("ios")
+  .description("Inspect and steer AgentRoom mobile (iOS) clients");
+
+iosCommand
+  .command("logs")
+  .description("Stream structured logs reported by iOS clients")
+  .option("--daemon <url>", "daemon base URL")
+  .option("--api-token <token>", "daemon API bearer token")
+  .option("--client <id>", "filter to one client id")
+  .option("--follow", "keep streaming new events")
+  .option("--limit <n>", "initial number of events", parseInteger, 100)
+  .option("--json", "print raw JSON events")
+  .action(async (options: IosLogsOptions) => {
+    await runIosLogs(options);
+  });
+
+iosCommand
+  .command("state")
+  .description("Show the latest reported state of each iOS client")
+  .option("--daemon <url>", "daemon base URL")
+  .option("--api-token <token>", "daemon API bearer token")
+  .option("--json", "print JSON")
+  .action(async (options: IosTargetOptions & { json?: boolean }) => {
+    await runIosState(options);
+  });
+
+iosCommand
+  .command("cmd")
+  .description("Send a command to an iOS client (delivered on its next check-in)")
+  .argument("<clientId>", "target client id (see `agent-room ios state`)")
+  .argument("<kind>", "connect|reconnect|disconnect|dump-state|re-register-push")
+  .option("--daemon <url>", "daemon base URL")
+  .option("--api-token <token>", "daemon API bearer token")
+  .option("--json", "print JSON")
+  .action(
+    async (
+      clientId: string,
+      kind: string,
+      options: IosTargetOptions & { json?: boolean },
+    ) => {
+      await runIosCommand(clientId, kind, options);
+    },
+  );
+
 program
   .command("tui")
   .description("Open the interactive AgentRoom terminal UI")
@@ -615,10 +656,6 @@ program
   .option("--channel <channel>", "only match messages in this channel")
   .option("--kind <kind>", "only match messages of this kind")
   .option(
-    "--task-status <taskStatus>",
-    "taskId:status, for example task_xxx:done",
-  )
-  .option(
     "--dm-to-me",
     "match any directed message where AGENTROOM_AGENT_ID is a recipient",
   )
@@ -641,7 +678,6 @@ program
       from?: string;
       channel?: string;
       kind?: string;
-      taskStatus?: string;
       dmToMe?: boolean;
       timeout: number;
       since: string;
@@ -651,7 +687,7 @@ program
       const matchers = await waitMatchers(options);
       if (matchers.length === 0) {
         throw new Error(
-          "Choose at least one wait mode: --message, --task-status, or --dm-to-me",
+          "Choose at least one wait mode: --message or --dm-to-me",
         );
       }
 
@@ -684,39 +720,6 @@ program
           );
         await sleep(Math.min(1000, remaining));
       }
-    },
-  );
-
-program
-  .command("wait-task")
-  .description("Wait until a task shadow reaches a terminal or requested state")
-  .argument("<taskId>", "task id returned by delegate or task create")
-  .option(
-    "--state <state>",
-    "task state to wait for; repeat by comma for any of done,failed,blocked,canceled",
-  )
-  .option(
-    "--timeout <seconds>",
-    "seconds to wait before exiting with code 2",
-    parseNonNegativeNumber,
-    300,
-  )
-  .option("--json", "emit the resolved task as JSON")
-  .action(
-    async (
-      taskId: string,
-      options: { state?: string; timeout: number; json?: boolean },
-    ) => {
-      const service = await serviceForCwd();
-      const states = parseWaitTaskStates(options.state);
-      const task = await waitForTaskState(
-        service,
-        taskId,
-        states,
-        options.timeout,
-      );
-      output(task, options.json);
-      process.exitCode = taskStatusExitCode(task.status);
     },
   );
 
@@ -754,282 +757,19 @@ program
     },
   );
 
-const task = program.command("task").description("Task commands");
-
-task
-  .command("create")
-  .description(
-    "Create a local task shadow, optionally linked to an external tracker issue",
-  )
-  .argument("<title>", "task title")
-  .option("-d, --description <description>", "task description")
-  .option("-a, --assignee <agentId>", "agent id")
-  .option(
-    "--tracker-issue <issueId>",
-    "existing external tracker issue id or key",
-  )
-  .option("--tracker-kind <kind>", "tracker provider kind")
-  .option("--tracker-provider <id>", "tracker provider id from config")
-  .option("--tracker-url <url>", "tracker issue URL")
-  .option("--json", "print JSON")
-  .action(
-    async (
-      title: string,
-      options: {
-        description?: string;
-        assignee?: string;
-        trackerIssue?: string;
-        trackerKind?: string;
-        trackerProvider?: string;
-        trackerUrl?: string;
-        json?: boolean;
-      },
-    ) => {
-      const service = await serviceForCwd();
-      const refs = options.trackerIssue
-        ? [trackerRef(options.trackerIssue, trackerRefOptions(options))]
-        : [];
-      const created = await service.createTask({
-        title,
-        createdBy: await currentActor(),
-        ...(options.description !== undefined
-          ? { description: options.description }
-          : {}),
-        ...(options.assignee !== undefined
-          ? { assignee: { kind: "agent" as const, id: options.assignee } }
-          : {}),
-        ...(refs.length > 0 ? { refs } : {}),
-      });
-      output(created, options.json);
-    },
-  );
-
-task
-  .command("list")
-  .description("List local task shadows")
-  .option("--json", "print JSON")
-  .action(async (options: { json?: boolean }) => {
-    const service = await serviceForCwd();
-    const tasks = await service.listTasks();
-    output(tasks, options.json);
-  });
-
-task
-  .command("show")
-  .description("Show one local task shadow")
-  .argument("<taskId>", "task id")
-  .option("--json", "print JSON")
-  .action(async (taskId: string, options: { json?: boolean }) => {
-    const service = await serviceForCwd();
-    const task = await service.getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-    output(task, options.json);
-  });
-
-task
-  .command("link-tracker")
-  .description("Link a local task shadow to an external tracker issue")
-  .argument("<taskId>", "local task id")
-  .argument("<issueId>", "tracker issue id or key")
-  .option("--kind <kind>", "tracker provider kind")
-  .option("--provider <id>", "tracker provider id from config")
-  .option("--url <url>", "tracker issue URL")
-  .option("--json", "print JSON")
-  .action(
-    async (
-      taskId: string,
-      issueId: string,
-      options: {
-        kind?: string;
-        provider?: string;
-        url?: string;
-        json?: boolean;
-      },
-    ) => {
-      const service = await serviceForCwd();
-      const task = await service.linkTaskRef({
-        taskId,
-        ref: trackerRef(issueId, trackerRefOptions(options)),
-      });
-      output(task, options.json);
-    },
-  );
-
-task
-  .command("comment")
-  .description("Post a local AgentRoom comment on a task shadow")
-  .argument("<taskId>", "local task id")
-  .argument("<body>", "comment body")
-  .option("--json", "print JSON")
-  .action(async (taskId: string, body: string, options: { json?: boolean }) => {
-    const service = await serviceForCwd();
-    const task = await service.getTask(taskId);
-    if (!task) throw new Error(`Task not found: ${taskId}`);
-    const message = await service.postMessage({
-      body,
-      channelId: "implementation",
-      threadId: taskId,
-      sender: await currentActor(),
-      kind: "status",
-    });
-    output(message, options.json);
-  });
-
-task
-  .command("claim")
-  .description("Claim a local task shadow")
-  .argument("<taskId>", "task id")
-  .option(
-    "-a, --assignee <agentId>",
-    "agent id; defaults to current enrolled agent or local user",
-  )
-  .option("--json", "print JSON")
-  .action(
-    async (taskId: string, options: { assignee?: string; json?: boolean }) => {
-      const service = await serviceForCwd();
-      const assignee = options.assignee
-        ? { kind: "agent" as const, id: options.assignee }
-        : await currentActor();
-      const claimed = await service.claimTask({
-        taskId,
-        assignee,
-      });
-      output(claimed, options.json);
-    },
-  );
-
-task
-  .command("status")
-  .description("Set a local task-shadow status")
-  .argument("<taskId>", "task id")
-  .argument("<status>", "task status")
-  .option("-r, --reason <reason>", "reason for the status change")
-  .option("-s, --summary <summary>", "completion or review summary")
-  .option("--json", "print JSON")
-  .action(
-    async (
-      taskId: string,
-      status: string,
-      options: { reason?: string; summary?: string; json?: boolean },
-    ) => {
-      const service = await serviceForCwd();
-      const updated = await service.updateTaskStatus({
-        taskId,
-        status: parseTaskStatus(status),
-        actor: await currentActor(),
-        ...(options.reason !== undefined ? { reason: options.reason } : {}),
-        ...(options.summary !== undefined ? { summary: options.summary } : {}),
-      });
-      output(updated, options.json);
-    },
-  );
-
-task
-  .command("request-review")
-  .description("Mark a task ready for review and optionally DM a reviewer")
-  .argument("<taskId>", "task id")
-  .option("-r, --reviewer <agentId>", "reviewer agent id")
-  .option("-s, --summary <summary>", "review request summary")
-  .option("--json", "print JSON")
-  .action(
-    async (
-      taskId: string,
-      options: { reviewer?: string; summary?: string; json?: boolean },
-    ) => {
-      const service = await serviceForCwd();
-      const actor = await currentActor();
-      const updated = await service.updateTaskStatus({
-        taskId,
-        status: "ready-for-review",
-        actor,
-        ...(options.summary !== undefined ? { summary: options.summary } : {}),
-      });
-      const reviewMessage = await service.postMessage({
-        body: options.summary ?? `${taskId} is ready for review`,
-        channelId: options.reviewer === undefined ? "implementation" : "dm",
-        threadId: taskId,
-        sender: actor,
-        kind: "review",
-        ...(options.reviewer !== undefined
-          ? { recipients: [{ kind: "agent" as const, id: options.reviewer }] }
-          : {}),
-      });
-      output({ task: updated, message: reviewMessage }, options.json);
-    },
-  );
-
-task
-  .command("approve")
-  .description("Approve a task review")
-  .argument("<taskId>", "task id")
-  .option("-s, --summary <summary>", "approval summary")
-  .option("--json", "print JSON")
-  .action(
-    async (taskId: string, options: { summary?: string; json?: boolean }) => {
-      const service = await serviceForCwd();
-      const actor = await currentActor();
-      const updated = await service.updateTaskStatus({
-        taskId,
-        status: "approved",
-        actor,
-        ...(options.summary !== undefined ? { summary: options.summary } : {}),
-      });
-      const message = await service.postMessage({
-        body: options.summary ?? `${taskId} approved`,
-        channelId: "implementation",
-        threadId: taskId,
-        sender: actor,
-        kind: "review",
-      });
-      output({ task: updated, message }, options.json);
-    },
-  );
-
-task
-  .command("changes-requested")
-  .description("Request changes on a task review")
-  .argument("<taskId>", "task id")
-  .requiredOption("-r, --reason <reason>", "requested change summary")
-  .option("--json", "print JSON")
-  .action(
-    async (taskId: string, options: { reason: string; json?: boolean }) => {
-      const service = await serviceForCwd();
-      const actor = await currentActor();
-      const updated = await service.updateTaskStatus({
-        taskId,
-        status: "changes-requested",
-        actor,
-        reason: options.reason,
-      });
-      const message = await service.postMessage({
-        body: options.reason,
-        channelId: "implementation",
-        threadId: taskId,
-        sender: actor,
-        kind: "review",
-      });
-      output({ task: updated, message }, options.json);
-    },
-  );
-
 program
   .command("ask-human")
   .description("Create a human escalation question")
   .argument("<question>", "question for the human")
-  .option("--task <taskId>", "related task id")
   .option("-p, --priority <priority>", "low|normal|high|urgent", "normal")
   .option("--json", "print JSON")
   .action(
-    async (
-      question: string,
-      options: { task?: string; priority: string; json?: boolean },
-    ) => {
+    async (question: string, options: { priority: string; json?: boolean }) => {
       const service = await serviceForCwd();
       const escalation = await service.askHuman({
         question,
         from: await currentActor(),
         priority: parseImportance(options.priority),
-        ...(options.task !== undefined ? { taskId: options.task } : {}),
       });
       output(escalation, options.json);
     },
@@ -1037,39 +777,49 @@ program
 
 program
   .command("block")
-  .description("Mark a local task shadow blocked and record the reason")
-  .argument("<taskId>", "task id")
+  .description("Report that this agent is blocked (agent-state signal)")
   .requiredOption("-r, --reason <reason>", "blocker reason")
   .option("--json", "print JSON")
-  .action(
-    async (taskId: string, options: { reason: string; json?: boolean }) => {
-      const service = await serviceForCwd();
-      const blocked = await service.blockTask({
-        taskId,
-        reason: options.reason,
-        actor: await currentActor(),
-      });
-      output(blocked, options.json);
-    },
-  );
+  .action(async (options: { reason: string; json?: boolean }) => {
+    const service = await serviceForCwd();
+    const actor = await currentActor();
+    if (actor.kind !== "agent") {
+      throw new Error(
+        "block reports agent state; run it as an enrolled agent",
+      );
+    }
+    await service.markAgentBlocked({ agentId: actor.id, reason: options.reason });
+    output(
+      { ok: true, agentId: actor.id, state: "blocked", reason: options.reason },
+      options.json,
+    );
+  });
 
 program
   .command("done")
-  .description("Mark a local task shadow done")
-  .argument("<taskId>", "task id")
+  .description("Report that this agent finished its work (agent-state signal)")
   .option("-s, --summary <summary>", "completion summary")
   .option("--json", "print JSON")
-  .action(
-    async (taskId: string, options: { summary?: string; json?: boolean }) => {
-      const service = await serviceForCwd();
-      const done = await service.completeTask({
-        taskId,
-        actor: await currentActor(),
+  .action(async (options: { summary?: string; json?: boolean }) => {
+    const service = await serviceForCwd();
+    const actor = await currentActor();
+    if (actor.kind !== "agent") {
+      throw new Error("done reports agent state; run it as an enrolled agent");
+    }
+    await service.markAgentDone({
+      agentId: actor.id,
+      ...(options.summary !== undefined ? { summary: options.summary } : {}),
+    });
+    output(
+      {
+        ok: true,
+        agentId: actor.id,
+        state: "done",
         ...(options.summary !== undefined ? { summary: options.summary } : {}),
-      });
-      output(done, options.json);
-    },
-  );
+      },
+      options.json,
+    );
+  });
 
 program
   .command("agents")
@@ -1329,53 +1079,31 @@ runtime
 
 program
   .command("delegate")
-  .description("Assign work to an agent and return a waitable task handle")
+  .description(
+    "DM a work assignment to an agent (reference a tracker issue) and wake it if idle",
+  )
   .argument("<agentId>", "agent id")
-  .argument("<work...>", "work description")
-  .option("--notify <agentId>", "agent to notify when the delegation resolves")
-  .option("--description <description>", "longer task description")
+  .argument("<work...>", "work description; reference the tracker issue to pick up")
   .option("--json", "print JSON")
   .action(
-    async (
-      agentId: string,
-      workParts: string[],
-      options: { notify?: string; description?: string; json?: boolean },
-    ) => {
+    async (agentId: string, workParts: string[], options: { json?: boolean }) => {
       const service = await serviceForCwd();
       const actor = await currentActor();
       const work = workParts.join(" ").trim();
       if (!work) throw new Error("delegate requires a work description.");
-      const notify =
-        options.notify !== undefined
-          ? ({ kind: "agent", id: options.notify } as const)
-          : actor.kind === "agent"
-            ? actor
-            : undefined;
-      const result = await service.delegateTask({
-        agentId,
-        work,
-        delegatedBy: actor,
-        ...(notify !== undefined ? { notify } : {}),
-        ...(options.description !== undefined
-          ? { description: options.description }
-          : {}),
-      });
       const message = await service.postMessage({
-        body: `Delegated ${result.task.id}: ${work}`,
+        body: work,
         channelId: "dm",
         sender: actor,
         recipients: [{ kind: "agent", id: agentId }],
         kind: "handoff",
-        threadId: result.task.id,
       });
       output(
         {
-          ...result,
           message,
-          handle: result.task.id,
           wait: {
-            command: `agent-room wait-task ${result.task.id}`,
-            taskId: result.task.id,
+            command: `agent-room wait-agent ${agentId} --state done,idle`,
+            agentId,
           },
         },
         options.json,
@@ -2690,6 +2418,182 @@ function daemonBaseUrl(host: string, port: number): string {
   return `http://${formattedHost}:${port}`;
 }
 
+interface IosTargetOptions {
+  daemon?: string;
+  apiToken?: string;
+  pidFile?: string;
+}
+
+interface IosLogsOptions extends IosTargetOptions {
+  client?: string;
+  follow?: boolean;
+  limit?: number;
+  json?: boolean;
+}
+
+interface ClientLogEvent {
+  seq: number;
+  ts: string;
+  clientId: string;
+  level: string;
+  category: string;
+  message: string;
+  fields?: Record<string, unknown>;
+}
+
+interface ClientStateRow {
+  clientId: string;
+  platform?: string;
+  connection?: string;
+  pushStatus?: string;
+  pushTokenPrefix?: string;
+  lastError?: string;
+  build?: string;
+  apnsEnv?: string;
+  baseUrl?: string;
+  updatedAt: string;
+}
+
+async function resolveIosDaemon(
+  options: IosTargetOptions,
+): Promise<{ baseUrl: string; apiToken?: string }> {
+  if (options.daemon) {
+    return {
+      baseUrl: options.daemon,
+      ...(options.apiToken ? { apiToken: options.apiToken } : {}),
+    };
+  }
+  const record = await readDaemonPidRecord(
+    resolve(options.pidFile ?? join(roomDir(), "daemon.pid")),
+  );
+  if (record) {
+    return {
+      baseUrl: record.publicUrl ?? daemonBaseUrl(record.host, record.port),
+      ...(record.apiToken ? { apiToken: record.apiToken } : {}),
+    };
+  }
+  const envToken = process.env.AGENTROOM_API_TOKEN;
+  return {
+    baseUrl: process.env.AGENTROOM_DAEMON ?? `http://127.0.0.1:${DEFAULT_PORT}`,
+    ...(envToken ? { apiToken: envToken } : {}),
+  };
+}
+
+function iosAuthHeaders(token?: string): Record<string, string> {
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+async function runIosLogs(options: IosLogsOptions): Promise<void> {
+  const target = await resolveIosDaemon(options);
+  let since = 0;
+  let primed = false;
+  const tick = async (): Promise<void> => {
+    const url = new URL(`${target.baseUrl}/v1/clients/events`);
+    if (options.client) url.searchParams.set("client", options.client);
+    if (primed) url.searchParams.set("since", String(since));
+    else url.searchParams.set("limit", String(options.limit ?? 100));
+    const res = await fetch(url, { headers: iosAuthHeaders(target.apiToken) });
+    if (!res.ok) throw new Error(`ios logs failed: HTTP ${res.status}`);
+    const data = (await res.json()) as { events: ClientLogEvent[] };
+    for (const event of data.events) {
+      since = Math.max(since, event.seq);
+      printClientEvent(event, options.json);
+    }
+    primed = true;
+  };
+  await tick();
+  if (options.follow === true) {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await tick();
+    }
+  }
+}
+
+function printClientEvent(event: ClientLogEvent, json?: boolean): void {
+  if (json === true) {
+    console.log(JSON.stringify(event));
+    return;
+  }
+  const fields =
+    event.fields && Object.keys(event.fields).length > 0
+      ? "  " +
+        Object.entries(event.fields)
+          .map(
+            ([k, v]) =>
+              `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
+          )
+          .join(" ")
+      : "";
+  const time = event.ts.replace("T", " ").replace(/\.\d+Z?$/, "");
+  console.log(
+    `${time}  ${event.level.toUpperCase().padEnd(5)} ${event.category.padEnd(
+      10,
+    )} ${event.message}${fields}`,
+  );
+}
+
+async function runIosState(
+  options: IosTargetOptions & { json?: boolean },
+): Promise<void> {
+  const target = await resolveIosDaemon(options);
+  const res = await fetch(`${target.baseUrl}/v1/clients`, {
+    headers: iosAuthHeaders(target.apiToken),
+  });
+  if (!res.ok) throw new Error(`ios state failed: HTTP ${res.status}`);
+  const data = (await res.json()) as { clients: ClientStateRow[] };
+  if (options.json === true) {
+    output(data.clients, true);
+    return;
+  }
+  if (data.clients.length === 0) {
+    console.log("No iOS clients have reported in yet.");
+    return;
+  }
+  for (const client of data.clients) {
+    console.log(
+      `${client.clientId}  [${client.connection ?? "?"}]  push=${
+        client.pushStatus ?? "?"
+      } token=${client.pushTokenPrefix ?? "-"} env=${client.apnsEnv ?? "-"}`,
+    );
+    if (client.lastError) console.log(`    last error: ${client.lastError}`);
+    console.log(
+      `    build=${client.build ?? "?"} baseUrl=${
+        client.baseUrl ?? "?"
+      } updated=${client.updatedAt}`,
+    );
+  }
+}
+
+async function runIosCommand(
+  clientId: string,
+  kind: string,
+  options: IosTargetOptions & { json?: boolean },
+): Promise<void> {
+  const target = await resolveIosDaemon(options);
+  const res = await fetch(
+    `${target.baseUrl}/v1/clients/${encodeURIComponent(clientId)}/commands`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...iosAuthHeaders(target.apiToken),
+      },
+      body: JSON.stringify({ kind }),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    command?: unknown;
+  };
+  if (!res.ok) throw new Error(data.error ?? `ios cmd failed: HTTP ${res.status}`);
+  if (options.json === true) {
+    output(data.command, true);
+    return;
+  }
+  console.log(`Queued '${kind}' for ${clientId} (delivered on its next check-in).`);
+}
+
 function parseDaemonUrl(value: string): { host: string; port: number } {
   const url = new URL(value);
   const port = url.port ? Number.parseInt(url.port, 10) : DEFAULT_PORT;
@@ -3280,7 +3184,6 @@ async function waitMatchers(options: {
   from?: string;
   channel?: string;
   kind?: string;
-  taskStatus?: string;
   dmToMe?: boolean;
 }): Promise<EventMatcher[]> {
   const matchers: EventMatcher[] = [];
@@ -3292,16 +3195,6 @@ async function waitMatchers(options: {
         event.type === "message.posted" &&
         messageScopeMatches(event, options) &&
         pattern.test(event.payload.message.body),
-    );
-  }
-
-  if (options.taskStatus !== undefined) {
-    const taskStatus = parseTaskStatusMatcher(options.taskStatus);
-    matchers.push(
-      (event) =>
-        event.type === "task.status_changed" &&
-        event.payload.taskId === taskStatus.taskId &&
-        event.payload.status === taskStatus.status,
     );
   }
 
@@ -3370,72 +3263,6 @@ function compileMessagePattern(
   }
 }
 
-function parseTaskStatusMatcher(value: string): {
-  taskId: string;
-  status: TaskStatus;
-} {
-  const separator = value.lastIndexOf(":");
-  if (separator <= 0 || separator === value.length - 1) {
-    throw new Error(
-      `Invalid --task-status '${value}'. Expected taskId:status.`,
-    );
-  }
-
-  return {
-    taskId: value.slice(0, separator),
-    status: parseTaskStatus(value.slice(separator + 1)),
-  };
-}
-
-function parseWaitTaskStates(value: string | undefined): Set<TaskStatus> {
-  if (value === undefined) {
-    return new Set(["done", "failed", "blocked", "canceled"]);
-  }
-  return new Set(
-    value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0)
-      .map((entry) => parseTaskStatus(entry)),
-  );
-}
-
-async function waitForTaskState(
-  service: AgentRoomService,
-  taskId: string,
-  states: Set<TaskStatus>,
-  timeout: number,
-): Promise<Task> {
-  const existing = await service.getTask(taskId);
-  if (!existing) throw new Error(`Task not found: ${taskId}`);
-  if (states.has(existing.status)) return existing;
-
-  let cursor = await service.eventCursor("end");
-  const deadline = Date.now() + timeout * 1000;
-  while (true) {
-    const batch = await service.listEventsFromCursor(cursor);
-    cursor = batch.cursor;
-    const match = batch.events.find(
-      (event) =>
-        event.type === "task.status_changed" &&
-        event.payload.taskId === taskId &&
-        states.has(event.payload.status),
-    );
-    if (match !== undefined) {
-      const task = await service.getTask(taskId);
-      if (!task)
-        throw new Error(`Task not found after status change: ${taskId}`);
-      return task;
-    }
-    const remaining = deadline - Date.now();
-    if (remaining <= 0)
-      throw new WaitTimeoutError(
-        `Timed out waiting for task ${taskId} to reach ${[...states].join(",")} after ${timeout}s`,
-      );
-    await sleep(Math.min(1000, remaining));
-  }
-}
-
 async function waitForAgentState(
   service: AgentRoomService,
   agentId: string,
@@ -3493,19 +3320,6 @@ async function waitForAgentState(
   }
 }
 
-function taskStatusExitCode(status: TaskStatus): number {
-  switch (status) {
-    case "failed":
-      return 3;
-    case "blocked":
-      return 4;
-    case "canceled":
-      return 5;
-    default:
-      return 0;
-  }
-}
-
 function agentStateExitCode(state: AgentState): number {
   switch (state) {
     case "failed":
@@ -3546,12 +3360,6 @@ function parseInteger(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) throw new Error(`Invalid integer: ${value}`);
   return parsed;
-}
-
-function parseTaskStatus(value: string): TaskStatus {
-  const result = taskStatusSchema.safeParse(value);
-  if (!result.success) throw new Error(`Invalid task status: ${value}`);
-  return result.data;
 }
 
 function parseAgentRole(value: string): AgentRole {
@@ -3615,48 +3423,6 @@ function parseOptionalList(value: string | undefined): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function trackerRef(
-  issueId: string,
-  options: {
-    providerKind?: string;
-    providerId?: string;
-    url?: string;
-  } = {},
-): Ref {
-  const providerKind = options.providerKind ?? "custom";
-  const metadata: Record<string, unknown> = { providerKind };
-  if (options.providerId !== undefined)
-    metadata.providerId = options.providerId;
-  return {
-    kind: "tracker-issue",
-    id: issueId,
-    label: issueId,
-    ...(options.url !== undefined ? { url: options.url } : {}),
-    metadata,
-  };
-}
-
-function trackerRefOptions(input: {
-  trackerKind?: string | undefined;
-  trackerProvider?: string | undefined;
-  trackerUrl?: string | undefined;
-  kind?: string | undefined;
-  provider?: string | undefined;
-  url?: string | undefined;
-}): {
-  providerKind?: string;
-  providerId?: string;
-  url?: string;
-} {
-  const providerKind = input.trackerKind ?? input.kind;
-  const providerId = input.trackerProvider ?? input.provider;
-  const url = input.trackerUrl ?? input.url;
-  return {
-    ...(providerKind !== undefined ? { providerKind } : {}),
-    ...(providerId !== undefined ? { providerId } : {}),
-    ...(url !== undefined ? { url } : {}),
-  };
-}
 
 function workTrackerHealth(config: AgentRoomConfig | undefined): {
   ok: boolean;
@@ -3672,7 +3438,7 @@ function workTrackerHealth(config: AgentRoomConfig | undefined): {
       tracker: "native",
       kind: "native",
       message:
-        "No workTracker block configured; using AgentRoom local task shadows only.",
+        "No work tracker configured. AgentRoom has no built-in task store — track tasks in a markdown checklist (e.g. TASKS.md or the PR description).",
     };
   }
 
@@ -3693,7 +3459,7 @@ function workTrackerHealth(config: AgentRoomConfig | undefined): {
       tracker: providerId,
       kind: providerConfig.type,
       message:
-        "Using AgentRoom native local task shadows; no external tracker configured.",
+        "Work tracker set to 'native' (none external). AgentRoom has no built-in task store — track tasks in a markdown checklist (e.g. TASKS.md or the PR description).",
     };
   }
 

@@ -42,7 +42,6 @@ class EventsPanel extends PanelBase {
 
 function colorForType(type: string): (s: string) => string {
   if (type.startsWith("message.")) return palette.accent;
-  if (type.startsWith("task.")) return palette.label;
   if (type.startsWith("agent.")) return palette.agent;
   if (type.startsWith("runtime.")) return palette.warn;
   if (type.startsWith("human_escalation.")) return palette.bad;
@@ -55,18 +54,6 @@ function summarize(event: RoomEvent): string {
   switch (event.type) {
     case "message.posted":
       return summarizeMessagePosted(event.payload.message);
-    case "task.created":
-      return `${event.payload.task.title}`;
-    case "task.status_changed":
-      return `${event.payload.taskId} → ${event.payload.status}`;
-    case "task.completed":
-      return `${event.payload.taskId} terminal=${event.payload.status}`;
-    case "delegation.created":
-      return `${event.payload.delegation.taskId} → ${event.payload.delegation.agentId}`;
-    case "delegation.resolved":
-      return `${event.payload.taskId} → ${event.payload.agentId} state=${event.payload.state}`;
-    case "task.assigned":
-      return `${event.payload.taskId} → ${event.payload.assignee.kind}:${event.payload.assignee.id}`;
     case "agent.joined":
       return `${event.payload.agent.id} (${event.payload.agent.role})`;
     case "agent.left":

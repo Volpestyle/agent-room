@@ -123,52 +123,6 @@ export interface Message {
   createdAt: ISODateTime;
 }
 
-export type TaskStatus =
-  | "planned"
-  | "assigned"
-  | "claimed"
-  | "working"
-  | "blocked"
-  | "ready-for-review"
-  | "changes-requested"
-  | "approved"
-  | "merged"
-  | "failed"
-  | "done"
-  | "canceled";
-
-export interface Task {
-  id: Id;
-  roomId: Id;
-  title: string;
-  description?: string;
-  status: TaskStatus;
-  assignee?: ActorRef;
-  refs?: Ref[];
-  createdBy: ActorRef;
-  createdAt: ISODateTime;
-  updatedAt: ISODateTime;
-}
-
-export type DelegationState =
-  | "open"
-  | "done"
-  | "failed"
-  | "blocked"
-  | "canceled";
-
-export interface Delegation {
-  id: Id;
-  roomId: Id;
-  taskId: Id;
-  agentId: Id;
-  delegatedBy: ActorRef;
-  notify?: ActorRef;
-  state: DelegationState;
-  createdAt: ISODateTime;
-  resolvedAt?: ISODateTime;
-}
-
 export interface AgentPresence {
   agent: Agent;
   lastHeartbeatAt?: ISODateTime;

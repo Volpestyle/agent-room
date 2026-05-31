@@ -88,7 +88,7 @@ export const docsMeta: DocMeta[] = [
     slug: "coordination",
     title: "Coordination Model",
     description:
-      "Native room messages, handoffs, status, task shadows, escalation, and external tracker split.",
+      "Room messages, handoffs, status, agent-state signals, escalation, and the configured work tracker.",
     source: "docs/COORDINATION.md",
     group: "Operations",
   },
@@ -112,7 +112,7 @@ export const docsMeta: DocMeta[] = [
     slug: "protocol",
     title: "AgentRoom Protocol",
     description:
-      "Enrollment, room-native coordination, task shadows, tracker refs, runtime audit, and gateway ownership.",
+      "Enrollment, room-native coordination, the configured work tracker, runtime audit, and gateway ownership.",
     source: "docs/PROTOCOL.md",
     group: "Agents",
   },

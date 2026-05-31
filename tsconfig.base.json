@@ -45,6 +45,9 @@
       ],
       "@agentroom/chat-discord": [
         "packages/integrations/chat-discord/src/index.ts"
+      ],
+      "@agentroom/diorama-core": [
+        "packages/diorama-core/src/index.ts"
       ]
     }
   }

@@ -6,7 +6,6 @@ import type {
   RoomEvent,
   RuntimeAgent,
   RuntimeProviderSummary,
-  Task,
   Workspace,
 } from "./types.js";
 
@@ -29,7 +28,6 @@ export interface DashboardState {
   events: RoomEvent[];
   agents: Agent[];
   messages: Message[];
-  tasks: Task[];
   workspaces: Workspace[];
   providers: RuntimeProviderSummary[];
   runtimeAgents: RuntimeAgentSnapshot[];
@@ -49,7 +47,6 @@ export class DashboardStore {
     events: [],
     agents: [],
     messages: [],
-    tasks: [],
     workspaces: [],
     providers: [],
     runtimeAgents: [],

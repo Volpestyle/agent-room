@@ -42,8 +42,8 @@ export function buildAgentActivationPrompt(
   const parts = [
     `[AgentRoom] You are enrolled in room "${ctx.roomId}" as agent "${ctx.agentId}"${role}.`,
     "You are a room participant, not a standalone session — load and follow the `agentroom` skill now:",
-    "run `agent-room whoami --json` and `agent-room protocol --json`, claim your assigned task, and post a short status with `agent-room post` before editing.",
-    "Use agent-room post/dm/wait/task for all room coordination.",
+    "run `agent-room whoami --json` and `agent-room protocol --json`, track your work in the configured work tracker (or a markdown checklist if none is configured), and post a short status with `agent-room post` before editing.",
+    "Use agent-room post/dm/wait for all room coordination.",
   ];
   if (ctx.protocolPath) {
     parts.push(`Room protocol file: ${ctx.protocolPath}.`);

@@ -8,14 +8,14 @@ describe("filterRoomEvents", () => {
     const events = [
       messageEvent("evt_1", "room-a", "2026-01-01T00:00:00.000Z"),
       messageEvent("evt_2", "room-b", "2026-01-02T00:00:00.000Z"),
-      statusEvent("evt_3", "room-a", "2026-01-03T00:00:00.000Z"),
-      statusEvent("evt_4", "room-a", "2026-01-04T00:00:00.000Z"),
+      heartbeatEvent("evt_3", "room-a", "2026-01-03T00:00:00.000Z"),
+      heartbeatEvent("evt_4", "room-a", "2026-01-04T00:00:00.000Z"),
     ];
 
     expect(
       filterRoomEvents(events, {
         roomId: "room-a",
-        type: "task.status_changed",
+        type: "agent.heartbeat",
         since: "2026-01-03T00:00:00.000Z",
         limit: 1,
       }).map((filtered) => filtered.id),
@@ -44,15 +44,15 @@ function messageEvent(id: Id, roomId: Id, createdAt: string): RoomEvent {
   };
 }
 
-function statusEvent(id: Id, roomId: Id, createdAt: string): RoomEvent {
+function heartbeatEvent(id: Id, roomId: Id, createdAt: string): RoomEvent {
   return {
     id,
     roomId,
-    type: "task.status_changed",
+    type: "agent.heartbeat",
     createdAt,
     payload: {
-      taskId: "task_1",
-      status: "working",
+      agentId: "agent_1",
+      state: "working",
     },
   };
 }

@@ -245,63 +245,6 @@ describe("agent-room wait", () => {
     }
   });
 
-  it("delegates work and waits on the returned task handle", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "agentroom-delegate-wait-"));
-    const env = testEnv("cli-delegate-wait-test");
-    let waiting: ChildProcessWithoutNullStreams | undefined;
-
-    try {
-      await execAgentRoom(
-        cwd,
-        ["init", "--room", "cli-delegate-wait-test", "--runtime", "fake"],
-        env,
-      );
-      const delegated = JSON.parse(
-        (
-          await execAgentRoom(
-            cwd,
-            ["delegate", "impl", "Ship waitable delegation", "--json"],
-            env,
-          )
-        ).stdout,
-      ) as { handle: string; task: { id: string; assignee: { id: string } } };
-      expect(delegated.handle).toBe(delegated.task.id);
-      expect(delegated.task.assignee.id).toBe("impl");
-
-      waiting = spawn(
-        agentRoomBin,
-        [
-          "wait-task",
-          delegated.handle,
-          "--state",
-          "done",
-          "--timeout",
-          "5",
-          "--json",
-        ],
-        { cwd, env },
-      );
-      let stdout = "";
-      waiting.stdout.setEncoding("utf8");
-      waiting.stdout.on("data", (chunk) => {
-        stdout += chunk;
-      });
-      const exit = waitForExit(waiting, 7000);
-      await sleep(200);
-      await execAgentRoom(
-        cwd,
-        ["done", delegated.handle, "--summary", "complete"],
-        { ...env, AGENTROOM_AGENT_ID: "impl" },
-      );
-
-      await expect(exit).resolves.toMatchObject({ code: 0 });
-      const task = JSON.parse(stdout) as { id: string; status: string };
-      expect(task).toMatchObject({ id: delegated.handle, status: "done" });
-    } finally {
-      if (waiting && waiting.exitCode === null) waiting.kill();
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("agent-room events --follow", () => {
@@ -404,41 +347,6 @@ describe("agent-room status", () => {
         filesTouched: ["apps/cli/src/index.ts", "docs/CLI_REFERENCE.md"],
         needs: "review",
         coordinateWith: ["reviewer"],
-      });
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("agent-room task show", () => {
-  it("shows a single local task shadow by id", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "agentroom-task-show-"));
-    const env = testEnv("cli-task-show-test");
-
-    try {
-      await execAgentRoom(
-        cwd,
-        ["init", "--room", "cli-task-show-test", "--runtime", "fake"],
-        env,
-      );
-      const created = JSON.parse(
-        (
-          await execAgentRoom(
-            cwd,
-            ["task", "create", "Implement show", "--json"],
-            env,
-          )
-        ).stdout,
-      ) as { id: string };
-      const shown = JSON.parse(
-        (await execAgentRoom(cwd, ["task", "show", created.id, "--json"], env))
-          .stdout,
-      ) as { id: string; title: string };
-
-      expect(shown).toMatchObject({
-        id: created.id,
-        title: "Implement show",
       });
     } finally {
       await rm(cwd, { recursive: true, force: true });

@@ -14,8 +14,6 @@ import type {
   RuntimeCapabilities,
   RuntimeHealth,
   RuntimeSession,
-  Task,
-  TaskStatus,
   Workspace,
 } from "@agentroom/core";
 import type { AgentRoomConfig, DashboardOperatorConfig } from "@agentroom/config";
@@ -36,8 +34,6 @@ export type {
   RuntimeCapabilities,
   RuntimeHealth,
   RuntimeSession,
-  Task,
-  TaskStatus,
   Workspace,
 };
 export type { DashboardOperatorConfig };

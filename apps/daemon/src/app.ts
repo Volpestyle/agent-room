@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import {
   AgentRoomService,
   ChatGatewayOutboundDispatcher,
@@ -13,12 +14,6 @@ import {
   humanEscalationCreateSchema,
   messageCreateSchema,
   nowIso,
-  taskClaimSchema,
-  taskCreateSchema,
-  taskDeleteSchema,
-  taskDetailsUpdateSchema,
-  taskLinkRefSchema,
-  taskStatusUpdateSchema,
   workspaceRegisterSchema,
   type ChatGatewayProvider,
   type HarnessSpec,
@@ -55,6 +50,11 @@ import {
 } from "./chatGatewayRegistry.js";
 import { ApnsClient, apnsConfigFromEnv } from "./apns.js";
 import { DeviceRegistry } from "./deviceStore.js";
+import {
+  ClientTelemetry,
+  parseClientIngest,
+  parseCommandKind,
+} from "./clientTelemetry.js";
 import { SecretStore } from "./secretStore.js";
 
 export interface CreateAppOptions {
@@ -136,6 +136,10 @@ export function createAppWithLifecycle(
   const deviceRegistry = new DeviceRegistry(
     join(dirname(eventLogPath), "devices.json"),
   );
+  const clientTelemetry = new ClientTelemetry(
+    join(dirname(eventLogPath), "client-logs.jsonl"),
+  );
+  void clientTelemetry.hydrate();
 
   const secretStore = new SecretStore(join(agentRoomDir(cwd), "secrets.json"));
 
@@ -371,6 +375,68 @@ export function createAppWithLifecycle(
     return c.json({ events });
   });
 
+  // Live event stream — GAME_BRIDGE.md §4.1 / Diorama F1. Wraps the existing
+  // eventCursor / listEventsFromCursor primitive in a text/event-stream so clients
+  // (the Diorama world reducer) can tail RoomEvents at low latency instead of
+  // polling. One-directional: commands still go over the REST routes. `?cursor=`
+  // is the resume point — a byte position, "start" (default: full replay) or "end"
+  // (only new events). Each frame's SSE id is the resume cursor, so reconnecting
+  // with the last id is gap- and dupe-free.
+  app.get("/v1/events/stream", async (c) => {
+    const pollIntervalMs = 1000;
+    const keepaliveMs = 25_000;
+
+    const raw = c.req.query("cursor");
+    let position: number | undefined;
+    if (raw !== undefined && raw !== "start" && raw !== "end") {
+      position = Number(raw);
+      if (!Number.isInteger(position) || position < 0) {
+        return c.json({ error: "invalid cursor" }, 400);
+      }
+    }
+    let cursor = await service.eventCursor(raw === "end" ? "end" : "start");
+    if (position !== undefined) {
+      cursor = { position };
+    }
+
+    return streamSSE(
+      c,
+      async (stream) => {
+        let aborted = false;
+        stream.onAbort(() => {
+          aborted = true;
+        });
+        let idleMs = 0;
+        while (!aborted && !stream.aborted) {
+          const batch = await service.listEventsFromCursor(cursor, { limit: 1 });
+          const event = batch.events[0];
+          if (event !== undefined) {
+            cursor = batch.cursor;
+            await stream.writeSSE({
+              event: "room-event",
+              id: String(cursor.position),
+              data: JSON.stringify(event),
+            });
+            idleMs = 0;
+            continue;
+          }
+          // Caught up to the tail — idle until the next append, with a periodic
+          // SSE comment so dead connections surface and proxies stay open.
+          await stream.sleep(pollIntervalMs);
+          idleMs += pollIntervalMs;
+          if (idleMs >= keepaliveMs) {
+            await stream.write(": keepalive\n\n");
+            idleMs = 0;
+          }
+        }
+      },
+      async (error, stream) => {
+        console.error(`[events-stream] ${errorMessage(error)}`);
+        await stream.close();
+      },
+    );
+  });
+
   app.get("/v1/messages", async (c) => {
     const limit = Number(c.req.query("limit") ?? "100");
     const channelId = c.req.query("channelId") ?? c.req.query("channel");
@@ -392,10 +458,6 @@ export function createAppWithLifecycle(
         : {}),
     });
     return c.json({ messages });
-  });
-
-  app.get("/v1/tasks", async (c) => {
-    return c.json({ tasks: await service.listTasks() });
   });
 
   app.get("/v1/workspaces", async (c) => {
@@ -433,23 +495,6 @@ export function createAppWithLifecycle(
     return c.json({ message }, 201);
   });
 
-  app.post("/v1/tasks", async (c) => {
-    const body = await c.req.json();
-    const input = taskCreateSchema.parse(body);
-    const task = await service.createTask({
-      title: input.title,
-      createdBy: input.createdBy,
-      ...(input.description !== undefined
-        ? { description: input.description }
-        : {}),
-      ...(input.assigneeId !== undefined
-        ? { assignee: { kind: "agent" as const, id: input.assigneeId } }
-        : {}),
-      ...(input.refs.length > 0 ? { refs: input.refs } : {}),
-    });
-    return c.json({ task }, 201);
-  });
-
   app.post("/v1/workspaces", async (c) => {
     const input = workspaceRegisterSchema.parse(await c.req.json());
     const workspace = await service.registerWorkspace({
@@ -459,68 +504,6 @@ export function createAppWithLifecycle(
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     });
     return c.json({ workspace }, 201);
-  });
-
-  app.get("/v1/tasks/:taskId", async (c) => {
-    const task = await service.getTask(c.req.param("taskId"));
-    if (!task) return c.json({ error: "task not found" }, 404);
-    return c.json({ task });
-  });
-
-  app.patch("/v1/tasks/:taskId", async (c) => {
-    const input = taskDetailsUpdateSchema.parse(await c.req.json());
-    if (input.title === undefined && input.description === undefined) {
-      return c.json({ error: "title or description is required" }, 400);
-    }
-    const task = await service.updateTaskDetails({
-      taskId: c.req.param("taskId"),
-      ...(input.title !== undefined ? { title: input.title } : {}),
-      ...(input.description !== undefined
-        ? { description: input.description }
-        : {}),
-      ...(input.actor !== undefined ? { actor: input.actor } : {}),
-    });
-    return c.json({ task });
-  });
-
-  app.delete("/v1/tasks/:taskId", async (c) => {
-    const input = taskDeleteSchema.parse(await c.req.json());
-    await service.deleteTask({
-      taskId: c.req.param("taskId"),
-      ...(input.actor !== undefined ? { actor: input.actor } : {}),
-      ...(input.reason !== undefined ? { reason: input.reason } : {}),
-    });
-    return c.json({ ok: true });
-  });
-
-  app.post("/v1/tasks/:taskId/refs", async (c) => {
-    const input = taskLinkRefSchema.parse(await c.req.json());
-    const task = await service.linkTaskRef({
-      taskId: c.req.param("taskId"),
-      ref: input.ref,
-    });
-    return c.json({ task });
-  });
-
-  app.post("/v1/tasks/:taskId/claim", async (c) => {
-    const input = taskClaimSchema.parse(await c.req.json());
-    const task = await service.claimTask({
-      taskId: c.req.param("taskId"),
-      assignee: input.assignee,
-    });
-    return c.json({ task });
-  });
-
-  app.patch("/v1/tasks/:taskId/status", async (c) => {
-    const input = taskStatusUpdateSchema.parse(await c.req.json());
-    const task = await service.updateTaskStatus({
-      taskId: c.req.param("taskId"),
-      status: input.status,
-      ...(input.actor !== undefined ? { actor: input.actor } : {}),
-      ...(input.reason !== undefined ? { reason: input.reason } : {}),
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
-    });
-    return c.json({ task });
   });
 
   app.post("/v1/human-escalations", async (c) => {
@@ -962,6 +945,72 @@ export function createAppWithLifecycle(
       failed: results.length - sent,
       results,
     });
+  });
+
+  // --- Agent-facing client telemetry (mobile observability) ---
+
+  app.post("/v1/clients/events", async (c) => {
+    const input = parseClientIngest(await c.req.json().catch(() => null));
+    if (!input) return c.json({ error: "clientId is required" }, 400);
+    const commands = clientTelemetry.ingest(input);
+    return c.json({ ok: true, commands });
+  });
+
+  app.get("/v1/clients", (c) => {
+    return c.json({ clients: clientTelemetry.listStates() });
+  });
+
+  app.get("/v1/clients/events", (c) => {
+    const since = c.req.query("since");
+    const limit = c.req.query("limit");
+    const client = c.req.query("client");
+    return c.json({
+      events: clientTelemetry.recentEvents({
+        ...(client !== undefined ? { clientId: client } : {}),
+        ...(since !== undefined ? { sinceSeq: Number(since) } : {}),
+        ...(limit !== undefined ? { limit: Number(limit) } : {}),
+      }),
+    });
+  });
+
+  app.get("/v1/clients/:clientId/events", (c) => {
+    const since = c.req.query("since");
+    const limit = c.req.query("limit");
+    return c.json({
+      events: clientTelemetry.recentEvents({
+        clientId: c.req.param("clientId"),
+        ...(since !== undefined ? { sinceSeq: Number(since) } : {}),
+        ...(limit !== undefined ? { limit: Number(limit) } : {}),
+      }),
+    });
+  });
+
+  app.post("/v1/clients/:clientId/commands", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const kind = parseCommandKind(
+      body && typeof body === "object" ? (body as Record<string, unknown>).kind : undefined,
+    );
+    if (!kind) {
+      return c.json({ error: "invalid or missing command kind" }, 400);
+    }
+    const rawArgs =
+      body && typeof body === "object"
+        ? (body as Record<string, unknown>).args
+        : undefined;
+    const args =
+      typeof rawArgs === "object" && rawArgs !== null
+        ? Object.fromEntries(
+            Object.entries(rawArgs as Record<string, unknown>).flatMap(
+              ([k, v]) => (typeof v === "string" ? [[k, v]] : []),
+            ),
+          )
+        : undefined;
+    const command = clientTelemetry.enqueueCommand(
+      c.req.param("clientId"),
+      kind,
+      args,
+    );
+    return c.json({ ok: true, command }, 201);
   });
 
   return {

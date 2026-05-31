@@ -28,7 +28,8 @@ Follow the room protocol alongside this skill. The room protocol may be more spe
 ## Rules
 
 - Post a short status when starting meaningful work, and keep your agent state current.
-- Track all task/issue work in the **configured work tracker** — it is canonical for issues, ownership, status, and durable comments. The provider is set in `config.yaml` under `workTracker` (read it; don't assume a specific tracker). AgentRoom does not track tasks itself.
+- Track all task/issue work in the **configured work tracker** — it is canonical for issues, ownership, status, and durable comments. To find which tracker: read the `AGENTROOM_WORK_TRACKER` env (plus `AGENTROOM_WORK_TRACKER_TEAM_ID` / `AGENTROOM_WORK_TRACKER_PROJECT_ID` when present); if that env isn't set (e.g. an adopted pane), read `workTracker` in `config.yaml`. Don't assume a specific tracker. AgentRoom does not track tasks itself.
+- If `config.yaml` has no external work tracker — no `workTracker` block, or it is set to the `native` provider — don't look for one; just keep a simple markdown checklist in the repo (a `TASKS.md` or the PR description). `native` means "no external tracker, use markdown." Don't expect AgentRoom task commands; there are none.
 - Use AgentRoom channel/DM messages for active coordination and short-lived coworker chatter.
 - Ask another agent before interrupting its active work.
 - Use `agent-room ask-human` for decisions that require the user.

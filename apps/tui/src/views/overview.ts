@@ -4,7 +4,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
-import { palette, statusColor } from "../theme.js";
+import { palette } from "../theme.js";
 import type { DashboardStore } from "../state.js";
 import type { View } from "./types.js";
 
@@ -83,7 +83,6 @@ class OverviewPanel extends PanelBase {
       ["room agents", state.agents.length],
       ["runtime panes", state.runtimeAgents.length],
       ["workspaces", state.workspaces.length],
-      ["tasks", state.tasks.length],
       ["messages", state.messages.length],
       ["events", state.events.length],
     ] as const;
@@ -91,20 +90,6 @@ class OverviewPanel extends PanelBase {
       lines.push(
         `  ${palette.muted(name.padEnd(10))} ${palette.accentBold(String(count))}`,
       );
-    }
-
-    lines.push("");
-    lines.push(palette.label("TASKS BY STATUS"));
-    if (state.tasks.length === 0) {
-      lines.push("  " + palette.muted("(no tasks)"));
-    } else {
-      const grouped = new Map<string, number>();
-      for (const task of state.tasks) {
-        grouped.set(task.status, (grouped.get(task.status) ?? 0) + 1);
-      }
-      for (const [status, count] of [...grouped.entries()].sort()) {
-        lines.push(`  ${statusColor(status)(status.padEnd(20))} ${count}`);
-      }
     }
 
     lines.push("");
