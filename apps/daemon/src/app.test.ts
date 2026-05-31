@@ -846,6 +846,52 @@ describe("agentroom daemon app", () => {
       }),
     ]);
   });
+
+  it("tolerates gateway construction failures and surfaces them via /health", async () => {
+    // Regression: a gateway whose construction throws (e.g. Discord missing its
+    // token env var) must not crash daemon startup — it must surface in /health.
+    const { app, chatStartup } = createAppWithLifecycle({
+      ...(await appOptions()),
+      config: {
+        room: { id: "test-room" },
+        runtime: { default: "fake" },
+        runtimes: { fake: { type: "fake" } },
+        chat: {
+          gateways: {
+            "discord-main": { type: "discord", tokenEnv: "MISSING_TOKEN_ENV" },
+          },
+          routes: {},
+        },
+        storage: { driver: "jsonl", path: ".agentroom/events.jsonl" },
+      },
+      chatGatewayFactory: (id) => {
+        throw new Error(`Chat gateway '${id}' requires env var to be set`);
+      },
+    });
+
+    await chatStartup;
+
+    const healthResponse = await app.request("/health");
+    expect(healthResponse.status).toBe(200);
+    const health = (await healthResponse.json()) as {
+      ok: boolean;
+      chatGateways: Array<{
+        id: string;
+        kind: string;
+        startupError?: string;
+        health: { ok: boolean };
+      }>;
+    };
+    expect(health.ok).toBe(true);
+    expect(health.chatGateways).toEqual([
+      expect.objectContaining({
+        id: "discord-main",
+        kind: "discord",
+        startupError: "Chat gateway 'discord-main' requires env var to be set",
+        health: expect.objectContaining({ ok: false }),
+      }),
+    ]);
+  });
 });
 
 class TestChatGatewayProvider implements ChatGatewayProvider {

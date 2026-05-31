@@ -15,6 +15,14 @@ export interface RuntimeAgentSnapshot {
   agent: RuntimeAgent;
 }
 
+/**
+ * Connectivity to the daemon, independent of per-request errors.
+ * - "connecting": no successful poll yet this session
+ * - "online": daemon reachable
+ * - "offline": daemon unreachable (connection refused / network failure)
+ */
+export type ConnectionStatus = "connecting" | "online" | "offline";
+
 export interface DashboardState {
   health: DaemonHealth | undefined;
   config: DashboardConfig | undefined;
@@ -27,6 +35,9 @@ export interface DashboardState {
   runtimeAgents: RuntimeAgentSnapshot[];
   lastError: string | undefined;
   lastRefreshAt: string | undefined;
+  connection: ConnectionStatus;
+  lastConnectedAt: string | undefined;
+  restarting: boolean;
 }
 
 export type StateListener = (state: DashboardState) => void;
@@ -44,6 +55,9 @@ export class DashboardStore {
     runtimeAgents: [],
     lastError: undefined,
     lastRefreshAt: undefined,
+    connection: "connecting",
+    lastConnectedAt: undefined,
+    restarting: false,
   };
   private listeners = new Set<StateListener>();
 

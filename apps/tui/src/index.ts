@@ -51,7 +51,12 @@ export async function runAgentRoomTui(
   }
 
   const store = new DashboardStore();
-  store.set({ health: bootHealth, config: bootConfig });
+  store.set({
+    health: bootHealth,
+    config: bootConfig,
+    connection: "online",
+    lastConnectedAt: new Date().toISOString(),
+  });
   const poller = new Poller(api, store, { intervalMs: refreshMs });
   const auth = AuthStorage.default();
 

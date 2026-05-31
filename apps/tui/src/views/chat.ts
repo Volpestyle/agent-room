@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import {
   CombinedAutocompleteProvider,
   Container,
@@ -40,6 +41,7 @@ const SLASH_COMMANDS = [
   { name: "config", description: "Show AgentRoom configuration summary" },
   { name: "protocol", description: "Show editable room protocol" },
   { name: "clear", description: "Clear the chat transcript" },
+  { name: "copy", description: "Copy the last dashboard reply to the clipboard" },
   { name: "refresh", description: "Force a dashboard refresh" },
   {
     name: "post",
@@ -149,6 +151,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
 
   let busy = false;
   let activeAssistant: StreamingMarkdown | undefined;
+  let lastAssistantText = "";
   let activeLoader: Loader | undefined;
   let traceMode = parseTraceMode(process.env.AGENTROOM_TUI_TRACE) ?? "full";
 
@@ -210,6 +213,8 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
 
   function updateAssistant(message: AgentMessage): void {
     if (message.role !== "assistant") return;
+    const plain = assistantPlainText(message);
+    if (plain) lastAssistantText = plain;
     const content = renderAssistantMessage(message, traceMode);
     if (!content && !activeAssistant) return;
     stopLoader();
@@ -265,7 +270,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       banner.addChild(
         new Text(
           palette.muted(
-            "Talk to it in plain language. /setup · /protocol · /help · /clear · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
+            "Talk to it in plain language. /setup · /protocol · /help · /clear · /copy · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
           ),
           1,
           0,
@@ -642,6 +647,20 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     }
   }
 
+  async function runCopy(): Promise<void> {
+    const text = lastAssistantText.trim();
+    if (!text) {
+      addErrorNote("nothing to copy yet.");
+      return;
+    }
+    try {
+      await copyToClipboard(text);
+      addSystemNote("copied last reply to clipboard.");
+    } catch (error) {
+      addErrorNote(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function handleSubmit(value: string): Promise<void> {
     const text = value.trim();
     if (!text) return;
@@ -693,6 +712,10 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     if (cmd === "clear") {
       transcript.clear();
       renderBanner(currentAgent);
+      return true;
+    }
+    if (cmd === "copy") {
+      await runCopy();
       return true;
     }
     if (cmd === "refresh") {
@@ -1014,6 +1037,30 @@ function parseTraceMode(value: string | undefined): TraceMode | undefined {
   return normalized && (TRACE_MODES as readonly string[]).includes(normalized)
     ? (normalized as TraceMode)
     : undefined;
+}
+
+function assistantPlainText(message: AgentMessage): string {
+  if (message.role !== "assistant") return "";
+  let text = "";
+  for (const content of message.content) {
+    if (content.type === "text") text += content.text;
+  }
+  return text.trim();
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("/copy currently requires macOS pbcopy.");
+  }
+  const child = spawn("pbcopy", { stdio: ["pipe", "ignore", "inherit"] });
+  child.stdin.end(value);
+  const code = await new Promise<number | null>((resolve) => {
+    child.on("error", () => resolve(1));
+    child.on("close", resolve);
+  });
+  if (code !== 0) {
+    throw new Error("pbcopy failed to copy to the clipboard.");
+  }
 }
 
 function renderAssistantMessage(

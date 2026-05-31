@@ -1,8 +1,11 @@
 import type {
+  ChatCredentialKind,
+  ChatGatewayKind,
   ChatGatewayProvider,
   ChatGatewayRoute,
   ChatInboundHandler,
   ChatGatewayRouter,
+  ChatSendMessageResult,
 } from "@agentroom/core";
 import { DiscordChatGatewayProvider } from "@agentroom/chat-discord";
 import type {
@@ -24,6 +27,36 @@ export interface ChatGatewayRegistryOptions {
   routes?: ChatGatewayRoute[];
 }
 
+/**
+ * Stand-in for a chat gateway that could not be constructed (e.g. a misconfigured
+ * Discord gateway missing its token). It keeps the gateway visible in /health with
+ * its failure reason instead of letting the throw crash the whole daemon.
+ */
+class FailedChatGatewayProvider implements ChatGatewayProvider {
+  constructor(
+    readonly id: string,
+    readonly kind: ChatGatewayKind,
+    readonly credentialKind: ChatCredentialKind,
+    private readonly error: string,
+  ) {}
+
+  async health(): Promise<{ ok: boolean; message?: string }> {
+    return { ok: false, message: this.error };
+  }
+
+  async start(): Promise<void> {
+    throw new Error(this.error);
+  }
+
+  async stop(): Promise<void> {
+    // nothing to tear down
+  }
+
+  async sendMessage(): Promise<ChatSendMessageResult> {
+    throw new Error(`chat gateway '${this.id}' is unavailable: ${this.error}`);
+  }
+}
+
 export class ChatGatewayRegistry {
   private readonly gateways = new Map<string, ChatGatewayProvider>();
   private readonly routesList: ChatGatewayRoute[];
@@ -37,7 +70,26 @@ export class ChatGatewayRegistry {
     for (const [id, gatewayConfig] of Object.entries(
       options.config?.chat?.gateways ?? {},
     )) {
-      this.register(factory(id, gatewayConfig));
+      try {
+        this.register(factory(id, gatewayConfig));
+      } catch (error) {
+        // A misconfigured gateway must never take down the daemon. Register a
+        // placeholder that surfaces the failure in /health and seed the startup
+        // error now so it is visible before start() runs.
+        const message = error instanceof Error ? error.message : String(error);
+        this.startupErrors.set(id, message);
+        this.register(
+          new FailedChatGatewayProvider(
+            id,
+            gatewayConfig.type,
+            gatewayConfig.credentialKind ?? "bot-token",
+            message,
+          ),
+        );
+        console.error(
+          `[chat-gateway] failed to construct gateway '${id}' (${gatewayConfig.type}): ${message}`,
+        );
+      }
     }
     for (const provider of options.providers ?? []) {
       this.register(provider);

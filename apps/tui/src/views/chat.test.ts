@@ -86,6 +86,9 @@ describe("dashboard chat context", () => {
       ],
       lastError: undefined,
       lastRefreshAt: "2026-05-27T10:00:00.000Z",
+      connection: "online",
+      lastConnectedAt: "2026-05-27T10:00:00.000Z",
+      restarting: false,
     };
 
     const context = dashboardContext(state);

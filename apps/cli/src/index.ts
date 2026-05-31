@@ -19,6 +19,7 @@ import { promisify } from "node:util";
 import { Command } from "commander";
 import {
   AgentRoomService,
+  activateAgent,
   agentStateSchema,
   agentRoleSchema,
   type ActorRef,
@@ -169,6 +170,7 @@ interface TailnetEndpoint {
 interface MobileConnectOptions {
   pidFile?: string;
   copy?: boolean;
+  push?: boolean;
   json?: boolean;
 }
 
@@ -400,6 +402,10 @@ program
     join(roomDir(), "daemon.pid"),
   )
   .option("--copy", "copy the AgentRoom iOS pairing link to the clipboard")
+  .option(
+    "--push",
+    "send an APNs connect event to registered devices so the app connects itself",
+  )
   .option("--json", "print JSON")
   .action(async (options: MobileConnectOptions) => {
     const payload = await mobileConnectPayload(options);
@@ -407,6 +413,9 @@ program
       await copyToClipboard(payload.pairingLink);
     }
     outputMobileConnect(payload, options);
+    if (options.push === true) {
+      await pushMobileConnect(options, payload);
+    }
   });
 
 program
@@ -1486,6 +1495,10 @@ program
     "--print-env-file",
     "write shell exports to .agentroom/session.env and print the path",
   )
+  .option(
+    "--no-activate",
+    "do not send the AgentRoom activation prompt after enrolling",
+  )
   .option("--json", "print JSON")
   .action(
     async (options: {
@@ -1498,6 +1511,7 @@ program
       cwd: string;
       shell?: boolean;
       printEnvFile?: boolean;
+      activate?: boolean;
       json?: boolean;
     }) => {
       const session = process.env.HERDR_SESSION;
@@ -1562,6 +1576,30 @@ program
         env,
         updatedAt: new Date().toISOString(),
       });
+
+      if (options.activate !== false) {
+        try {
+          const { provider } = await runtimeProviderForCwd(options.runtime);
+          await activateAgent(provider, service, {
+            agentId,
+            roomId: config.roomId,
+            bindingId,
+            role,
+            ...(options.harness !== "custom"
+              ? { agentKind: options.harness }
+              : {}),
+            ...(appConfig !== undefined
+              ? { protocolPath: agentRoomProtocolPath() }
+              : {}),
+          });
+        } catch (error) {
+          console.warn(
+            `agent-room enroll: activation prompt skipped: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
 
       if (options.printEnvFile) {
         const envFile = await writeAgentRoomSessionEnvFile(process.cwd(), env);
@@ -1685,6 +1723,56 @@ program
         { ok: true, agentId, text, audited: context.audited },
         options.json,
       );
+    },
+  );
+
+program
+  .command("activate")
+  .description(
+    "Send the AgentRoom activation prompt into an enrolled agent's runtime so it loads the agentroom skill",
+  )
+  .argument("<agentId>", "agent id")
+  .option(
+    "--runtime <runtime>",
+    "runtime provider; defaults to bound runtime or AgentRoom config",
+  )
+  .option(
+    "--unaudited",
+    "manual recovery only: allow direct runtime input without an AgentRoom binding",
+  )
+  .option("--json", "print JSON")
+  .action(
+    async (
+      agentId: string,
+      options: { runtime?: string; unaudited?: boolean; json?: boolean },
+    ) => {
+      const { config, appConfig } = await storeForCwd();
+      const context = await runtimeAccessForAgent(
+        agentId,
+        runtimeAccessOptions(options),
+      );
+      const agent = context.service
+        ? await context.service.getAgent(agentId)
+        : undefined;
+      const agentKind =
+        agent?.harness?.kind ??
+        (typeof context.binding?.metadata?.["agent"] === "string"
+          ? (context.binding.metadata["agent"] as string)
+          : undefined);
+      const result = await activateAgent(context.provider, context.service, {
+        agentId,
+        roomId: config.roomId,
+        ...(context.bindingId !== undefined
+          ? { bindingId: context.bindingId }
+          : {}),
+        ...(agent?.role !== undefined ? { role: agent.role } : {}),
+        ...(agentKind !== undefined ? { agentKind } : {}),
+        ...(appConfig !== undefined
+          ? { protocolPath: agentRoomProtocolPath() }
+          : {}),
+        source: await currentActor(),
+      });
+      output({ ok: true, ...result, audited: context.audited }, options.json);
     },
   );
 
@@ -2251,6 +2339,41 @@ async function mobileConnectPayload(
       ? { authHeader: `Authorization: Bearer ${record.apiToken}` }
       : {}),
   };
+}
+
+async function pushMobileConnect(
+  options: MobileConnectOptions,
+  payload: MobileConnectPayload,
+): Promise<void> {
+  const pidFile = resolve(options.pidFile ?? join(roomDir(), "daemon.pid"));
+  const record = await readDaemonPidRecord(pidFile);
+  if (!record) {
+    throw new Error(`No AgentRoom daemon pid record found at ${pidFile}.`);
+  }
+  const url = `${daemonBaseUrl(record.host, record.port)}/v1/mobile/connect-push`;
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (record.apiToken !== undefined) {
+    headers.authorization = `Bearer ${record.apiToken}`;
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ baseUrl: payload.baseUrl, mode: payload.mode }),
+  });
+  const result = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    sent?: number;
+    failed?: number;
+  };
+  if (!response.ok) {
+    throw new Error(
+      result.error ?? `connect-push failed with HTTP ${response.status}.`,
+    );
+  }
+  const failedSuffix = result.failed ? `, ${result.failed} failed` : "";
+  console.log(`Sent connect push to ${result.sent ?? 0} device(s)${failedSuffix}.`);
 }
 
 async function mobileConnectBaseUrl(record: DaemonPidRecord): Promise<string> {

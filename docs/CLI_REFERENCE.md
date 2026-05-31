@@ -79,6 +79,7 @@ Supported runtime kinds today: `herdr`, `tmux`, and `fake`.
 | `agent-room wait-agent <agentId>`      | Wait until an agent reaches a state such as `done` or `idle`. |
 | `agent-room read <agentId>`            | Read recent output from a runtime-backed agent.               |
 | `agent-room send <agentId> <text>`     | Send input to a runtime-backed agent.                         |
+| `agent-room activate <agentId>`        | Inject the activation prompt so an enrolled agent loads the `agentroom` skill. |
 | `agent-room stop <agentId>`            | Stop a runtime-backed agent.                                  |
 
 Launch requires an explicit harness and command:
@@ -104,6 +105,13 @@ Herdr placement options:
 
 By default, `read`, `send`, and `stop` require an AgentRoom runtime binding so
 terminal IO stays audited. `--unaudited` is for manual recovery only.
+
+Adopted panes (started outside `launch`) never receive `AGENTROOM_*` env, so
+`agent-room activate <agentId>` injects a one-shot prompt that makes the running
+agent load the `agentroom` skill, confirm `whoami`, and post a status. The daemon
+fires it automatically on first adoption, and `agent-room enroll` fires it after
+binding unless you pass `--no-activate`. Daemon API:
+`POST /v1/runtime/:providerId/agents/:agentId/activate`.
 
 Use `delegate` when the lead already has a worker and wants a watchable handle:
 

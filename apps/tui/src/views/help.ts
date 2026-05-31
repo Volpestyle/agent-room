@@ -51,6 +51,7 @@ class HelpPanel extends PanelBase {
     );
     lines.push("    " + palette.accent("/refresh") + palette.muted("        force a poll"));
     lines.push("    " + palette.accent("/clear") + palette.muted("          clear the chat transcript"));
+    lines.push("    " + palette.accent("/copy") + palette.muted("           copy the last dashboard reply to the clipboard"));
     lines.push(
       "    " +
         palette.accent("/login [provider]") +

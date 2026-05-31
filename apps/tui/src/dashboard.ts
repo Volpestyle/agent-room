@@ -24,7 +24,8 @@ import type { ApiClient } from "./api.js";
 import type { Poller } from "./poller.js";
 import { selectListTheme, palette } from "./theme.js";
 import { dashboardActor } from "./agent/identity.js";
-import type { DashboardStore } from "./state.js";
+import { isLocalDaemon, restartLocalDaemon } from "./daemonControl.js";
+import type { DashboardState, DashboardStore } from "./state.js";
 import { createAgentsView } from "./views/agents.js";
 import { createChatView } from "./views/chat.js";
 import { createEventsView } from "./views/events.js";
@@ -80,7 +81,7 @@ class HeaderBar extends PanelBase {
     const room = state.health?.roomId ?? state.config?.roomId ?? "—";
     const right = `${palette.muted("room: ")}${palette.accentBold(room)}  ${palette.muted("daemon: ")}${palette.accent(stripScheme(this.baseUrl))}  ${palette.muted("agent: ")}${palette.accent(this.agentLabel())}`;
     const top = padWrapped(tabs, right, width);
-    const status = renderStatusLines(state, width);
+    const status = renderStatusLines(state, width, this.baseUrl);
     return [...top, ...status];
   }
 }
@@ -132,16 +133,53 @@ class DashboardLayout extends PanelBase {
 }
 
 function renderStatusLines(
-  state: { lastError: string | undefined; lastRefreshAt: string | undefined },
+  state: DashboardState,
   width: number,
+  baseUrl: string,
 ): string[] {
+  if (state.connection === "offline") {
+    const since = state.lastConnectedAt
+      ? `last seen ${new Date(state.lastConnectedAt).toLocaleTimeString()}`
+      : "no connection this session";
+    const lines = wrapFit(
+      palette.bad(
+        `⚠ DAEMON OFFLINE — ${stripScheme(baseUrl)} unreachable (${since})`,
+      ),
+      width,
+    );
+    if (state.lastError) {
+      lines.push(...wrapFit(palette.faint("  " + state.lastError), width));
+    }
+    let hint: string;
+    if (state.restarting) {
+      hint = palette.warn("  ↻ restarting daemon…");
+    } else if (isLocalDaemon(baseUrl)) {
+      hint =
+        palette.muted("  auto-retrying · ") +
+        palette.warn("Ctrl+R") +
+        palette.muted(" to restart · or run ") +
+        palette.accent("agent-room daemon start");
+    } else {
+      hint =
+        palette.muted("  auto-retrying · start it where it runs: ") +
+        palette.accent("agent-room daemon start");
+    }
+    lines.push(...wrapFit(hint, width));
+    return lines;
+  }
+
   const refreshed = state.lastRefreshAt
     ? `refreshed ${new Date(state.lastRefreshAt).toLocaleTimeString()}`
-    : "refreshing…";
-  const error = state.lastError
-    ? palette.bad(" · error: " + state.lastError)
-    : "";
-  return wrapFit(palette.muted(refreshed) + error, width);
+    : state.connection === "connecting"
+      ? "connecting…"
+      : "refreshing…";
+  let line = palette.muted(refreshed);
+  if (state.restarting) {
+    line += palette.warn(" · ↻ restarting daemon…");
+  } else if (state.lastError) {
+    line += palette.bad(" · error: " + state.lastError);
+  }
+  return wrapFit(line, width);
 }
 
 export class Dashboard {
@@ -152,6 +190,7 @@ export class Dashboard {
   private currentViewContainer = new Container();
   private overlayHandle: OverlayHandle | undefined;
   private shuttingDown = false;
+  private restartInFlight = false;
   private currentAgent: DashboardAgent | DashboardAgentError;
   private readonly closed: Promise<void>;
   private resolveClosed: () => void = () => undefined;
@@ -339,6 +378,27 @@ export class Dashboard {
     this.activateView(index);
   }
 
+  private async restartDaemon(): Promise<void> {
+    if (this.restartInFlight) return;
+    this.restartInFlight = true;
+    this.options.store.set({ restarting: true, lastError: undefined });
+    try {
+      const result = await restartLocalDaemon(this.options.baseUrl);
+      if (result.ok) {
+        this.options.store.set({ restarting: false });
+        // Re-probe immediately so the banner clears without waiting a full tick.
+        void this.options.poller.tick();
+      } else {
+        this.options.store.set({
+          restarting: false,
+          lastError: `restart failed: ${result.message}`,
+        });
+      }
+    } finally {
+      this.restartInFlight = false;
+    }
+  }
+
   private cycleView(delta: number): void {
     const next =
       (this.activeIndex + delta + this.views.length) % this.views.length;
@@ -348,6 +408,15 @@ export class Dashboard {
   private onGlobalInput(data: string): { consume?: boolean } | undefined {
     if (matchesKey(data, Key.ctrl("c"))) {
       void this.shutdown();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl("r"))) {
+      // Reserved as the daemon-recovery hotkey; only acts when the local daemon
+      // is actually offline, so it can never bounce a healthy daemon.
+      const state = this.options.store.get();
+      if (state.connection === "offline" && isLocalDaemon(this.options.baseUrl)) {
+        void this.restartDaemon();
+      }
       return { consume: true };
     }
     if (matchesKey(data, Key.ctrl("g"))) {

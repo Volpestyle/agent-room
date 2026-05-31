@@ -1,9 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import {
   AgentRoomService,
   ChatGatewayOutboundDispatcher,
   ChatGatewayRouter,
+  activateAgent,
   agentRoleSchema,
   agentStateSchema,
   createId,
@@ -49,6 +51,8 @@ import {
   ChatGatewayRegistry,
   type ChatGatewayFactory,
 } from "./chatGatewayRegistry.js";
+import { ApnsClient, apnsConfigFromEnv } from "./apns.js";
+import { DeviceRegistry } from "./deviceStore.js";
 
 export interface CreateAppOptions {
   roomId?: string;
@@ -98,6 +102,9 @@ export function createAppWithLifecycle(
   const store = new JsonlEventStore(eventLogPath);
   const service = new AgentRoomService(store, { roomId });
   const registry = new ProviderRegistry(configured);
+  const deviceRegistry = new DeviceRegistry(
+    join(dirname(eventLogPath), "devices.json"),
+  );
 
   const chatRegistry =
     options.chatGatewayRegistry ??
@@ -647,6 +654,31 @@ export function createAppWithLifecycle(
     return c.json({ ok: true });
   });
 
+  app.post("/v1/runtime/:providerId/agents/:agentId/activate", async (c) => {
+    const provider = registry.runtime(c.req.param("providerId"));
+    if (!provider.capabilities.sendInput) {
+      return c.json(
+        { error: `runtime provider cannot send input: ${provider.id}` },
+        501,
+      );
+    }
+    const agentId = c.req.param("agentId");
+    const binding = await service.getRuntimeBinding(agentId);
+    const agent = await service.getAgent(agentId);
+    const bindingId = bindingIdFor(provider, binding);
+    const agentKind =
+      agent?.harness?.kind ?? metaString(binding?.metadata, "agent");
+    const result = await activateAgent(provider, service, {
+      agentId,
+      roomId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
+      ...(agent?.role !== undefined ? { role: agent.role } : {}),
+      ...(agentKind !== undefined ? { agentKind } : {}),
+      source: { kind: "human", id: "api" },
+    });
+    return c.json({ ok: true, ...result });
+  });
+
   app.post("/v1/runtime/:providerId/agents/:agentId/attach", async (c) => {
     const provider = registry.runtime(c.req.param("providerId"));
     if (!provider.capabilities.attachInteractive || !provider.attach) {
@@ -695,6 +727,77 @@ export function createAppWithLifecycle(
       ...(route.outbound !== undefined ? { outbound: route.outbound } : {}),
     }));
     return c.json({ routes });
+  });
+
+  app.post("/v1/devices", async (c) => {
+    const body = (await c.req.json()) as {
+      token?: unknown;
+      platform?: unknown;
+      env?: unknown;
+      bundleId?: unknown;
+      label?: unknown;
+    };
+    if (typeof body.token !== "string" || body.token.trim() === "") {
+      return c.json({ error: "token is required" }, 400);
+    }
+    const device = await deviceRegistry.upsert({
+      token: body.token,
+      ...(body.platform === "ios" ? { platform: "ios" } : {}),
+      ...(body.env === "production" || body.env === "sandbox"
+        ? { env: body.env }
+        : {}),
+      ...(typeof body.bundleId === "string" ? { bundleId: body.bundleId } : {}),
+      ...(typeof body.label === "string" ? { label: body.label } : {}),
+    });
+    return c.json({ ok: true, device }, 201);
+  });
+
+  app.get("/v1/devices", async (c) => {
+    return c.json({ devices: await deviceRegistry.list() });
+  });
+
+  app.delete("/v1/devices/:token", async (c) => {
+    const removed = await deviceRegistry.remove(c.req.param("token"));
+    return c.json({ ok: removed });
+  });
+
+  app.post("/v1/mobile/connect-push", async (c) => {
+    const apnsConfig = apnsConfigFromEnv();
+    if (!apnsConfig) {
+      return c.json(
+        {
+          error:
+            "APNs is not configured. Set AGENTROOM_APNS_KEY_PATH, AGENTROOM_APNS_KEY_ID, and AGENTROOM_APNS_TEAM_ID.",
+        },
+        503,
+      );
+    }
+    let body: { baseUrl?: unknown; mode?: unknown; silent?: unknown } = {};
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      // an empty body is allowed; the app falls back to its saved settings
+    }
+    const devices = await deviceRegistry.list();
+    if (devices.length === 0) {
+      return c.json({ error: "no registered devices" }, 404);
+    }
+    const client = new ApnsClient(apnsConfig);
+    const results = await client.sendConnect(devices, {
+      roomId,
+      ...(typeof body.baseUrl === "string" ? { baseUrl: body.baseUrl } : {}),
+      ...(body.mode === "tailnet" || body.mode === "custom"
+        ? { mode: body.mode }
+        : {}),
+      ...(body.silent === true ? { silent: true } : {}),
+    });
+    const sent = results.filter((result) => result.ok).length;
+    return c.json({
+      ok: sent > 0,
+      sent,
+      failed: results.length - sent,
+      results,
+    });
   });
 
   return {
@@ -1044,6 +1147,14 @@ function bindingIdFor(
   binding?: RuntimeBinding,
 ): string | undefined {
   return binding?.providerId === provider.id ? binding.bindingId : undefined;
+}
+
+function metaString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function agentRoomProtocolEnv(

@@ -92,6 +92,16 @@ When the daemon is not running, `agent-room enroll --json` from inside a pane pe
 
 `enroll` requires a runtime that advertises `adoptAgent` in its capabilities; see `docs/RUNTIMES.md` for adapter-specific behavior.
 
+### Activation prompt (so adopted agents follow the room)
+
+A directly-started pane never received `AGENTROOM_*` env, so its harness cannot auto-load the `agentroom` skill on its own. To close that gap, AgentRoom injects a one-shot **activation prompt** into the pane (via the runtime's audited `sendInput`) telling the agent it is enrolled and must load the `agentroom` skill, confirm `whoami`, read the protocol, and post a status.
+
+- **Auto:** when the daemon adopts a new pane, it sends the activation prompt automatically — first adoption only, so reconcile ticks and daemon restarts never re-prompt a working agent.
+- **Enroll:** `agent-room enroll` sends it by default after binding; pass `--no-activate` to suppress.
+- **Manual:** `agent-room activate <agentId>` (re)sends it to any bound agent. Over the daemon API: `POST /v1/runtime/:providerId/agents/:agentId/activate`.
+
+Activation needs a runtime with the `sendInput` capability and a current binding. Codex panes get a trailing empty submit automatically; Claude Code submits on the first send.
+
 ## Herdr pane-grid launch hygiene
 
 If the selected runtime is Herdr with `pane-grid`, stale panes from earlier work can crowd a reused workspace. When starting fresh work, prefer a new Herdr workspace label so the new agents get full-size panes:

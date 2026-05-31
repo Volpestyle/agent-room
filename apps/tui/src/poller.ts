@@ -1,8 +1,18 @@
-import type { ApiClient } from "./api.js";
+import { AgentRoomApiError, type ApiClient } from "./api.js";
 import type { DashboardStore, RuntimeAgentSnapshot } from "./state.js";
 
 export interface PollerOptions {
   intervalMs: number;
+}
+
+/**
+ * True when the failure means the daemon was unreachable (connection refused,
+ * DNS, timeout) rather than a request the daemon actually answered. An
+ * AgentRoomApiError always implies the daemon responded, so it is never a
+ * connection-level failure.
+ */
+function isConnectionError(error: unknown): boolean {
+  return !(error instanceof AgentRoomApiError);
 }
 
 export class Poller {
@@ -31,8 +41,10 @@ export class Poller {
     if (this.inflight) return;
     this.inflight = true;
     try {
+      // Probe connectivity first so we can distinguish "daemon is down" from a
+      // single endpoint returning an error while the daemon is up.
+      const health = await this.api.health();
       const [
-        health,
         events,
         agents,
         messages,
@@ -41,7 +53,6 @@ export class Poller {
         providers,
         config,
       ] = await Promise.all([
-        this.api.health(),
         this.api.listEvents(120),
         this.api.listAgents(),
         this.api.listMessages({ limit: 120 }),
@@ -64,6 +75,7 @@ export class Poller {
         }),
       );
 
+      const now = new Date().toISOString();
       this.store.set({
         health,
         events: events.events,
@@ -75,11 +87,17 @@ export class Poller {
         runtimeAgents,
         ...(config !== undefined ? { config } : {}),
         lastError: undefined,
-        lastRefreshAt: new Date().toISOString(),
+        lastRefreshAt: now,
+        connection: "online",
+        lastConnectedAt: now,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.store.set({ lastError: message });
+      this.store.set(
+        isConnectionError(error)
+          ? { connection: "offline", lastError: message }
+          : { connection: "online", lastError: message },
+      );
     } finally {
       this.inflight = false;
     }

@@ -61,7 +61,7 @@ agent-room wait --task-status "$TASK:ready-for-review" --timeout 600
 
 ## Known CLI surface (don't waste turns rediscovering)
 
-Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-task`, `wait-agent`, `agents`/`presence`, `delegate`, `task {create,list,show,claim,status,request-review,approve,changes-requested,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `stop`.
+Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-task`, `wait-agent`, `agents`/`presence`, `delegate`, `task {create,list,show,claim,status,request-review,approve,changes-requested,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.
 
 `subscribe` and `watch` are not CLI commands. Use `agent-room wait` to block for one matching future event, `agent-room events --follow --json` to stream audit events, `agent-room messages` for channel/DM history, and `agent-room events` for audit snapshots. To inspect a task by id: `agent-room task show <id> --json`.
 

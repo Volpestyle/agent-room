@@ -162,6 +162,14 @@ describe("HerdrPaneObserver", () => {
         bindingId: "p_42",
       }),
     );
+    // First adoption injects exactly one activation prompt into the pane.
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.input_sent" &&
+          event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
 
     socket.deliverEvent("pane_created", {
       pane: {
@@ -179,6 +187,14 @@ describe("HerdrPaneObserver", () => {
         (event) =>
           event.type === "agent.joined" &&
           event.payload.agent.id === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+    // Re-adoption of the same pane must not re-prompt a running agent.
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.input_sent" &&
+          event.payload.agentId === expectedAgentId,
       ),
     ).toHaveLength(1);
     expect(

@@ -6,5 +6,6 @@ export * from "./ports/RuntimeProvider.js";
 export * from "./ports/ChatGatewayProvider.js";
 export * from "./schemas.js";
 export * from "./services/AgentRoomService.js";
+export * from "./services/activation.js";
 export * from "./services/ChatGatewayOutboundDispatcher.js";
 export * from "./services/ChatGatewayRouter.js";

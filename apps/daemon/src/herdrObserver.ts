@@ -3,6 +3,7 @@ import {
   type HerdrPushedEvent,
   type SocketFactory,
 } from "@agentroom/runtime-herdr";
+import { activateAgent } from "@agentroom/core";
 import type {
   Agent,
   AgentRoomService,
@@ -29,6 +30,14 @@ export interface HerdrPaneObserverOptions {
    * daemon restart. Left unset (e.g. in tests) the observer only adopts once.
    */
   reconcileIntervalMs?: number;
+  /**
+   * When true (default), inject a one-shot activation prompt into a pane the
+   * first time it is adopted, so a directly-started coding agent activates the
+   * `agentroom` skill even though it was never launched with AGENTROOM_* env.
+   * Only fires on genuine first adoption and only when the provider can send
+   * input; reconcile re-adoptions and daemon restarts do not re-prompt.
+   */
+  autoActivate?: boolean;
 }
 
 export class HerdrPaneObserver {
@@ -285,6 +294,48 @@ export class HerdrPaneObserver {
     // for every pane on each tick; without this guard it would spam the log.
     if (isNewRegistration || rebound) {
       this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+    }
+
+    // First-adoption only: nudge the running agent to activate the room skill.
+    // Gated on isNewRegistration so reconcile ticks and daemon restarts (where
+    // the agent is already in the event log) never re-prompt a working agent.
+    if (isNewRegistration && this.shouldAutoActivate()) {
+      await this.activateAdoptedPane({
+        agentId: input.agentId,
+        bindingId: input.bindingId,
+        role,
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      });
+    }
+  }
+
+  private shouldAutoActivate(): boolean {
+    return (
+      this.opts.autoActivate !== false &&
+      this.opts.provider.capabilities.sendInput
+    );
+  }
+
+  private async activateAdoptedPane(input: {
+    agentId: string;
+    bindingId: string;
+    role: AgentRole;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const agentKind = metadataString(input.metadata, "agent");
+    try {
+      await activateAgent(this.opts.provider, this.opts.service, {
+        agentId: input.agentId,
+        roomId: this.opts.roomId,
+        bindingId: input.bindingId,
+        role: input.role,
+        ...(agentKind !== undefined ? { agentKind } : {}),
+        source: { kind: "human", id: "agentroom-auto" },
+      });
+      this.log(`sent activation prompt to ${input.agentId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`activation prompt skipped for ${input.agentId}: ${message}`);
     }
   }
 
