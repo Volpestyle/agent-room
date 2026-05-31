@@ -70,12 +70,16 @@ export class SseCommandError extends Error {
 
 /** Create a {@link WorldSource} backed by the AgentRoom daemon over SSE + REST. */
 export function createSseWorldSource(opts: SseWorldSourceOptions): WorldSource {
-  const fetchImpl: typeof fetch = opts.fetchImpl ?? globalThis.fetch;
-  if (typeof fetchImpl !== "function") {
+  const rawFetch = opts.fetchImpl ?? globalThis.fetch;
+  if (typeof rawFetch !== "function") {
     throw new Error(
       "createSseWorldSource: no fetch implementation available; pass opts.fetchImpl",
     );
   }
+  // The global `fetch` must run with `this === globalThis`, or browsers throw
+  // "Illegal invocation" when it is called through a detached reference. Bind the
+  // global default; a caller-supplied fetchImpl is used as-is.
+  const fetchImpl: typeof fetch = opts.fetchImpl ?? rawFetch.bind(globalThis);
   const baseUrl = opts.baseUrl.replace(/\/+$/, "");
 
   function authHeaders(extra?: Record<string, string>): Headers {
