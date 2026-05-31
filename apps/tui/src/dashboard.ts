@@ -437,7 +437,11 @@ export class Dashboard {
       return { consume: true };
     }
     if (matchesKey(data, Key.escape)) {
-      if (!this.overlayHandle) {
+      // Suppress the menu whenever ANY overlay is visible — including overlays
+      // opened outside the Dashboard (e.g. the login overlay), which the TUI
+      // tracks centrally but which never populate this.overlayHandle. Without
+      // this, Escape-to-cancel on those overlays would also fire the menu.
+      if (!this.tui.hasOverlay()) {
         this.openViewPicker();
         return { consume: true };
       }
