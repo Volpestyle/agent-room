@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   Agent,
+  AgentReport,
   AgentRole,
   AgentState,
   AgentOutput,
@@ -14,12 +15,15 @@ import type {
   Importance,
   Message,
   MessageKind,
+  Ref,
   RoomEvent,
   RuntimeBinding,
   RuntimeAgent,
   RuntimeAgentLaunchInput,
   RuntimeProviderSummary,
   RuntimeSession,
+  TrackerEvent,
+  TrackerEventActor,
   Workspace,
 } from "./types.js";
 
@@ -62,6 +66,31 @@ export interface WorkspaceRegisterInput {
   label?: string;
   aliases?: string[];
   metadata?: Record<string, unknown>;
+}
+
+export interface TrackerEventCreateInput {
+  providerKind: string;
+  providerId?: string;
+  eventType: string;
+  action?: string;
+  issueRef?: string;
+  title?: string;
+  status?: string;
+  url?: string;
+  actor?: TrackerEventActor;
+  summary?: string;
+  raw?: unknown;
+  visibleToUser?: boolean;
+}
+
+export interface AgentReportCreateInput {
+  agentId: string;
+  title?: string;
+  summary: string;
+  details?: string;
+  importance?: Importance;
+  refs?: Ref[];
+  visibleToUser?: boolean;
 }
 
 async function request<T>(
@@ -147,6 +176,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,
       ),
+    listUserFeed: (limit = 100) =>
+      apiRequest<{
+        events: Extract<
+          RoomEvent,
+          { type: "tracker.event" | "agent.report" }
+        >[];
+      }>(`/v1/feed?limit=${encodeURIComponent(limit)}`),
     listMessages: (
       input: {
         limit?: number;
@@ -164,6 +200,16 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
     postMessage: (input: MessageCreateInput) =>
       apiRequest<{ message: Message }>("/v1/messages", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    recordTrackerEvent: (input: TrackerEventCreateInput) =>
+      apiRequest<{ event: TrackerEvent }>("/v1/tracker/events", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    createAgentReport: (input: AgentReportCreateInput) =>
+      apiRequest<{ report: AgentReport }>("/v1/reports", {
         method: "POST",
         body: JSON.stringify(input),
       }),

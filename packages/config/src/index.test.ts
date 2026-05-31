@@ -262,6 +262,56 @@ storage:
     expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
   });
 
+  it("parses dashboard MCP server config from YAML", () => {
+    const parsed = parseAgentRoomConfig(`room:
+  id: agent-room
+
+runtime:
+  default: fake
+
+mcp:
+  servers:
+    linear:
+      type: http
+      url: https://mcp.linear.app/mcp
+      description: Linear work tracker
+    local-docs:
+      type: stdio
+      command: npx
+      args: -y docs-mcp
+      cwd: .
+      allowedTools: docs_search,docs_read
+      disabled: false
+
+runtimes:
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: events.jsonl
+`);
+
+    expect(parsed.mcp).toEqual({
+      servers: {
+        linear: {
+          type: "streamable-http",
+          url: "https://mcp.linear.app/mcp",
+          description: "Linear work tracker",
+        },
+        "local-docs": {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "docs-mcp"],
+          cwd: ".",
+          allowedTools: ["docs_search", "docs_read"],
+          disabled: false,
+        },
+      },
+    });
+    expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
+  });
+
   it("discovers the nearest project config from subdirectories", async () => {
     const previousHome = process.env.AGENTROOM_HOME;
     delete process.env.AGENTROOM_HOME;

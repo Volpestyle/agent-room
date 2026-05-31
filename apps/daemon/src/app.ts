@@ -17,11 +17,14 @@ import {
   workspaceRegisterSchema,
   type ChatGatewayProvider,
   type HarnessSpec,
+  type Importance,
+  type Ref,
   type RoomEvent,
   type RuntimeBinding,
   type RuntimeHealth,
   type RuntimeProvider,
   type StartAgentRequest,
+  type TrackerEventActor,
 } from "@agentroom/core";
 import {
   agentRoomDir,
@@ -38,6 +41,8 @@ import {
   writeAgentRoomConfig,
   type AgentRoomConfig,
   type ClankyChatGatewayOwner,
+  type McpServerConfig,
+  type McpServerTransportKind,
   type WorkTrackerProviderConfig,
   type WorkTrackerProviderKind,
 } from "@agentroom/config";
@@ -280,6 +285,7 @@ export function createAppWithLifecycle(
       protocolPath: agentRoomProtocolPath(cwd),
       defaultRuntime: configured?.runtime.default ?? null,
       workTracker: configured?.workTracker ?? null,
+      mcp: configured?.mcp ?? null,
       operator: configured?.operator ?? null,
     });
   });
@@ -374,6 +380,12 @@ export function createAppWithLifecycle(
   app.get("/v1/events", async (c) => {
     const limit = Number(c.req.query("limit") ?? "100");
     const events = await store.list({ roomId, limit });
+    return c.json({ events });
+  });
+
+  app.get("/v1/feed", async (c) => {
+    const limit = Number(c.req.query("limit") ?? "100");
+    const events = await service.listUserFeed({ limit });
     return c.json({ events });
   });
 
@@ -495,6 +507,28 @@ export function createAppWithLifecycle(
       );
     }
     return c.json({ message }, 201);
+  });
+
+  app.post("/v1/tracker/events", async (c) => {
+    let input: ReturnType<typeof parseTrackerEventInput>;
+    try {
+      input = parseTrackerEventInput(await c.req.json().catch(() => null));
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+    const event = await service.recordTrackerEvent(input);
+    return c.json({ event }, 201);
+  });
+
+  app.post("/v1/reports", async (c) => {
+    let input: ReturnType<typeof parseAgentReportInput>;
+    try {
+      input = parseAgentReportInput(await c.req.json().catch(() => null));
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+    const report = await service.createAgentReport(input);
+    return c.json({ report }, 201);
   });
 
   app.post("/v1/workspaces", async (c) => {
@@ -1032,7 +1066,159 @@ export function createAppWithLifecycle(
 interface ConfigSetupPatch {
   runtimeDefault?: string;
   workTracker?: ConfigSetupWorkTrackerPatch;
+  mcpServer?: ConfigSetupMcpServerPatch;
   clanky?: ConfigSetupClankyPatch;
+}
+
+interface TrackerEventCreateInput {
+  providerKind: string;
+  providerId?: string;
+  eventType: string;
+  action?: string;
+  issueRef?: string;
+  title?: string;
+  status?: string;
+  url?: string;
+  actor?: TrackerEventActor;
+  summary?: string;
+  raw?: unknown;
+  visibleToUser?: boolean;
+}
+
+interface AgentReportCreateInput {
+  agentId: string;
+  title?: string;
+  summary: string;
+  details?: string;
+  importance?: Importance;
+  refs?: Ref[];
+  visibleToUser?: boolean;
+}
+
+function parseTrackerEventInput(input: unknown): TrackerEventCreateInput {
+  const body = asRecord(input, "tracker event");
+  const providerKind =
+    optionalString(body.providerKind) ??
+    optionalString(body.provider) ??
+    optionalString(body.providerType);
+  if (providerKind === undefined) {
+    throw new Error("providerKind is required");
+  }
+  const eventType = optionalString(body.eventType) ?? optionalString(body.type);
+  if (eventType === undefined) throw new Error("eventType is required");
+
+  const actorInput = optionalRecord(body.actor, "actor");
+  const actor =
+    actorInput === undefined ? undefined : parseTrackerEventActor(actorInput);
+  const visibleToUser = optionalBoolean(body.visibleToUser);
+  const raw = Object.hasOwn(body, "raw") ? body.raw : input;
+
+  return {
+    providerKind,
+    eventType,
+    ...optionalStringProp(body, "providerId"),
+    ...optionalStringProp(body, "action"),
+    ...optionalStringProp(body, "issueRef"),
+    ...optionalStringProp(body, "title"),
+    ...optionalStringProp(body, "status"),
+    ...optionalStringProp(body, "url"),
+    ...(actor !== undefined ? { actor } : {}),
+    ...optionalStringProp(body, "summary"),
+    ...(raw !== undefined ? { raw } : {}),
+    ...(visibleToUser !== undefined ? { visibleToUser } : {}),
+  };
+}
+
+function parseAgentReportInput(input: unknown): AgentReportCreateInput {
+  const body = asRecord(input, "agent report");
+  const agentId = optionalString(body.agentId);
+  if (agentId === undefined) throw new Error("agentId is required");
+  const summary = optionalString(body.summary);
+  if (summary === undefined) throw new Error("summary is required");
+  const importance = parseImportanceValue(optionalString(body.importance));
+  const refs = parseRefs(body.refs);
+  const visibleToUser = optionalBoolean(body.visibleToUser);
+
+  return {
+    agentId,
+    summary,
+    ...optionalStringProp(body, "title"),
+    ...optionalStringProp(body, "details"),
+    ...(importance !== undefined ? { importance } : {}),
+    ...(refs !== undefined ? { refs } : {}),
+    ...(visibleToUser !== undefined ? { visibleToUser } : {}),
+  };
+}
+
+function parseTrackerEventActor(
+  input: Record<string, unknown>,
+): TrackerEventActor | undefined {
+  const actor: TrackerEventActor = {
+    ...optionalStringProp(input, "id"),
+    ...optionalStringProp(input, "name"),
+    ...optionalStringProp(input, "type"),
+  };
+  return Object.keys(actor).length > 0 ? actor : undefined;
+}
+
+function parseRefs(value: unknown): Ref[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error("refs must be an array");
+  return value.map((item) => parseRef(asRecord(item, "ref")));
+}
+
+function parseRef(input: Record<string, unknown>): Ref {
+  const kind = parseRefKind(optionalString(input.kind));
+  if (kind === undefined) throw new Error("ref.kind is invalid");
+  const id = optionalString(input.id);
+  if (id === undefined) throw new Error("ref.id is required");
+  return {
+    kind,
+    id,
+    ...optionalStringProp(input, "label"),
+    ...optionalStringProp(input, "url"),
+    ...(input.metadata !== undefined
+      ? { metadata: asRecord(input.metadata, "ref.metadata") }
+      : {}),
+  };
+}
+
+function parseRefKind(value: string | undefined): Ref["kind"] | undefined {
+  if (
+    value === "task" ||
+    value === "agent" ||
+    value === "message" ||
+    value === "github-pr" ||
+    value === "github-issue" ||
+    value === "tracker-issue" ||
+    value === "figma-node" ||
+    value === "runtime-output" ||
+    value === "url" ||
+    value === "file" ||
+    value === "custom"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function parseImportanceValue(value: string | undefined): Importance | undefined {
+  if (
+    value === "low" ||
+    value === "normal" ||
+    value === "high" ||
+    value === "urgent"
+  ) {
+    return value;
+  }
+  if (value !== undefined) throw new Error("importance is invalid");
+  return undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  throw new Error("visibleToUser must be a boolean");
 }
 
 interface ConfigSetupWorkTrackerPatch {
@@ -1041,6 +1227,19 @@ interface ConfigSetupWorkTrackerPatch {
   teamId?: string;
   projectId?: string;
   baseUrl?: string;
+}
+
+interface ConfigSetupMcpServerPatch {
+  id: string;
+  remove?: boolean;
+  type?: McpServerTransportKind;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  url?: string;
+  description?: string;
+  disabled?: boolean;
+  allowedTools?: string[];
 }
 
 interface ConfigSetupClankyPatch {
@@ -1061,6 +1260,11 @@ function parseConfigSetupPatch(input: unknown): ConfigSetupPatch {
     patch.workTracker = parseWorkTrackerSetupPatch(workTrackerInput);
   }
 
+  const mcpServerInput = optionalRecord(body.mcpServer, "mcpServer");
+  if (mcpServerInput !== undefined) {
+    patch.mcpServer = parseMcpServerSetupPatch(mcpServerInput);
+  }
+
   const clankyInput = optionalRecord(body.clanky, "clanky");
   if (clankyInput !== undefined) {
     patch.clanky = parseClankySetupPatch(clankyInput);
@@ -1069,10 +1273,11 @@ function parseConfigSetupPatch(input: unknown): ConfigSetupPatch {
   if (
     patch.runtimeDefault === undefined &&
     patch.workTracker === undefined &&
+    patch.mcpServer === undefined &&
     patch.clanky === undefined
   ) {
     throw new Error(
-      "Config setup patch must include runtimeDefault, workTracker, or clanky",
+      "Config setup patch must include runtimeDefault, workTracker, mcpServer, or clanky",
     );
   }
   return patch;
@@ -1101,6 +1306,46 @@ function parseWorkTrackerSetupPatch(
   };
 }
 
+function parseMcpServerSetupPatch(
+  input: Record<string, unknown>,
+): ConfigSetupMcpServerPatch {
+  const id =
+    optionalString(input.id) ??
+    optionalString(input.name) ??
+    optionalString(input.server);
+  if (id === undefined) throw new Error("mcpServer.id is required");
+  const remove = optionalBoolean(input.remove) ?? optionalBoolean(input.delete);
+  if (remove === true) return { id, remove: true };
+
+  const command = optionalString(input.command);
+  const url = optionalString(input.url);
+  const type = parseMcpServerTransportKind(optionalString(input.type), {
+    ...(command !== undefined ? { command } : {}),
+    ...(url !== undefined ? { url } : {}),
+  });
+  if (type === undefined) {
+    throw new Error("mcpServer.type must be stdio, http, streamable-http, or sse");
+  }
+  if (type === "stdio" && command === undefined) {
+    throw new Error("mcpServer.command is required for stdio servers");
+  }
+  if (type !== "stdio" && url === undefined) {
+    throw new Error("mcpServer.url is required for HTTP/SSE servers");
+  }
+
+  return {
+    id,
+    type,
+    ...(command !== undefined ? { command } : {}),
+    ...(url !== undefined ? { url } : {}),
+    ...optionalStringArrayProp(input, "args"),
+    ...optionalStringProp(input, "cwd"),
+    ...optionalStringProp(input, "description"),
+    ...optionalStringArrayProp(input, "allowedTools"),
+    ...optionalBooleanProp(input, "disabled"),
+  };
+}
+
 function parseClankySetupPatch(
   input: Record<string, unknown>,
 ): ConfigSetupClankyPatch {
@@ -1124,6 +1369,9 @@ function applyConfigSetupPatch(
   }
   if (patch.workTracker !== undefined) {
     next = withSetupWorkTracker(next, patch.workTracker);
+  }
+  if (patch.mcpServer !== undefined) {
+    next = withSetupMcpServer(next, patch.mcpServer);
   }
   if (patch.clanky !== undefined) {
     next = withSetupClanky(next, patch.clanky);
@@ -1158,6 +1406,46 @@ function setupWorkTrackerProvider(
   if (patch.projectId !== undefined) provider.projectId = patch.projectId;
   if (patch.baseUrl !== undefined) provider.baseUrl = patch.baseUrl;
   return provider;
+}
+
+function withSetupMcpServer(
+  config: AgentRoomConfig,
+  patch: ConfigSetupMcpServerPatch,
+): AgentRoomConfig {
+  const existing = config.mcp?.servers ?? {};
+  if (patch.remove === true) {
+    const { [patch.id]: _removed, ...servers } = existing;
+    if (Object.keys(servers).length > 0) return { ...config, mcp: { servers } };
+    const { mcp: _mcp, ...rest } = config;
+    return rest;
+  }
+  return {
+    ...config,
+    mcp: {
+      servers: {
+        ...existing,
+        [patch.id]: setupMcpServer(patch),
+      },
+    },
+  };
+}
+
+function setupMcpServer(patch: ConfigSetupMcpServerPatch): McpServerConfig {
+  if (patch.type === undefined) {
+    throw new Error("mcpServer.type is required");
+  }
+  return {
+    type: patch.type,
+    ...(patch.command !== undefined ? { command: patch.command } : {}),
+    ...(patch.args !== undefined ? { args: patch.args } : {}),
+    ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+    ...(patch.url !== undefined ? { url: patch.url } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
+    ...(patch.allowedTools !== undefined
+      ? { allowedTools: patch.allowedTools }
+      : {}),
+  };
 }
 
 function withSetupClanky(
@@ -1209,6 +1497,21 @@ function parseWorkTrackerProviderKind(
   return undefined;
 }
 
+function parseMcpServerTransportKind(
+  value: string | undefined,
+  input: { command?: string; url?: string },
+): McpServerTransportKind | undefined {
+  if (value === "stdio") return "stdio";
+  if (value === "http" || value === "streamable-http") {
+    return "streamable-http";
+  }
+  if (value === "sse") return "sse";
+  if (value !== undefined) return undefined;
+  if (input.command !== undefined) return "stdio";
+  if (input.url !== undefined) return "streamable-http";
+  return undefined;
+}
+
 function parseClankyChatGatewayOwner(
   value: string | undefined,
 ): ClankyChatGatewayOwner | undefined {
@@ -1224,10 +1527,42 @@ function optionalStringProp<T extends string>(
   return value === undefined ? {} : ({ [key]: value } as { [K in T]?: string });
 }
 
+function optionalStringArrayProp<T extends string>(
+  input: Record<string, unknown>,
+  key: T,
+): { [K in T]?: string[] } {
+  const value = optionalStringArray(input[key]);
+  return value === undefined ? {} : ({ [key]: value } as { [K in T]?: string[] });
+}
+
+function optionalBooleanProp<T extends string>(
+  input: Record<string, unknown>,
+  key: T,
+): { [K in T]?: boolean } {
+  const value = optionalBoolean(input[key]);
+  return value === undefined ? {} : ({ [key]: value } as { [K in T]?: boolean });
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const entries = value.filter(
+      (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+    );
+    return entries.length > 0 ? entries : undefined;
+  }
+  const raw = optionalString(value);
+  if (raw === undefined) return undefined;
+  const entries = raw
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return entries.length > 0 ? entries : undefined;
 }
 
 function optionalRecord(

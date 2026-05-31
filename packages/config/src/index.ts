@@ -116,6 +116,7 @@ export interface AgentRoomConfig {
     default: string;
   };
   workTracker?: WorkTrackerConfig;
+  mcp?: McpConfig;
   clanky?: ClankyConfig;
   operator?: DashboardOperatorConfig;
   runtimes: Record<string, RuntimeConfig>;
@@ -187,6 +188,27 @@ export interface WorkTrackerProviderConfig {
   teamId?: string;
   projectId?: string;
   baseUrl?: string;
+}
+
+export type McpServerTransportKind =
+  | "stdio"
+  | "http"
+  | "streamable-http"
+  | "sse";
+
+export interface McpConfig {
+  servers: Record<string, McpServerConfig>;
+}
+
+export interface McpServerConfig {
+  type: McpServerTransportKind;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  url?: string;
+  description?: string;
+  disabled?: boolean;
+  allowedTools?: string[];
 }
 
 export type ClankyChatGatewayOwner = "agent" | "room" | "off";
@@ -573,6 +595,7 @@ export function formatAgentRoomConfig(config: AgentRoomConfig): string {
     ...(config.workTracker !== undefined
       ? [...formatWorkTracker(config.workTracker), ""]
       : []),
+    ...(config.mcp !== undefined ? [...formatMcp(config.mcp), ""] : []),
     ...(config.clanky !== undefined
       ? [...formatClanky(config.clanky), ""]
       : []),
@@ -596,6 +619,7 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
   const room = objectAt(parsed, "room");
   const runtime = objectAt(parsed, "runtime");
   const workTracker = parseWorkTrackerConfig(objectAt(parsed, "workTracker"));
+  const mcp = parseMcpConfig(objectAt(parsed, "mcp"));
   const clanky = parseClankyConfig(objectAt(parsed, "clanky"));
   const operator = parseDashboardOperatorConfig(objectAt(parsed, "operator"));
   const runtimes = objectAt(parsed, "runtimes");
@@ -618,6 +642,7 @@ export function parseAgentRoomConfig(text: string): AgentRoomConfig {
       default: required(defaultRuntime, "runtime.default"),
     },
     ...(workTracker !== undefined ? { workTracker } : {}),
+    ...(mcp !== undefined ? { mcp } : {}),
     ...(clanky !== undefined ? { clanky } : {}),
     ...(operator !== undefined ? { operator } : {}),
     runtimes: runtimeConfigs,
@@ -655,6 +680,40 @@ function formatWorkTrackerProvider(
       : []),
     ...(provider.baseUrl !== undefined
       ? [`      baseUrl: ${yamlScalar(provider.baseUrl)}`]
+      : []),
+  ];
+}
+
+function formatMcp(mcp: McpConfig): string[] {
+  return [
+    "mcp:",
+    "  servers:",
+    ...Object.entries(mcp.servers).flatMap(([id, server]) =>
+      formatMcpServer(id, server),
+    ),
+  ];
+}
+
+function formatMcpServer(id: string, server: McpServerConfig): string[] {
+  return [
+    `    ${id}:`,
+    `      type: ${yamlScalar(server.type)}`,
+    ...(server.url !== undefined ? [`      url: ${yamlScalar(server.url)}`] : []),
+    ...(server.command !== undefined
+      ? [`      command: ${yamlScalar(server.command)}`]
+      : []),
+    ...(server.args !== undefined && server.args.length > 0
+      ? [`      args: ${yamlScalar(server.args.join(" "))}`]
+      : []),
+    ...(server.cwd !== undefined ? [`      cwd: ${yamlScalar(server.cwd)}`] : []),
+    ...(server.description !== undefined
+      ? [`      description: ${yamlScalar(server.description)}`]
+      : []),
+    ...(server.allowedTools !== undefined && server.allowedTools.length > 0
+      ? [`      allowedTools: ${yamlScalar(server.allowedTools.join(","))}`]
+      : []),
+    ...(server.disabled !== undefined
+      ? [`      disabled: ${yamlScalar(server.disabled)}`]
       : []),
   ];
 }
@@ -918,6 +977,71 @@ function parseClankyConfig(
     ...(profile !== undefined ? { profile } : {}),
     ...(chatGatewayOwner !== undefined ? { chatGatewayOwner } : {}),
   };
+}
+
+function parseMcpConfig(input: Record<string, unknown>): McpConfig | undefined {
+  if (Object.keys(input).length === 0) return undefined;
+  return {
+    servers: parseMcpServers(objectAt(input, "servers")),
+  };
+}
+
+function parseMcpServers(
+  input: Record<string, unknown>,
+): Record<string, McpServerConfig> {
+  const servers: Record<string, McpServerConfig> = {};
+  for (const [id, value] of Object.entries(input)) {
+    const server = asRecord(value);
+    const rawType = stringAt(server, "type");
+    const command = stringAt(server, "command");
+    const url = stringAt(server, "url");
+    const type = normalizeMcpTransportKind(rawType, command, url);
+    if (type === undefined) {
+      throw new Error(
+        `Unsupported MCP server type '${String(rawType)}' for server '${id}'`,
+      );
+    }
+    if (type === "stdio" && command === undefined) {
+      throw new Error(`MCP server '${id}' with type stdio requires command`);
+    }
+    if (type !== "stdio" && url === undefined) {
+      throw new Error(`MCP server '${id}' with type ${type} requires url`);
+    }
+    const args = stringListAt(server, "args");
+    const cwd = stringAt(server, "cwd");
+    const description = stringAt(server, "description");
+    const allowedTools = stringListAt(server, "allowedTools");
+    const disabled = booleanAt(server, "disabled");
+
+    servers[id] = {
+      type,
+      ...(command !== undefined ? { command } : {}),
+      ...(url !== undefined ? { url } : {}),
+      ...(args !== undefined ? { args } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(allowedTools !== undefined ? { allowedTools } : {}),
+      ...(disabled !== undefined ? { disabled } : {}),
+    };
+  }
+  return servers;
+}
+
+function normalizeMcpTransportKind(
+  rawType: string | undefined,
+  command: string | undefined,
+  url: string | undefined,
+): McpServerTransportKind | undefined {
+  const normalized = rawType?.trim().toLowerCase();
+  if (normalized === "stdio") return "stdio";
+  if (normalized === "http" || normalized === "streamable-http") {
+    return "streamable-http";
+  }
+  if (normalized === "sse") return "sse";
+  if (normalized !== undefined) return undefined;
+  if (command !== undefined) return "stdio";
+  if (url !== undefined) return "streamable-http";
+  return undefined;
 }
 
 function parseDashboardOperatorConfig(
@@ -1285,6 +1409,19 @@ function stringRecordAt(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
+}
+
+function stringListAt(
+  value: Record<string, unknown>,
+  key: string,
+): string[] | undefined {
+  const raw = stringAt(value, key);
+  if (raw === undefined) return undefined;
+  const entries = raw
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return entries.length > 0 ? entries : undefined;
 }
 
 function numberAt(

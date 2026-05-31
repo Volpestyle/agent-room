@@ -32,7 +32,11 @@ import {
   summarizeAgentAliases,
 } from "../runtime-agent-labels.js";
 import type { DashboardState, DashboardStore } from "../state.js";
-import type { AgentRoomConfigResponse, RuntimeAgent } from "../types.js";
+import type {
+  AgentRoomConfigResponse,
+  AgentRoomSetupPatch,
+  RuntimeAgent,
+} from "../types.js";
 import type { View } from "./types.js";
 
 const SLASH_COMMANDS = [
@@ -54,6 +58,7 @@ const SLASH_COMMANDS = [
   { name: "runtime", description: "Show runtime session/socket status" },
   { name: "setup runtime", description: "Set the default runtime" },
   { name: "setup tracker", description: "Set the work tracker defaults" },
+  { name: "setup mcp", description: "Add or remove a dashboard MCP server" },
   { name: "setup clanky", description: "Set Clanky room defaults" },
   { name: "quit", description: "Exit the dashboard" },
 ];
@@ -501,6 +506,10 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       await setupWorkTracker(args.slice(1));
       return;
     }
+    if (section === "mcp") {
+      await setupMcp(args.slice(1));
+      return;
+    }
     if (section === "clanky") {
       await setupClanky(args.slice(1));
       return;
@@ -582,6 +591,25 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       const tracker = result.config.workTracker;
       addSystemNote(
         `work tracker set to ${tracker?.default ?? kind} in ${result.path}.`,
+      );
+      await poller.tick();
+    } catch (error) {
+      addErrorNote(formatError(error));
+    }
+  }
+
+  async function setupMcp(args: string[]): Promise<void> {
+    const patch = parseSetupMcp(args);
+    if (typeof patch === "string") {
+      addErrorNote(patch);
+      return;
+    }
+    try {
+      const result = await api.updateSetupConfig({ mcpServer: patch });
+      addSystemNote(
+        patch.remove === true
+          ? `MCP server ${patch.id} removed from ${result.path}.`
+          : `MCP server ${patch.id} saved in ${result.path}.`,
       );
       await poller.tick();
     } catch (error) {
@@ -822,6 +850,7 @@ function setupSummaryMarkdown(
   const tracker =
     trackerId === undefined ? undefined : config.workTracker?.providers[trackerId];
   const clanky = config.clanky;
+  const mcpServers = Object.entries(config.mcp?.servers ?? {});
   const chatGateways = Object.keys(config.chat?.gateways ?? {});
   const chatRoutes = Object.keys(config.chat?.routes ?? {});
   const liveGatewayLines = (health.chatGateways ?? []).map((gateway) => {
@@ -848,6 +877,18 @@ function setupSummaryMarkdown(
       ? "No Clanky room defaults configured."
       : `home \`${clanky.home ?? "(default)"}\`, profile \`${clanky.profile ?? "(default)"}\`, chat owner \`${clanky.chatGatewayOwner ?? "agent"}\``,
     "",
+    "### MCP servers",
+    mcpServers.length === 0
+      ? "No dashboard MCP servers configured. Run `/setup mcp linear https://mcp.linear.app/mcp` to add Linear."
+      : mcpServers
+          .map(([id, server]) => {
+            const target =
+              server.url ??
+              [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+            return `- \`${id}\`: ${server.type}${server.disabled ? " (disabled)" : ""}${target ? ` — ${target}` : ""}`;
+          })
+          .join("\n"),
+    "",
     "### Chat gateways",
     chatGateways.length === 0
       ? "No room-owned gateways configured."
@@ -859,6 +900,7 @@ function setupSummaryMarkdown(
     "- `/login openai` - sign in the dashboard agent",
     "- `/setup runtime herdr` - choose the default runtime",
     "- `/setup tracker linear team_123` - select Linear defaults",
+    "- `/setup mcp linear https://mcp.linear.app/mcp` - add Linear MCP for the dashboard agent",
     "- `/setup clanky agent .clanky-room lead` - set Clanky room defaults",
     "- `/protocol` - show the editable room protocol",
     "- `/runtime` - inspect runtime health and sessions",
@@ -874,6 +916,9 @@ function setupHelpMarkdown(): string {
     "- `/protocol` - show `.agentroom/AGENTS.md`, the editable room protocol",
     "- `/setup runtime herdr|tmux|fake` - set the default runtime",
     "- `/setup tracker native|linear|github-issues|jira|custom [teamId]` - set work tracker defaults",
+    "- `/setup mcp <id> <url>` - add an HTTP MCP server",
+    "- `/setup mcp <id> stdio <command> [args...]` - add a stdio MCP server",
+    "- `/setup mcp remove <id>` - remove an MCP server",
     "- `/setup clanky agent|room|off [home] [profile]` - set Clanky defaults for this room",
     "",
     "Secrets stay out of `config.yaml`. Each agent authenticates with its own MCP, connector, CLI, or auth store.",
@@ -884,6 +929,62 @@ function parseSetupTrackerKind(value: string | undefined): SetupTrackerKind | un
   const normalized = value?.trim().toLowerCase();
   if (normalized === "github") return "github-issues";
   return SETUP_TRACKER_KINDS.find((kind) => kind === normalized);
+}
+
+type SetupMcpPatch = NonNullable<AgentRoomSetupPatch["mcpServer"]>;
+
+function parseSetupMcp(args: string[]): SetupMcpPatch | string {
+  const [first, ...rest] = args.filter((arg) => arg.trim().length > 0);
+  if (first === undefined) {
+    return "usage: /setup mcp <id> <url> | /setup mcp <id> stdio <command> [args...] | /setup mcp remove <id>";
+  }
+  if (isMcpRemoveCommand(first)) {
+    const id = rest[0];
+    return id === undefined ? "usage: /setup mcp remove <id>" : { id, remove: true };
+  }
+
+  const id = first;
+  const parts = [...rest];
+  if (parts.length === 0) return "MCP server target is required";
+  const transport = parseMcpTransportKind(parts[0]);
+  if (transport !== undefined) parts.shift();
+  if (parts.length === 0) return "MCP server target is required";
+
+  const target = parts[0]!;
+  const type =
+    transport ??
+    (isMcpUrl(target) ? "streamable-http" : ("stdio" as const));
+  if (type === "stdio") {
+    return {
+      id,
+      type,
+      command: target,
+      ...(parts.length > 1 ? { args: parts.slice(1) } : {}),
+    };
+  }
+  if (!isMcpUrl(target)) return "HTTP/SSE MCP servers require an http(s) URL";
+  return { id, type, url: target };
+}
+
+function parseMcpTransportKind(
+  value: string | undefined,
+): "stdio" | "streamable-http" | "sse" | undefined {
+  const normalized = value?.toLowerCase();
+  if (normalized === "stdio") return "stdio";
+  if (normalized === "http" || normalized === "streamable-http") {
+    return "streamable-http";
+  }
+  if (normalized === "sse") return "sse";
+  return undefined;
+}
+
+function isMcpUrl(value: string): boolean {
+  return value.startsWith("http://") || value.startsWith("https://");
+}
+
+function isMcpRemoveCommand(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === "remove" || normalized === "delete";
 }
 
 function parseClankyChatOwner(value: string | undefined): ClankyChatOwner | undefined {
@@ -910,6 +1011,25 @@ export function dashboardContext(state: DashboardState): string {
     state.config?.defaultRuntime ??
     state.providers.find((provider) => provider.default)?.id ??
     "unknown";
+  const trackerId = state.config?.workTracker?.default;
+  const tracker =
+    trackerId === undefined
+      ? undefined
+      : state.config?.workTracker?.providers[trackerId];
+  const workTracker =
+    trackerId === undefined || tracker?.type === "native"
+      ? "native"
+      : `${trackerId}(${tracker?.type ?? "unknown"}${tracker?.teamId ? `, team=${tracker.teamId}` : ""})`;
+  const mcpServers = Object.entries(state.config?.mcp?.servers ?? {});
+  const mcp =
+    mcpServers.length === 0
+      ? "none"
+      : mcpServers
+          .map(
+            ([id, server]) =>
+              `${id}(${server.type}${server.disabled ? ", disabled" : ""})`,
+          )
+          .join(", ");
   const runtimeHealth = new Map(
     (state.health?.runtimes ?? []).map((runtime) => [
       runtime.id,
@@ -995,6 +1115,8 @@ export function dashboardContext(state: DashboardState): string {
       ? [`- protocolPath: ${state.config.protocolPath}`]
       : []),
     `- defaultRuntime: ${defaultRuntime}`,
+    `- workTracker: ${workTracker}`,
+    `- mcpServers: ${mcp}`,
     `- runtimes: ${runtimes}`,
     `- roomAgents: ${roomAgents}`,
     `- runtimeAgents: ${agents}`,

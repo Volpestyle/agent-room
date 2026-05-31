@@ -95,6 +95,7 @@ describe("agentroom daemon app", () => {
       protocolPath: join(options.cwd, "home", "AGENTS.md"),
       defaultRuntime: "fake",
       workTracker: null,
+      mcp: null,
       operator: {
         agentId: "operator",
         displayName: "Clanky Operator",
@@ -138,6 +139,7 @@ describe("agentroom daemon app", () => {
       body: JSON.stringify({
         runtimeDefault: "tmux",
         workTracker: { type: "linear", teamId: "team_123" },
+        mcpServer: { id: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
         clanky: {
           chatGatewayOwner: "room",
           home: ".clanky-room",
@@ -152,12 +154,17 @@ describe("agentroom daemon app", () => {
       config: {
         runtime: { default: string };
         workTracker: { default: string };
+        mcp: { servers: Record<string, { type: string; url?: string }> };
         clanky: { chatGatewayOwner: string };
         operator: { kind: string; env: Record<string, string> };
       };
     };
     expect(body.config.runtime.default).toBe("tmux");
     expect(body.config.workTracker.default).toBe("linear");
+    expect(body.config.mcp.servers.linear).toEqual({
+      type: "streamable-http",
+      url: "https://mcp.linear.app/mcp",
+    });
     expect(body.config.clanky.chatGatewayOwner).toBe("room");
     expect(body.config.operator.kind).toBe("clanky");
     expect(body.config.operator.env.CLANKY_CHAT_GATEWAY_OWNER).toBe("room");
@@ -165,6 +172,7 @@ describe("agentroom daemon app", () => {
     const written = await readFile(body.path, "utf8");
     expect(written).toContain("default: tmux");
     expect(written).toContain("teamId: team_123");
+    expect(written).toContain("url: https://mcp.linear.app/mcp");
     expect(written).toContain("chatGatewayOwner: room");
   });
 
@@ -238,6 +246,73 @@ describe("agentroom daemon app", () => {
     };
     expect(messages).toEqual([
       expect.objectContaining({ body: "Ready for review" }),
+    ]);
+  });
+
+  it("records objective tracker events and narrative reports in the feed", async () => {
+    const app = createApp(await appOptions());
+
+    const trackerResponse = await app.request("/v1/tracker/events", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        providerKind: "linear",
+        eventType: "Issue",
+        action: "update",
+        issueRef: "ENG-123",
+        title: "Ship feed",
+        status: "In Progress",
+        raw: { type: "Issue", action: "update" },
+      }),
+    });
+    expect(trackerResponse.status).toBe(201);
+
+    const reportResponse = await app.request("/v1/reports", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "dashboard",
+        title: "Room summary",
+        summary: "Implementation is moving",
+        importance: "high",
+      }),
+    });
+    expect(reportResponse.status).toBe(201);
+
+    const hiddenResponse = await app.request("/v1/reports", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "dashboard",
+        summary: "Internal note",
+        visibleToUser: false,
+      }),
+    });
+    expect(hiddenResponse.status).toBe(201);
+
+    const feedResponse = await app.request("/v1/feed?limit=10");
+    const { events } = (await feedResponse.json()) as {
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    };
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tracker.event",
+        payload: {
+          event: expect.objectContaining({
+            providerKind: "linear",
+            issueRef: "ENG-123",
+          }),
+        },
+      }),
+      expect.objectContaining({
+        type: "agent.report",
+        payload: {
+          report: expect.objectContaining({
+            agentId: "dashboard",
+            summary: "Implementation is moving",
+          }),
+        },
+      }),
     ]);
   });
 

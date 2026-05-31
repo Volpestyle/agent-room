@@ -18,7 +18,8 @@ export type SettingsAction =
   | { kind: "token"; gatewayId: string; tokenEnv: string; label: string }
   | { kind: "channel"; routeId: string; label: string; current: string | undefined }
   | { kind: "tracker"; current: string | undefined }
-  | { kind: "runtime"; current: string | undefined };
+  | { kind: "runtime"; current: string | undefined }
+  | { kind: "mcp"; serverId?: string; current: string | undefined };
 
 export interface SettingsViewOptions {
   store: DashboardStore;
@@ -174,6 +175,25 @@ export function createSettingsView(options: SettingsViewOptions): View {
     });
     actions.push({ kind: "tracker", current: trackerCurrent });
 
+    const mcpServers = config?.mcp?.servers ?? {};
+    for (const [serverId, server] of Object.entries(mcpServers)) {
+      const target =
+        server.url ??
+        [server.command, ...(server.args ?? [])].filter(Boolean).join(" ");
+      items.push({
+        value: String(actions.length),
+        label: `mcp · ${serverId}`,
+        description: `${server.disabled ? "disabled · " : ""}${server.type} · ${target || "(unconfigured)"}`,
+      });
+      actions.push({ kind: "mcp", serverId, current: target || undefined });
+    }
+    items.push({
+      value: String(actions.length),
+      label: "mcp · add server",
+      description: "name + URL, or name + command args",
+    });
+    actions.push({ kind: "mcp", current: undefined });
+
     for (const gateway of health?.chatGateways ?? []) {
       if (gateway.tokenEnv === undefined) continue;
       const dot = gateway.health.ok ? palette.good("●") : palette.bad("●");
@@ -225,7 +245,7 @@ export function createSettingsView(options: SettingsViewOptions): View {
     id: "settings",
     label: "Settings",
     hotkey: "s",
-    description: "Configure runtime, work tracker, and chat gateway tokens/channels",
+    description: "Configure runtime, work tracker, MCP, and chat gateway tokens/channels",
     root,
     onActivate: (ctx) => rebuild(ctx),
   };

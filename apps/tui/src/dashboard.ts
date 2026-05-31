@@ -26,6 +26,7 @@ import { selectListTheme, palette } from "./theme.js";
 import { dashboardActor } from "./agent/identity.js";
 import { isLocalDaemon, restartLocalDaemon } from "./daemonControl.js";
 import type { DashboardState, DashboardStore } from "./state.js";
+import type { AgentRoomSetupPatch } from "./types.js";
 import { createAgentsView } from "./views/agents.js";
 import { createChatView } from "./views/chat.js";
 import { createEventsView } from "./views/events.js";
@@ -499,6 +500,19 @@ export class Dashboard {
           mask: false,
           allowEmpty: false,
         };
+      case "mcp":
+        return {
+          title:
+            action.serverId === undefined
+              ? "Add MCP server"
+              : `Configure MCP server ${action.serverId}`,
+          hint:
+            action.serverId === undefined
+              ? 'Enter "linear https://mcp.linear.app/mcp" or "docs npx -y docs-mcp".'
+              : `Current: ${action.current ?? "(unset)"}. Enter new URL/command, or "remove".`,
+          mask: false,
+          allowEmpty: false,
+        };
     }
   }
 
@@ -556,6 +570,15 @@ export class Dashboard {
           await this.options.api.updateSetupConfig({ runtimeDefault: runtime });
           break;
         }
+        case "mcp": {
+          const patch = parseMcpSetting(action, value);
+          if (typeof patch === "string") {
+            overlay.setError(patch);
+            return;
+          }
+          await this.options.api.updateSetupConfig({ mcpServer: patch });
+          break;
+        }
       }
       this.closeOverlay();
       // Refresh status and rebuild the settings list to reflect the change.
@@ -577,6 +600,77 @@ const TRACKER_KINDS = [
 type TrackerKind = (typeof TRACKER_KINDS)[number];
 function isTrackerKind(value: string): value is TrackerKind {
   return (TRACKER_KINDS as readonly string[]).includes(value);
+}
+
+type McpServerPatch = NonNullable<AgentRoomSetupPatch["mcpServer"]>;
+
+function parseMcpSetting(
+  action: Extract<SettingsAction, { kind: "mcp" }>,
+  value: string,
+): McpServerPatch | string {
+  const parts = value.trim().split(/\s+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return "MCP server value cannot be empty";
+  if (action.serverId !== undefined && isRemoveCommand(parts[0]!)) {
+    return { id: action.serverId, remove: true };
+  }
+
+  const id = action.serverId ?? parts.shift();
+  if (id === undefined || id.length === 0) {
+    return "MCP server id is required";
+  }
+  if (parts.length === 0) {
+    return "MCP server target is required";
+  }
+
+  const kind = parseMcpTransportKind(parts[0]);
+  if (kind !== undefined) {
+    parts.shift();
+  }
+  if (parts.length === 0) {
+    return "MCP server target is required";
+  }
+
+  const first = parts[0]!;
+  const type =
+    kind ??
+    (isUrl(first) ? "streamable-http" : ("stdio" as const));
+  if (type === "stdio") {
+    return {
+      id,
+      type,
+      command: first,
+      ...(parts.length > 1 ? { args: parts.slice(1) } : {}),
+    };
+  }
+  if (!isUrl(first)) {
+    return "HTTP/SSE MCP servers require an http(s) URL";
+  }
+  return {
+    id,
+    type,
+    url: first,
+  };
+}
+
+function parseMcpTransportKind(
+  value: string | undefined,
+): "stdio" | "streamable-http" | "sse" | undefined {
+  const normalized = value?.toLowerCase();
+  if (normalized === "stdio") return "stdio";
+  if (normalized === "http" || normalized === "streamable-http") {
+    return "streamable-http";
+  }
+  if (normalized === "sse") return "sse";
+  return undefined;
+}
+
+function isUrl(value: string): boolean {
+  return value.startsWith("http://") || value.startsWith("https://");
+}
+
+function isRemoveCommand(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === "remove" || normalized === "delete";
 }
 
 function pad(left: string, right: string, width: number): string {

@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   Agent,
+  AgentReport,
   AgentRole,
   AgentState,
   HarnessSpec,
@@ -14,6 +15,8 @@ import type {
   RuntimeCapabilities,
   RuntimeHealth,
   RuntimeSession,
+  TrackerEvent,
+  TrackerEventActor,
   Workspace,
 } from "@agentroom/core";
 import type { AgentRoomConfig, DashboardOperatorConfig } from "@agentroom/config";
@@ -21,6 +24,7 @@ import type { AgentRoomConfig, DashboardOperatorConfig } from "@agentroom/config
 export type {
   ActorRef,
   Agent,
+  AgentReport,
   AgentRole,
   AgentState,
   HarnessSpec,
@@ -34,6 +38,8 @@ export type {
   RuntimeCapabilities,
   RuntimeHealth,
   RuntimeSession,
+  TrackerEvent,
+  TrackerEventActor,
   Workspace,
 };
 export type { DashboardOperatorConfig };
@@ -101,6 +107,21 @@ export interface DashboardConfig {
       { type: string; teamId?: string; projectId?: string; baseUrl?: string }
     >;
   } | null;
+  mcp?: {
+    servers: Record<
+      string,
+      {
+        type: "stdio" | "http" | "streamable-http" | "sse";
+        command?: string;
+        args?: string[];
+        cwd?: string;
+        url?: string;
+        description?: string;
+        disabled?: boolean;
+        allowedTools?: string[];
+      }
+    >;
+  } | null;
   operator?: DashboardOperatorConfig | null;
 }
 
@@ -122,6 +143,18 @@ export interface AgentRoomSetupPatch {
     teamId?: string;
     projectId?: string;
     baseUrl?: string;
+  };
+  mcpServer?: {
+    id: string;
+    remove?: boolean;
+    type?: "stdio" | "http" | "streamable-http" | "sse";
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    url?: string;
+    description?: string;
+    disabled?: boolean;
+    allowedTools?: string[];
   };
   clanky?: {
     home?: string;

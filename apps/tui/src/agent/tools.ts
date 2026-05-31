@@ -9,11 +9,17 @@ import type {
   RuntimeAgent,
   RuntimeProviderSummary,
 } from "../types.js";
+import {
+  callDashboardMcpTool,
+  listDashboardMcpTools,
+} from "./external-mcp.js";
 import { dashboardActor } from "./identity.js";
 
 interface ToolEnv {
   api: ApiClient;
   poller: Poller;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 function defineTool<S extends TSchema>(tool: AgentTool<S>): AgentTool<S> {
@@ -131,6 +137,8 @@ function workspaceLabelFromCwd(cwd: string): string {
 
 export function createDashboardTools(env: ToolEnv): AgentTool[] {
   const { api, poller } = env;
+  const cwd = env.cwd ?? process.cwd();
+  const processEnv = env.env ?? process.env;
 
   const listMessages = defineTool({
     name: "list_messages",
@@ -267,6 +275,133 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     execute: async (_callId, params) => {
       const events = await api.listEvents(params.limit ?? 50);
       return jsonContent(events);
+    },
+  });
+
+  const listUserFeed = defineTool({
+    name: "list_user_feed",
+    label: "List user feed",
+    description:
+      "Return the user-visible feed: objective tracker webhook/import events plus narrative agent reports.",
+    parameters: Type.Object({
+      limit: Type.Optional(
+        Type.Integer({ minimum: 1, maximum: 500, default: 100 }),
+      ),
+    }),
+    execute: async (_callId, params) => {
+      const events = await api.listUserFeed(params.limit ?? 100);
+      return jsonContent(events);
+    },
+  });
+
+  const postAgentReport = defineTool({
+    name: "post_agent_report",
+    label: "Post agent report",
+    description:
+      "Append a narrative report to the user-visible feed. Use this for concise dashboard summaries and notable room progress, not as a task store.",
+    parameters: Type.Object({
+      summary: Type.String(),
+      title: Type.Optional(Type.String()),
+      details: Type.Optional(Type.String()),
+      importance: Type.Optional(
+        Type.Union([
+          Type.Literal("low"),
+          Type.Literal("normal"),
+          Type.Literal("high"),
+          Type.Literal("urgent"),
+        ]),
+      ),
+      visibleToUser: Type.Optional(Type.Boolean({ default: true })),
+      refs: Type.Optional(
+        Type.Array(
+          Type.Object({
+            kind: Type.Union([
+              Type.Literal("task"),
+              Type.Literal("agent"),
+              Type.Literal("message"),
+              Type.Literal("github-pr"),
+              Type.Literal("github-issue"),
+              Type.Literal("tracker-issue"),
+              Type.Literal("figma-node"),
+              Type.Literal("runtime-output"),
+              Type.Literal("url"),
+              Type.Literal("file"),
+              Type.Literal("custom"),
+            ]),
+            id: Type.String(),
+            label: Type.Optional(Type.String()),
+            url: Type.Optional(Type.String()),
+            metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+          }),
+        ),
+      ),
+    }),
+    execute: async (_callId, params) => {
+      const actor = dashboardActor();
+      const result = await api.createAgentReport({
+        agentId: actor.id,
+        summary: params.summary,
+        ...(params.title !== undefined ? { title: params.title } : {}),
+        ...(params.details !== undefined ? { details: params.details } : {}),
+        ...(params.importance !== undefined
+          ? { importance: params.importance }
+          : {}),
+        ...(params.refs !== undefined ? { refs: params.refs } : {}),
+        ...(params.visibleToUser !== undefined
+          ? { visibleToUser: params.visibleToUser }
+          : {}),
+      });
+      void poller.tick();
+      return ok(`report posted (${result.report.id})`, {
+        report: result.report,
+      });
+    },
+  });
+
+  const listMcpTools = defineTool({
+    name: "list_mcp_tools",
+    label: "List MCP tools",
+    description:
+      "Discover MCP servers configured in AgentRoom config.yaml and their tools. Use before calling provider tools such as Linear, GitHub, Jira, or custom servers.",
+    parameters: Type.Object({
+      server: Type.Optional(Type.String()),
+    }),
+    execute: async (_callId, params) => {
+      const config = await api.dashboardConfig();
+      const result = await listDashboardMcpTools(
+        config,
+        { ...(params.server !== undefined ? { server: params.server } : {}) },
+        { cwd, env: processEnv },
+      );
+      return jsonContent({ servers: result });
+    },
+  });
+
+  const callMcpTool = defineTool({
+    name: "call_mcp_tool",
+    label: "Call MCP tool",
+    description:
+      "Call a tool on an MCP server configured in AgentRoom config.yaml. List tools first and only mutate external systems when the operator asked for that action.",
+    parameters: Type.Object({
+      server: Type.String(),
+      tool: Type.String(),
+      arguments: Type.Optional(Type.Unknown()),
+    }),
+    executionMode: "sequential",
+    execute: async (_callId, params) => {
+      const config = await api.dashboardConfig();
+      const result = await callDashboardMcpTool(
+        config,
+        {
+          server: params.server,
+          tool: params.tool,
+          ...(params.arguments !== undefined
+            ? { arguments: params.arguments }
+            : {}),
+        },
+        { cwd, env: processEnv },
+      );
+      return jsonContent(result);
     },
   });
 
@@ -530,6 +665,10 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     listWorkspaces,
     registerWorkspace,
     listEvents,
+    listUserFeed,
+    postAgentReport,
+    listMcpTools,
+    callMcpTool,
     getRoomProtocol,
     listProviders,
     listAgents,

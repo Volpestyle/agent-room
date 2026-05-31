@@ -19,6 +19,118 @@ const runtimeCapabilities = {
 };
 
 describe("dashboard launch tool", () => {
+  it("exposes feed, report, and configured MCP tooling to the dashboard agent", () => {
+    const tools = createDashboardTools({
+      api: {} as ApiClient,
+      poller: { tick: async () => undefined } as unknown as Poller,
+    });
+
+    expect(tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "list_user_feed",
+        "post_agent_report",
+        "list_mcp_tools",
+        "call_mcp_tool",
+      ]),
+    );
+    expect(tools.map((tool) => tool.name)).not.toEqual(
+      expect.arrayContaining([
+        "list_work_tracker_actions",
+        "run_cli_command",
+        "list_skills",
+        "read_skill",
+      ]),
+    );
+  });
+
+  it("lists MCP servers from dashboard config without connecting to disabled servers", async () => {
+    const dashboardConfig = vi.fn(async () => ({
+      roomId: "agent-room",
+      cwd: "/repo",
+      defaultRuntime: "fake",
+      mcp: {
+        servers: {
+          linear: {
+            type: "streamable-http" as const,
+            url: "https://mcp.linear.app/mcp",
+            disabled: true,
+          },
+        },
+      },
+    }));
+    const tools = createDashboardTools({
+      api: { dashboardConfig } as unknown as ApiClient,
+      poller: { tick: async () => undefined } as unknown as Poller,
+      cwd: "/repo",
+    });
+    const tool = tools.find((entry) => entry.name === "list_mcp_tools");
+
+    const result = await tool?.execute("call-1", {});
+
+    expect(dashboardConfig).toHaveBeenCalled();
+    const firstContent = result?.content[0];
+    expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
+      "linear",
+    );
+    expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
+      "disabled",
+    );
+  });
+
+  it("lists the user-visible feed", async () => {
+    const listUserFeed = vi.fn(async () => ({
+      events: [
+        {
+          type: "tracker.event",
+          payload: { event: { providerKind: "linear", issueRef: "ENG-123" } },
+        },
+      ],
+    }));
+    const tools = createDashboardTools({
+      api: { listUserFeed } as unknown as ApiClient,
+      poller: { tick: async () => undefined } as unknown as Poller,
+    });
+    const tool = tools.find((entry) => entry.name === "list_user_feed");
+
+    const result = await tool?.execute("call-1", { limit: 25 });
+
+    expect(listUserFeed).toHaveBeenCalledWith(25);
+    expect(result?.content[0]?.type).toBe("text");
+    const firstContent = result?.content[0];
+    expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
+      "tracker.event",
+    );
+  });
+
+  it("posts a narrative report as the dashboard agent", async () => {
+    const tick = vi.fn(async () => undefined);
+    const createAgentReport = vi.fn(async () => ({
+      report: { id: "rep_1", agentId: "dashboard", summary: "Room is moving" },
+    }));
+    const tools = createDashboardTools({
+      api: { createAgentReport } as unknown as ApiClient,
+      poller: { tick } as unknown as Poller,
+    });
+    const tool = tools.find((entry) => entry.name === "post_agent_report");
+
+    const result = await tool?.execute("call-1", {
+      title: "Daily summary",
+      summary: "Room is moving",
+      importance: "high",
+      refs: [{ kind: "tracker-issue", id: "ENG-123" }],
+    });
+
+    expect(createAgentReport).toHaveBeenCalledWith({
+      agentId: "dashboard",
+      title: "Daily summary",
+      summary: "Room is moving",
+      importance: "high",
+      refs: [{ kind: "tracker-issue", id: "ENG-123" }],
+    });
+    expect(tick).toHaveBeenCalled();
+    expect(result?.details).toMatchObject({ report: { id: "rep_1" } });
+  });
+
   it("normalizes engineer role aliases before schema validation", () => {
     const tools = createDashboardTools({
       api: {} as ApiClient,
