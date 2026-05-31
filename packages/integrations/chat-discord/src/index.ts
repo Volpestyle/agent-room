@@ -52,6 +52,8 @@ export interface DiscordChatGatewayProviderOptions {
   webhookMode?: boolean;
   webhookName?: string;
   webhookAvatarUrl?: string;
+  /** Channel used when a route specifies no conversation id. Defaults to "general". */
+  defaultChannel?: string;
   now?: () => string;
 }
 
@@ -59,7 +61,11 @@ export interface DiscordGatewayClient extends DiscordUserTokenClientLike {
   user: { id?: string; username?: string; tag?: string } | null;
   channels: {
     fetch: (id: string) => Promise<unknown>;
-    cache: { get: (id: string) => unknown };
+    cache: {
+      get: (id: string) => unknown;
+      /** Present on the real discord.js Collection; used to resolve a channel by name. */
+      find?: (predicate: (value: unknown) => boolean) => unknown;
+    };
   };
   on: (
     event: typeof Events.MessageCreate,
@@ -137,6 +143,7 @@ export class DiscordChatGatewayProvider implements ChatGatewayProvider {
   private readonly webhookMode: boolean;
   private readonly webhookName: string;
   private readonly webhookAvatarUrl: string | undefined;
+  private readonly defaultChannel: string;
   private readonly now: () => string;
   private readonly webhooks = new Map<string, DiscordWebhook>();
   private handler: ChatInboundHandler | undefined;
@@ -154,6 +161,7 @@ export class DiscordChatGatewayProvider implements ChatGatewayProvider {
     this.webhookMode = options.webhookMode ?? false;
     this.webhookName = options.webhookName ?? DEFAULT_WEBHOOK_NAME;
     this.webhookAvatarUrl = options.webhookAvatarUrl;
+    this.defaultChannel = options.defaultChannel?.trim() || "general";
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
@@ -293,9 +301,46 @@ export class DiscordChatGatewayProvider implements ChatGatewayProvider {
   }
 
   private async resolveChannel(channelId: string): Promise<unknown> {
-    const cached = this.client.channels.cache.get(channelId);
+    // Empty conversation id (route with no explicit channel) → default channel.
+    const target = channelId.trim() || this.defaultChannel;
+
+    const cached = this.client.channels.cache.get(target);
     if (cached !== undefined && cached !== null) return cached;
-    return this.client.channels.fetch(channelId);
+
+    // Treat the value as a snowflake id first; fall back to name resolution if
+    // it isn't a real id (e.g. "general").
+    try {
+      const fetched = await this.client.channels.fetch(target);
+      if (fetched !== undefined && fetched !== null) return fetched;
+    } catch {
+      // not a valid channel id — try resolving by name below
+    }
+
+    const byName = this.findChannelByName(target);
+    if (byName !== undefined && byName !== null) return byName;
+
+    throw new Error(
+      `Discord channel '${target}' not found — set a valid channel name or id (the bot must be in the server)`,
+    );
+  }
+
+  private findChannelByName(name: string): unknown {
+    const target = name.trim().toLowerCase();
+    return this.client.channels.cache.find?.((channel) => {
+      const candidate = channel as {
+        name?: string | null;
+        isTextBased?: () => boolean;
+      };
+      if (
+        typeof candidate?.name !== "string" ||
+        candidate.name.toLowerCase() !== target
+      ) {
+        return false;
+      }
+      return (
+        typeof candidate.isTextBased !== "function" || candidate.isTextBased()
+      );
+    });
   }
 
   private async resolveWebhook(

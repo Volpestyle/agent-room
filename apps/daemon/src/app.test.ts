@@ -3,11 +3,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
+  AgentOutput,
   ChatGatewayProvider,
   ChatInboundHandler,
   ChatInboundMessage,
   ChatSendMessageInput,
   ChatSendMessageResult,
+  RuntimeAgent,
+  RuntimeCapabilities,
+  RuntimeHealth,
+  RuntimeProvider,
+  RuntimeSession,
+  SendInputRequest,
+  StartAgentRequest,
 } from "@agentroom/core";
 import { createApp, createAppWithLifecycle } from "./app.js";
 
@@ -480,6 +488,119 @@ describe("agentroom daemon app", () => {
     ]);
   });
 
+  it("sends discrete named keys to a runtime agent and audits them", async () => {
+    const app = createApp(await appOptions());
+
+    const launchResponse = await app.request("/v1/runtime/fake/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "demo",
+        role: "implementer",
+        harness: { kind: "shell", command: "bash" },
+      }),
+    });
+    expect(launchResponse.status).toBe(201);
+
+    const emptyResponse = await app.request(
+      "/v1/runtime/fake/agents/demo/keys",
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ keys: [] }),
+      },
+    );
+    expect(emptyResponse.status).toBe(400);
+
+    const keysResponse = await app.request(
+      "/v1/runtime/fake/agents/demo/keys",
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ keys: ["Up", "Down", "Enter"] }),
+      },
+    );
+    expect(keysResponse.status).toBe(200);
+    await expect(keysResponse.json()).resolves.toMatchObject({ ok: true });
+
+    const outputResponse = await app.request(
+      "/v1/runtime/fake/agents/demo/output?lines=20",
+    );
+    const { output } = (await outputResponse.json()) as {
+      output: { text: string };
+    };
+    expect(output.text).toContain("keys from unknown: Up Down Enter");
+
+    const eventsResponse = await app.request("/v1/events?limit=20");
+    const { events } = (await eventsResponse.json()) as {
+      events: Array<{ type: string }>;
+    };
+    expect(events.map((event) => event.type)).toContain("runtime.input_sent");
+  });
+
+  it("rejects a runtime launch when the returned binding is already active", async () => {
+    const sharedRuntime = new SharedBindingRuntimeProvider("shared-runtime");
+    const app = createApp({
+      ...(await appOptions()),
+      config: {
+        room: { id: "test-room" },
+        runtime: { default: "fake" },
+        runtimes: { fake: { type: "fake" } },
+        storage: { driver: "jsonl", path: ".agentroom/events.jsonl" },
+      },
+      runtimeProviders: [sharedRuntime],
+    });
+
+    const firstLaunch = await app.request("/v1/runtime/shared-runtime/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "existing",
+        role: "implementer",
+        harness: { kind: "shell", command: "bash" },
+      }),
+    });
+    expect(firstLaunch.status).toBe(201);
+
+    const conflictingLaunch = await app.request(
+      "/v1/runtime/shared-runtime/agents",
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          agentId: "demo",
+          role: "implementer",
+          harness: { kind: "shell", command: "bash" },
+        }),
+      },
+    );
+    expect(conflictingLaunch.status).toBe(409);
+    await expect(conflictingLaunch.json()).resolves.toEqual({
+      error:
+        "runtime binding shared-pane is already owned by active agent existing",
+    });
+
+    const eventsResponse = await app.request("/v1/events?limit=20");
+    const { events } = (await eventsResponse.json()) as {
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    };
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "runtime.bound" && event.payload.agentId === "demo",
+      ),
+    ).toHaveLength(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent.left",
+        payload: expect.objectContaining({
+          agentId: "demo",
+          reason: "runtime binding shared-pane already owned by existing",
+        }),
+      }),
+    );
+  });
+
   it("rejects invalid runtime launch role and harness values", async () => {
     const app = createApp(await appOptions());
 
@@ -892,7 +1013,121 @@ describe("agentroom daemon app", () => {
       }),
     ]);
   });
+
+  it("keeps a configured Discord gateway without a token as a health failure only", async () => {
+    const previousToken = process.env.MISSING_AGENTROOM_DISCORD_TOKEN;
+    delete process.env.MISSING_AGENTROOM_DISCORD_TOKEN;
+    try {
+      const { app, chatStartup } = createAppWithLifecycle({
+        ...(await appOptions()),
+        config: {
+          room: { id: "test-room" },
+          runtime: { default: "fake" },
+          runtimes: { fake: { type: "fake" } },
+          chat: {
+            gateways: {
+              "discord-main": {
+                type: "discord",
+                tokenEnv: "MISSING_AGENTROOM_DISCORD_TOKEN",
+              },
+            },
+            routes: {},
+          },
+          storage: { driver: "jsonl", path: ".agentroom/events.jsonl" },
+        },
+      });
+
+      await chatStartup;
+
+      const healthResponse = await app.request("/health");
+      expect(healthResponse.status).toBe(200);
+      const health = (await healthResponse.json()) as {
+        ok: boolean;
+        chatGateways: Array<{
+          id: string;
+          startupError?: string;
+          secretConfigured: boolean;
+          health: { ok: boolean; message?: string };
+        }>;
+      };
+      expect(health.ok).toBe(true);
+      expect(health.chatGateways).toEqual([
+        expect.objectContaining({
+          id: "discord-main",
+          secretConfigured: false,
+          startupError:
+            "Chat gateway 'discord-main' has no token — set 'MISSING_AGENTROOM_DISCORD_TOKEN' in the TUI Settings view or as an environment variable",
+          health: expect.objectContaining({ ok: false }),
+        }),
+      ]);
+    } finally {
+      restoreEnv("MISSING_AGENTROOM_DISCORD_TOKEN", previousToken);
+    }
+  });
 });
+
+class SharedBindingRuntimeProvider implements RuntimeProvider {
+  readonly kind = "fake" as const;
+  readonly capabilities: RuntimeCapabilities = {
+    startAgent: true,
+    stopAgent: true,
+    readOutput: true,
+    sendInput: true,
+    attachInteractive: false,
+    subscribeEvents: false,
+    semanticAgentState: true,
+    screenshots: false,
+    fileMounts: false,
+    worktrees: false,
+    remoteExecution: false,
+    adoptAgent: false,
+  };
+  private readonly agents = new Map<string, RuntimeAgent>();
+
+  constructor(readonly id: string) {}
+
+  async health(): Promise<RuntimeHealth> {
+    return { ok: true, status: "ok", message: "shared binding runtime ready" };
+  }
+
+  async listSessions(): Promise<RuntimeSession[]> {
+    return [{ id: "shared-session", name: "Shared Session" }];
+  }
+
+  async listAgents(): Promise<RuntimeAgent[]> {
+    return [...this.agents.values()];
+  }
+
+  async startAgent(request: StartAgentRequest): Promise<RuntimeAgent> {
+    const agent: RuntimeAgent = {
+      id: request.agentId,
+      bindingId: "shared-pane",
+      displayName: request.agentId,
+      state: "online",
+      sessionId: "shared-session",
+    };
+    this.agents.set(request.agentId, agent);
+    return agent;
+  }
+
+  async stopAgent(agentId: string): Promise<void> {
+    this.agents.delete(agentId);
+  }
+
+  async readAgent(request: { agentId: string }): Promise<AgentOutput> {
+    return {
+      agentId: request.agentId,
+      bindingId: "shared-pane",
+      text: "",
+      lineCount: 0,
+      observedAt: new Date(0).toISOString(),
+    };
+  }
+
+  async sendInput(_request: SendInputRequest): Promise<void> {
+    // Test double does not need to persist input.
+  }
+}
 
 class TestChatGatewayProvider implements ChatGatewayProvider {
   readonly id: string;

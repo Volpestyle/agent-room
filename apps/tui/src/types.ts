@@ -79,6 +79,17 @@ export interface DaemonHealth {
       message?: string;
     };
     startupError?: string;
+    /** Env-var name the gateway's token is read from (when token-based). */
+    tokenEnv?: string;
+    /** Whether a token value is currently available (via env or the secret store). */
+    secretConfigured?: boolean;
+  }>;
+  chatRoutes?: Array<{
+    id: string;
+    provider: string;
+    /** Target channel (id or name); absent means the gateway default (Discord: #general). */
+    conversationId?: string;
+    conversationKind?: string;
   }>;
 }
 

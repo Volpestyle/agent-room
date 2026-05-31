@@ -196,6 +196,35 @@ describe("DiscordChatGatewayProvider", () => {
     expect(client.typingChannelIds).toEqual(["thread-1"]);
   });
 
+  it("falls back to the default channel (#general) when no channel id is set", async () => {
+    const client = new FakeDiscordClient();
+    const provider = new DiscordChatGatewayProvider({
+      token: "bot-token",
+      client,
+      credentialKind: "bot-token",
+    });
+
+    // A route with no conversation id arrives as an empty conversation id.
+    await provider.sendTyping({ conversation: { id: "", kind: "channel" } });
+
+    expect(client.typingChannelIds).toEqual(["general"]);
+  });
+
+  it("resolves a channel by name when the id lookup misses", async () => {
+    const client = new NameResolvingFakeClient();
+    const provider = new DiscordChatGatewayProvider({
+      token: "bot-token",
+      client,
+      credentialKind: "bot-token",
+    });
+
+    await provider.sendTyping({
+      conversation: { id: "general", kind: "channel" },
+    });
+
+    expect(client.typedNames).toEqual(["general"]);
+  });
+
   it("starts the client and forwards inbound messages to the handler", async () => {
     const client = new FakeDiscordClient();
     const provider = new DiscordChatGatewayProvider({
@@ -329,4 +358,31 @@ class FakeDiscordClient implements DiscordGatewayClient {
   emitMessage(message: DiscordMessageLike): void {
     this.messageListener?.(message as Message);
   }
+}
+
+/**
+ * Fake client where id lookups always miss, forcing channel resolution to fall
+ * back to name search via the channel cache's `find`.
+ */
+class NameResolvingFakeClient extends FakeDiscordClient {
+  readonly typedNames: string[] = [];
+  override readonly channels = {
+    fetch: async (): Promise<unknown> => {
+      throw new Error("unknown channel id");
+    },
+    cache: {
+      get: (): unknown => undefined,
+      find: (predicate: (value: unknown) => boolean): unknown => {
+        const channel = {
+          name: "general",
+          isTextBased: () => true,
+          send: async () => ({ id: "sent-named" }),
+          sendTyping: async () => {
+            this.typedNames.push("general");
+          },
+        };
+        return predicate(channel) ? channel : undefined;
+      },
+    },
+  };
 }

@@ -9,6 +9,7 @@ coverage/
 .agentroom/events.jsonl
 .agentroom/daemon.pid
 .agentroom/daemon.log
+.agentroom/secrets.json
 .agentroom/room.db
 .agentroom/clanky/
 .agentroom/pi-sessions/

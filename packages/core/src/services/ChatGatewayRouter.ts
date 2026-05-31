@@ -20,7 +20,8 @@ export type ChatGatewayOutboundSource =
 
 export interface ChatGatewayRoute {
   providerId: string;
-  conversationId: string;
+  /** Target conversation (channel id or name). Optional; the gateway uses its default channel when unset. */
+  conversationId?: string;
   conversationKind?: ChatConversationKind;
   threadId?: string;
   target: ChatRouteTarget;
@@ -104,6 +105,7 @@ export class ChatGatewayRouter {
     return this.routes.find(
       (route) =>
         route.providerId === message.providerId &&
+        route.conversationId !== undefined &&
         route.conversationId === message.conversation.id &&
         (route.threadId === undefined ||
           route.threadId === message.conversation.threadId),
@@ -170,7 +172,8 @@ function conversationForRoute(
   route: ChatGatewayRoute,
 ): ChatGatewayConversation {
   const conversation: ChatGatewayConversation = {
-    id: route.conversationId,
+    // Empty when the route has no explicit channel — the gateway uses its default.
+    id: route.conversationId ?? "",
     kind:
       route.conversationKind ??
       (route.threadId !== undefined ? "thread" : "channel"),

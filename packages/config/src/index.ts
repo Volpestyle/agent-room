@@ -201,7 +201,8 @@ export type ChatGatewayConfig = {
 
 export interface ChatGatewayRouteConfig {
   provider: string;
-  conversationId: string;
+  /** Target conversation (channel id or name). Optional; gateways default to their own default channel (Discord: #general). */
+  conversationId?: string;
   conversationKind?: ChatConversationKind;
   threadId?: string;
   target: ChatRouteTargetConfig;
@@ -407,6 +408,19 @@ export async function readAgentRoomSessionIdentity(
         parsed.roomId.length > 0 &&
         typeof parsed.updatedAt === "string"
       ) {
+        // A pane-scoped identity must never leak to a caller in a *different*
+        // pane — otherwise one pane's worker identity (and its role) is applied
+        // to everyone running commands in the directory, including a human in
+        // another pane. A caller with no pane still inherits it (that's the
+        // intentional "persist enrollment for later shells" behavior).
+        if (
+          typeof parsed.paneId === "string" &&
+          parsed.paneId.length > 0 &&
+          paneId !== undefined &&
+          parsed.paneId !== paneId
+        ) {
+          continue;
+        }
         return {
           agentId: parsed.agentId,
           roomId: parsed.roomId,
@@ -722,7 +736,9 @@ function formatChatRoute(id: string, route: ChatGatewayRouteConfig): string[] {
   return [
     `    ${id}:`,
     `      provider: ${yamlScalar(route.provider)}`,
-    `      conversationId: ${yamlScalar(route.conversationId)}`,
+    ...(route.conversationId !== undefined
+      ? [`      conversationId: ${yamlScalar(route.conversationId)}`]
+      : []),
     ...(route.conversationKind !== undefined
       ? [`      conversationKind: ${yamlScalar(route.conversationKind)}`]
       : []),
@@ -1004,16 +1020,14 @@ function parseChatRoutes(
     }
     const threadId = stringAt(route, "threadId");
     const outbound = objectAt(route, "outbound");
+    const conversationId = stringAt(route, "conversationId");
 
     routes[id] = {
       provider: required(
         stringAt(route, "provider"),
         `chat.routes.${id}.provider`,
       ),
-      conversationId: required(
-        stringAt(route, "conversationId"),
-        `chat.routes.${id}.conversationId`,
-      ),
+      ...(conversationId !== undefined ? { conversationId } : {}),
       ...(conversationKind !== undefined ? { conversationKind } : {}),
       ...(threadId !== undefined ? { threadId } : {}),
       target: parseChatTarget(

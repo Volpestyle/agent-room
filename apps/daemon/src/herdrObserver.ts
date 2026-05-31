@@ -42,6 +42,7 @@ export interface HerdrPaneObserverOptions {
 
 export class HerdrPaneObserver {
   private readonly client: HerdrSocketClient;
+  private readonly activatedBindings = new Set<string>();
   private stopped = false;
   private reconcileTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -150,6 +151,7 @@ export class HerdrPaneObserver {
         ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
         ...(pane.agent ? { agent: pane.agent } : {}),
         ...(pane.agent_status ? { agent_status: pane.agent_status } : {}),
+        ...(pane.terminal_id ? { terminal_id: pane.terminal_id } : {}),
       },
     });
   }
@@ -172,6 +174,7 @@ export class HerdrPaneObserver {
         ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
         agent: pane.agent,
         ...(pane.agent_status ? { agent_status: pane.agent_status } : {}),
+        ...(pane.terminal_id ? { terminal_id: pane.terminal_id } : {}),
       },
     });
   }
@@ -299,7 +302,15 @@ export class HerdrPaneObserver {
     // First-adoption only: nudge the running agent to activate the room skill.
     // Gated on isNewRegistration so reconcile ticks and daemon restarts (where
     // the agent is already in the event log) never re-prompt a working agent.
-    if (isNewRegistration && this.shouldAutoActivate()) {
+    if (
+      isNewRegistration &&
+      this.shouldAutoActivate() &&
+      !this.hasAlreadyActivatedBinding({
+        bindingId: input.bindingId,
+        ...(existingBinding !== undefined ? { existingBinding } : {}),
+        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      })
+    ) {
       await this.activateAdoptedPane({
         agentId: input.agentId,
         bindingId: input.bindingId,
@@ -332,11 +343,34 @@ export class HerdrPaneObserver {
         ...(agentKind !== undefined ? { agentKind } : {}),
         source: { kind: "human", id: "agentroom-auto" },
       });
+      this.activatedBindings.add(input.bindingId);
       this.log(`sent activation prompt to ${input.agentId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.log(`activation prompt skipped for ${input.agentId}: ${message}`);
     }
+  }
+
+  private hasAlreadyActivatedBinding(input: {
+    bindingId: string;
+    existingBinding?: RuntimeBinding;
+    metadata?: Record<string, unknown>;
+  }): boolean {
+    if (this.activatedBindings.has(input.bindingId)) return true;
+    if (input.existingBinding?.providerId !== this.opts.provider.id) {
+      return false;
+    }
+    if (input.existingBinding.bindingId !== input.bindingId) return false;
+    const previousTerminalId = metadataString(
+      input.existingBinding.metadata,
+      "terminal_id",
+    );
+    const nextTerminalId = metadataString(input.metadata, "terminal_id");
+    return (
+      previousTerminalId !== undefined &&
+      nextTerminalId !== undefined &&
+      previousTerminalId === nextTerminalId
+    );
   }
 
   private async reconcileExistingBindings(
@@ -405,6 +439,7 @@ interface ExtractedPane {
   tab_id?: string;
   agent?: string;
   agent_status?: string;
+  terminal_id?: string;
 }
 
 function extractPane(data: Record<string, unknown>): ExtractedPane | undefined {
@@ -427,6 +462,10 @@ function extractPane(data: Record<string, unknown>): ExtractedPane | undefined {
     ...(typeof candidate["agent_status"] === "string" &&
     candidate["agent_status"].length > 0
       ? { agent_status: candidate["agent_status"] }
+      : {}),
+    ...(typeof candidate["terminal_id"] === "string" &&
+    candidate["terminal_id"].length > 0
+      ? { terminal_id: candidate["terminal_id"] }
       : {}),
   };
 }

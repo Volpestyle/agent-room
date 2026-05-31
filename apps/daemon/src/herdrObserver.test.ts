@@ -208,6 +208,74 @@ describe("HerdrPaneObserver", () => {
     await observer.stop();
   });
 
+  it("does not re-send activation when the same pane process is re-detected after a transient stop", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    socket.deliverEvent("pane_agent_detected", {
+      pane_id: "p_42",
+      workspace_id: "w1",
+      tab_id: "w1:1",
+      agent: "claude",
+      agent_status: "working",
+      terminal_id: "term_1",
+    });
+    await flush();
+    await flush();
+
+    const expectedAgentId = deriveAgentId("agent-room", "p_42");
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.input_sent" &&
+          event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await service.leaveAgent({
+      agentId: expectedAgentId,
+      reason: "transient detector drop",
+    });
+
+    socket.deliverEvent("pane_agent_detected", {
+      pane_id: "p_42",
+      workspace_id: "w1",
+      tab_id: "w1:1",
+      agent: "claude",
+      agent_status: "working",
+      terminal_id: "term_1",
+    });
+    await flush();
+    await flush();
+
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.input_sent" &&
+          event.payload.agentId === expectedAgentId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
   it("does not enroll panes until Herdr reports an agent", async () => {
     const { socket, factory } = createMockSocket();
     const store = new TestEventStore();

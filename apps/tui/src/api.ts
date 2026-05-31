@@ -145,6 +145,26 @@ export function createApiClient(options: ApiClientOptions = {}) {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
+    setSecret: (name: string, value: string) =>
+      apiRequest<{
+        ok: boolean;
+        name: string;
+        configured: boolean;
+        reloaded: string[];
+      }>(`/v1/config/secrets/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      }),
+    setRouteChannel: (routeId: string, conversationId: string | null) =>
+      apiRequest<{
+        ok: boolean;
+        routeId: string;
+        conversationId: string | null;
+        applied: boolean;
+      }>(`/v1/config/chat/routes/${encodeURIComponent(routeId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ conversationId }),
+      }),
     listEvents: (limit = 80) =>
       apiRequest<{ events: RoomEvent[] }>(
         `/v1/events?limit=${encodeURIComponent(limit)}`,

@@ -95,7 +95,7 @@ export class ChatGatewayOutboundDispatcher {
 
       await this.service.recordChatOutbound({
         providerId: provider.id,
-        conversationId: route.conversationId,
+        conversationId: route.conversationId ?? "",
         result,
         text: message.body,
         messageId: message.id,
@@ -106,7 +106,7 @@ export class ChatGatewayOutboundDispatcher {
       results.push({
         route,
         providerId: provider.id,
-        conversationId: route.conversationId,
+        conversationId: route.conversationId ?? "",
         externalMessageId: result.externalMessageId,
         ...(result.chunked !== undefined ? { chunked: result.chunked } : {}),
       });
@@ -167,7 +167,9 @@ function conversationForRoute(
   route: ChatGatewayRoute,
 ): ChatGatewayConversation {
   const conversation: ChatGatewayConversation = {
-    id: route.conversationId,
+    // Empty when the route has no explicit channel — the gateway substitutes its
+    // own default (Discord resolves "" to #general).
+    id: route.conversationId ?? "",
     kind:
       route.conversationKind ??
       (route.threadId !== undefined ? "thread" : "channel"),

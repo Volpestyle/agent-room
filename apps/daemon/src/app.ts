@@ -29,6 +29,7 @@ import {
   type StartAgentRequest,
 } from "@agentroom/core";
 import {
+  agentRoomDir,
   agentRoomProtocolPath,
   agentRoomConfigPath,
   createDefaultAgentRoomConfig,
@@ -54,6 +55,7 @@ import {
 } from "./chatGatewayRegistry.js";
 import { ApnsClient, apnsConfigFromEnv } from "./apns.js";
 import { DeviceRegistry } from "./deviceStore.js";
+import { SecretStore } from "./secretStore.js";
 
 export interface CreateAppOptions {
   roomId?: string;
@@ -61,6 +63,7 @@ export interface CreateAppOptions {
   config?: AgentRoomConfig;
   cwd?: string;
   chatGateways?: ChatGatewayProvider[];
+  runtimeProviders?: RuntimeProvider[];
   startChatGateways?: boolean;
   chatGatewayRegistry?: ChatGatewayRegistry;
   chatGatewayFactory?: ChatGatewayFactory;
@@ -82,6 +85,23 @@ export interface CreateAppResult {
 
 export function createApp(options: CreateAppOptions = {}): Hono {
   return createAppWithLifecycle(options).app;
+}
+
+async function chatGatewaySummaries(registry: ChatGatewayRegistry) {
+  return Promise.all(
+    registry.listGateways().map(async (provider) => {
+      const secret = registry.secretInfo(provider.id);
+      return {
+        id: provider.id,
+        kind: provider.kind,
+        credentialKind: provider.credentialKind,
+        health: await provider.health(),
+        startupError: registry.startupError(provider.id),
+        ...(secret.tokenEnv !== undefined ? { tokenEnv: secret.tokenEnv } : {}),
+        secretConfigured: secret.secretConfigured,
+      };
+    }),
+  );
 }
 
 export function createAppWithLifecycle(
@@ -110,9 +130,14 @@ export function createAppWithLifecycle(
   const store = new JsonlEventStore(eventLogPath);
   const service = new AgentRoomService(store, { roomId });
   const registry = new ProviderRegistry(configured);
+  for (const provider of options.runtimeProviders ?? []) {
+    registry.registerRuntime(provider);
+  }
   const deviceRegistry = new DeviceRegistry(
     join(dirname(eventLogPath), "devices.json"),
   );
+
+  const secretStore = new SecretStore(join(agentRoomDir(cwd), "secrets.json"));
 
   const chatRegistry =
     options.chatGatewayRegistry ??
@@ -124,6 +149,7 @@ export function createAppWithLifecycle(
       ...(options.chatGatewayFactory !== undefined
         ? { gatewayFactory: options.chatGatewayFactory }
         : {}),
+      resolveSecret: (name) => secretStore.get(name),
     });
 
   const chatRoutes = chatRegistry.routes();
@@ -169,6 +195,14 @@ export function createAppWithLifecycle(
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
   const app = new Hono();
+  if (process.env.AGENTROOM_LOG_REQUESTS === "1") {
+    app.use("*", async (c, next) => {
+      await next();
+      console.log(
+        `[req] ${c.req.method} ${new URL(c.req.url).pathname} -> ${c.res.status}`,
+      );
+    });
+  }
   app.onError((error, c) => {
     console.error(
       `[http] ${c.req.method} ${new URL(c.req.url).pathname} failed: ${
@@ -205,15 +239,7 @@ export function createAppWithLifecycle(
         health: await safeRuntimeHealth(provider),
       })),
     );
-    const chatGateways = await Promise.all(
-      chatRegistry.listGateways().map(async (provider) => ({
-        id: provider.id,
-        kind: provider.kind,
-        credentialKind: provider.credentialKind,
-        health: await provider.health(),
-        startupError: chatRegistry.startupError(provider.id),
-      })),
-    );
+    const chatGateways = await chatGatewaySummaries(chatRegistry);
 
     return c.json({
       ok: true,
@@ -225,6 +251,7 @@ export function createAppWithLifecycle(
       },
       runtimes,
       chatGateways,
+      chatRoutes: chatRegistry.routeSummaries(),
     });
   });
 
@@ -274,6 +301,67 @@ export function createAppWithLifecycle(
       path: agentRoomConfigPath(cwd),
       config: configured,
       restartRequired: patch.runtimeDefault !== undefined,
+    });
+  });
+
+  // Set a daemon-side secret (e.g. a chat-gateway token) by env-var name. The
+  // value is persisted to the 0600 secret store and any gateway that reads that
+  // env var is reloaded so it reconnects. The value is never echoed back.
+  app.put("/v1/config/secrets/:name", async (c) => {
+    const name = c.req.param("name");
+    const body: unknown = await c.req.json().catch(() => null);
+    const value =
+      body !== null &&
+      typeof body === "object" &&
+      typeof (body as { value?: unknown }).value === "string"
+        ? (body as { value: string }).value
+        : undefined;
+    if (!name || value === undefined || value === "") {
+      return c.json({ error: "a non-empty string `value` is required" }, 400);
+    }
+    secretStore.set(name, value);
+    const reloaded = await chatRegistry.reloadGatewaysForSecret(name);
+    return c.json({ ok: true, name, configured: true, reloaded });
+  });
+
+  // Set (or clear) a chat route's target channel. Persists to config.yaml and
+  // applies live by rebuilding the route. An empty/missing value clears it so
+  // the gateway falls back to its default channel (Discord: #general).
+  app.patch("/v1/config/chat/routes/:routeId", async (c) => {
+    const routeId = c.req.param("routeId");
+    const body: unknown = await c.req.json().catch(() => null);
+    const raw =
+      body !== null && typeof body === "object"
+        ? (body as { conversationId?: unknown }).conversationId
+        : undefined;
+    const conversationId =
+      typeof raw === "string" && raw.trim() !== "" ? raw.trim() : undefined;
+
+    configured = maybeLoadAgentRoomConfigSync(cwd) ?? configured;
+    const route = configured?.chat?.routes?.[routeId];
+    if (!route) {
+      return c.json({ error: `unknown chat route: ${routeId}` }, 404);
+    }
+    if (conversationId === undefined) {
+      delete route.conversationId;
+    } else {
+      route.conversationId = conversationId;
+    }
+    await writeAgentRoomConfig(cwd, configured);
+
+    let applied = false;
+    try {
+      chatRegistry.setRouteChannel(routeId, conversationId);
+      applied = true;
+    } catch {
+      // route not present in the running registry (added since boot) — persisted,
+      // will take effect on next restart.
+    }
+    return c.json({
+      ok: true,
+      routeId,
+      conversationId: conversationId ?? null,
+      applied,
     });
   });
 
@@ -627,6 +715,36 @@ export function createAppWithLifecycle(
       },
     });
 
+    if (agent.id !== body.agentId) {
+      await service.leaveAgent({
+        agentId: body.agentId,
+        reason: `runtime returned mismatched agent id ${agent.id}`,
+      });
+      return c.json(
+        {
+          error: `runtime provider returned mismatched agent id: expected ${body.agentId}, got ${agent.id}`,
+        },
+        502,
+      );
+    }
+
+    const existingByBinding = await service.findAgentByBinding(agent.bindingId);
+    if (existingByBinding && existingByBinding !== body.agentId) {
+      const existingAgent = await service.getAgent(existingByBinding);
+      if (existingAgent?.state !== "stopped") {
+        await service.leaveAgent({
+          agentId: body.agentId,
+          reason: `runtime binding ${agent.bindingId} already owned by ${existingByBinding}`,
+        });
+        return c.json(
+          {
+            error: `runtime binding ${agent.bindingId} is already owned by active agent ${existingByBinding}`,
+          },
+          409,
+        );
+      }
+    }
+
     await service.bindRuntime({
       agentId: body.agentId,
       runtime: bindingFor(provider, agent.bindingId, agent.metadata),
@@ -672,6 +790,37 @@ export function createAppWithLifecycle(
     await service.recordRuntimeInput({
       agentId,
       text: body.text,
+      source: { kind: "human", id: "api" },
+    });
+    return c.json({ ok: true });
+  });
+
+  app.post("/v1/runtime/:providerId/agents/:agentId/keys", async (c) => {
+    const provider = registry.runtime(c.req.param("providerId"));
+    if (!provider.capabilities.sendKeys || !provider.sendKeys) {
+      return c.json(
+        { error: `runtime provider cannot send keys: ${provider.id}` },
+        501,
+      );
+    }
+    const agentId = c.req.param("agentId");
+    const binding = await service.getRuntimeBinding(agentId);
+    const body = (await c.req.json()) as { keys?: unknown };
+    const keys = Array.isArray(body.keys)
+      ? body.keys.filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        )
+      : [];
+    if (keys.length === 0) return c.json({ error: "keys is required" }, 400);
+    const bindingId = bindingIdFor(provider, binding);
+    await provider.sendKeys({
+      agentId,
+      ...(bindingId !== undefined ? { bindingId } : {}),
+      keys,
+    });
+    await service.recordRuntimeInput({
+      agentId,
+      text: `keys: ${keys.join(" ")}`,
       source: { kind: "human", id: "api" },
     });
     return c.json({ ok: true });
@@ -726,15 +875,7 @@ export function createAppWithLifecycle(
   });
 
   app.get("/v1/chat/gateways", async (c) => {
-    const gateways = await Promise.all(
-      chatRegistry.listGateways().map(async (provider) => ({
-        id: provider.id,
-        kind: provider.kind,
-        credentialKind: provider.credentialKind,
-        health: await provider.health(),
-        startupError: chatRegistry.startupError(provider.id),
-      })),
-    );
+    const gateways = await chatGatewaySummaries(chatRegistry);
     return c.json({ gateways });
   });
 

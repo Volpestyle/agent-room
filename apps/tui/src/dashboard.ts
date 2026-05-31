@@ -32,6 +32,11 @@ import { createEventsView } from "./views/events.js";
 import { createHelpView } from "./views/help.js";
 import { createMessagesView } from "./views/messages.js";
 import { createOverviewView } from "./views/overview.js";
+import {
+  createSettingsView,
+  FieldEditorOverlay,
+  type SettingsAction,
+} from "./views/settings.js";
 import { createTasksView } from "./views/tasks.js";
 import { createWorkspacesView } from "./views/workspaces.js";
 import type { View } from "./views/types.js";
@@ -250,6 +255,10 @@ export class Dashboard {
       createTasksView(options.store),
       createMessagesView(options.store),
       createEventsView(options.store),
+      createSettingsView({
+        store: options.store,
+        onEdit: (action) => this.openSettingsEditor(action),
+      }),
       createHelpView(() => this.hotkeyHint()),
     ];
     this.viewIndexById = new Map(this.views.map((v, i) => [v.id, i]));
@@ -458,6 +467,57 @@ export class Dashboard {
     if (this.overlayHandle) {
       this.overlayHandle.hide();
       this.overlayHandle = undefined;
+    }
+  }
+
+  private openSettingsEditor(action: SettingsAction): void {
+    this.closeOverlay();
+    const opts =
+      action.kind === "token"
+        ? {
+            title: `Set token for ${action.label}`,
+            hint: `Stored as ${action.tokenEnv} in the 0600 secret store. Paste is supported.`,
+            mask: true,
+            allowEmpty: false,
+          }
+        : {
+            title: `Set channel for ${action.label}`,
+            hint: `Current: ${action.current ?? "#general (default)"}. Channel name or id; leave blank for #general.`,
+            mask: false,
+            allowEmpty: true,
+          };
+    const overlay = new FieldEditorOverlay(
+      this.tui,
+      opts,
+      (value) => {
+        void this.submitSetting(action, value, overlay);
+      },
+      () => this.closeOverlay(),
+    );
+    this.overlayHandle = this.tui.showOverlay(overlay, {
+      width: 64,
+      anchor: "center",
+    });
+  }
+
+  private async submitSetting(
+    action: SettingsAction,
+    value: string,
+    overlay: FieldEditorOverlay,
+  ): Promise<void> {
+    overlay.setStatus("Saving…");
+    try {
+      if (action.kind === "token") {
+        await this.options.api.setSecret(action.tokenEnv, value);
+      } else {
+        await this.options.api.setRouteChannel(action.routeId, value || null);
+      }
+      this.closeOverlay();
+      // Refresh status and rebuild the settings list to reflect the change.
+      void this.options.poller.tick();
+      this.switchToId("settings");
+    } catch (error) {
+      overlay.setError(error instanceof Error ? error.message : String(error));
     }
   }
 }

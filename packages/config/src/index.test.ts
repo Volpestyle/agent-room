@@ -13,8 +13,10 @@ import {
   formatAgentRoomConfig,
   parseAgentRoomConfig,
   readAgentRoomProtocol,
+  readAgentRoomSessionIdentity,
   resolveStoragePath,
   withDefaultRuntime,
+  writeAgentRoomSessionIdentity,
 } from "./index.js";
 
 describe("AgentRoom config", () => {
@@ -331,6 +333,41 @@ storage:
         process.env.AGENTROOM_HOME = previousHome;
       }
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not apply a pane-scoped session identity to a caller in a different pane", async () => {
+    const previousHome = process.env.AGENTROOM_HOME;
+    delete process.env.AGENTROOM_HOME;
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-session-pane-"));
+    try {
+      await writeAgentRoomSessionIdentity(cwd, {
+        agentId: "herdr:agent-room:worker",
+        roomId: "agent-room",
+        role: "implementer",
+        bindingId: "worker",
+        paneId: "p_owner",
+        updatedAt: "2026-05-31T00:00:00.000Z",
+      });
+
+      // Same pane → the enrolled agent resolves.
+      const samePane = await readAgentRoomSessionIdentity(cwd, "p_owner");
+      expect(samePane?.agentId).toBe("herdr:agent-room:worker");
+
+      // A different active pane must NOT inherit the identity (the bug fix).
+      const otherPane = await readAgentRoomSessionIdentity(cwd, "p_other");
+      expect(otherPane).toBeUndefined();
+
+      // No pane env still inherits it (intentional "persist for later shells").
+      const noPane = await readAgentRoomSessionIdentity(cwd, undefined);
+      expect(noPane?.agentId).toBe("herdr:agent-room:worker");
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.AGENTROOM_HOME;
+      } else {
+        process.env.AGENTROOM_HOME = previousHome;
+      }
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 });
