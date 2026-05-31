@@ -32,7 +32,9 @@ export interface AgentActivationContext {
  * from the environment. Delivering this as runtime input makes the agent
  * activate the same way a launched agent would.
  */
-export function buildAgentActivationPrompt(ctx: AgentActivationContext): string {
+export function buildAgentActivationPrompt(
+  ctx: AgentActivationContext,
+): string {
   const role = ctx.role ? ` (role: ${ctx.role})` : "";
   // Single line on purpose: a multi-line paste lands in the agent TUI as a
   // multi-line draft and the runtime's Enter does not dispatch it (verified
@@ -53,6 +55,104 @@ function needsTrailingSubmit(agentKind: string | undefined): boolean {
   // Codex's TUI lands a multi-line send in the prompt without auto-submitting;
   // a trailing empty submit dispatches it. Claude Code submits on first send.
   return (agentKind ?? "").toLowerCase().includes("codex");
+}
+
+/**
+ * Default audited source for a message-wake nudge the room injects on its own
+ * behalf when a directed message lands for an idle runtime-backed agent.
+ */
+const MESSAGE_WAKE_SOURCE: ActorRef = { kind: "system", id: "agentroom-wake" };
+
+/** Cap on how much of the message body is inlined into the wake nudge. */
+const MESSAGE_WAKE_PREVIEW_LIMIT = 400;
+
+export interface AgentMessageWakeContext {
+  agentId: string;
+  bindingId?: string;
+  /** Sender label shown in the nudge (display name or actor id). */
+  from: string;
+  /** Body of the directed message; multi-line bodies are collapsed to one line. */
+  body: string;
+  /** Channel the message landed on, used for the read-back hint. Defaults to "dm". */
+  channelId?: string;
+  /**
+   * Total directed messages this nudge stands in for. >1 when messages queued
+   * while the agent was booting/busy and are delivered together once it is
+   * reachable. Defaults to 1.
+   */
+  count?: number;
+  /** Detected harness/agent kind (e.g. "codex") for TUI submit quirks. */
+  agentKind?: string;
+  source?: ActorRef;
+}
+
+/**
+ * Build the one-shot nudge injected into an idle runtime-backed agent when a
+ * directed message (DM, delegation handoff) lands for it. Room messages are
+ * pull-based — they sit unread until the recipient polls or `agent-room wait`s.
+ * An agent that already ended its turn never sees them; this nudge wakes it.
+ *
+ * Single line on purpose: a multi-line paste lands in a coding-agent TUI as a
+ * draft that the runtime's Enter does not dispatch (same constraint as the
+ * activation prompt). The body is collapsed and truncated so it always submits.
+ */
+export function buildMessageWakePrompt(ctx: AgentMessageWakeContext): string {
+  const channel = ctx.channelId ?? "dm";
+  const count = ctx.count !== undefined && ctx.count > 1 ? ctx.count : 1;
+  const collapsed = ctx.body.replace(/\s*\n\s*/g, " ").trim();
+  const preview =
+    collapsed.length > MESSAGE_WAKE_PREVIEW_LIMIT
+      ? `${collapsed.slice(0, MESSAGE_WAKE_PREVIEW_LIMIT)}…`
+      : collapsed;
+  const lead =
+    count > 1
+      ? `[AgentRoom] ${count} new directed messages waiting — latest from ${ctx.from} on #${channel}: ${preview}`
+      : `[AgentRoom] New directed message from ${ctx.from} on #${channel}: ${preview}`;
+  return [
+    lead,
+    `— read the full thread with \`agent-room messages -c ${channel} --limit ${Math.max(count, 5)}\` and reply via \`agent-room dm\`/\`agent-room post\`.`,
+    "End your next turn inside `agent-room wait` so messages reach you without this nudge.",
+  ]
+    .join(" ")
+    .replace(/\s*\n\s*/g, " ");
+}
+
+/**
+ * Inject a message-wake nudge into a running agent's runtime and record the
+ * audited input event. Returns the prompt text that was sent.
+ *
+ * Throws if the provider cannot send input. Callers that fire this
+ * opportunistically (e.g. the daemon message notifier) should catch and log
+ * rather than fail their main flow.
+ */
+export async function wakeAgentForMessage(
+  provider: RuntimeProvider,
+  service: AgentRoomService | undefined,
+  ctx: AgentMessageWakeContext,
+): Promise<{ agentId: string; text: string }> {
+  if (!provider.capabilities.sendInput) {
+    throw new Error(
+      `runtime provider '${provider.id}' cannot send input; cannot wake ${ctx.agentId}`,
+    );
+  }
+  const text = buildMessageWakePrompt(ctx);
+  const source = ctx.source ?? MESSAGE_WAKE_SOURCE;
+  const target = {
+    agentId: ctx.agentId,
+    ...(ctx.bindingId !== undefined ? { bindingId: ctx.bindingId } : {}),
+    source,
+  };
+
+  await provider.sendInput({ ...target, text, submit: true });
+  if (needsTrailingSubmit(ctx.agentKind)) {
+    await provider.sendInput({ ...target, text: "", submit: true });
+  }
+
+  if (service) {
+    await service.recordRuntimeInput({ agentId: ctx.agentId, text, source });
+  }
+
+  return { agentId: ctx.agentId, text };
 }
 
 /**

@@ -59,6 +59,15 @@ agent-room wait --task-status "$TASK:ready-for-review" --timeout 600
 
 `wait` exits 0 with the matching event (JSON with `--json`) or non-zero on timeout. `--since now` (default) only matches events that arrive after the command starts. Pair it with the action you want to take next, so the worker stays in-turn until the work is real.
 
+## Message delivery contract
+
+Room messages are pull-based: a `post`/`dm`/`delegate` appends an event to the log — it does not interrupt the recipient. So a directed message reaches you in one of two ways:
+
+- **You are in `agent-room wait`** — you consume the event in-turn. This is the reliable path; always end a turn that depends on someone else inside `wait`.
+- **You ended your turn idle (or were still booting/busy)** — the daemon detects the directed message and injects a one-shot wake nudge into your runtime so you act on it instead of leaving it unread. It never fires mid-turn; a message that arrives while you are working or still booting is held and delivered the moment you become reachable (coalesced if several queued). This is a safety net, not a substitute for `wait`: on a runtime that cannot report when your prompt is live it is best-effort, and a wake that stays undeliverable too long is eventually abandoned.
+
+Practical consequences: do not assume a DM you send is "delivered" the instant you post it — the recipient sees it only when waiting or when the wake fires. And when you receive a `[AgentRoom] New directed message …` nudge, it means you were idle; read the full thread with `agent-room messages -c dm --limit 5` and resume coordinating through room commands.
+
 ## Known CLI surface (don't waste turns rediscovering)
 
 Commands that **do** exist: `init`, `whoami`, `daemon`, `mobile-connect`, `tui`, `protocol`, `post`, `status`, `dm`, `messages`, `wait`, `wait-task`, `wait-agent`, `agents`/`presence`, `delegate`, `task {create,list,show,claim,status,request-review,approve,changes-requested,link-tracker,comment}`, `ask-human`, `block`, `done`, `tracker`, `events`, `doctor`, `runtime`, `launch`, `enroll`, `read`, `send`, `activate`, `stop`.

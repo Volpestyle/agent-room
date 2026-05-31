@@ -47,6 +47,7 @@ import {
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { HerdrPaneObserver, resolveHerdrSocketPath } from "./herdrObserver.js";
 import { ProviderRegistry } from "./providerRegistry.js";
+import { RuntimeMessageNotifier } from "./runtimeMessageNotifier.js";
 import {
   ChatGatewayRegistry,
   type ChatGatewayFactory,
@@ -63,6 +64,13 @@ export interface CreateAppOptions {
   startChatGateways?: boolean;
   chatGatewayRegistry?: ChatGatewayRegistry;
   chatGatewayFactory?: ChatGatewayFactory;
+  /**
+   * Tail the event log and wake idle runtime-backed recipients of directed
+   * messages. Defaults to on; tests that don't exercise delivery can disable it.
+   */
+  startMessageNotifier?: boolean;
+  /** Poll cadence for the message notifier's event-log tail. */
+  messageNotifierPollIntervalMs?: number;
 }
 
 export interface CreateAppResult {
@@ -142,6 +150,21 @@ export function createAppWithLifecycle(
     service,
     roomId,
   });
+
+  const messageNotifier =
+    options.startMessageNotifier === false
+      ? undefined
+      : new RuntimeMessageNotifier({
+          store,
+          service,
+          registry,
+          roomId,
+          ...(options.messageNotifierPollIntervalMs !== undefined
+            ? { pollIntervalMs: options.messageNotifierPollIntervalMs }
+            : {}),
+          logger: (message) => console.log(`[message-notifier] ${message}`),
+        });
+  void messageNotifier?.start();
 
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
 
@@ -805,6 +828,7 @@ export function createAppWithLifecycle(
     chatGateways: chatRegistry,
     chatStartup,
     shutdown: async () => {
+      await messageNotifier?.stop();
       await Promise.all(herdrObservers.map((observer) => observer.stop()));
       await chatRegistry.stop();
     },
