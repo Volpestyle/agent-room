@@ -52,6 +52,7 @@ import {
   writeAgentRoomSessionEnvFile,
   writeAgentRoomSessionIdentity,
   withDefaultRuntime,
+  workTrackerLabel,
   writeAgentRoomConfig,
   type AgentRoomConfig,
   type ClankyChatGatewayOwner,
@@ -1308,6 +1309,7 @@ program
       if (options.activate !== false) {
         try {
           const { provider } = await runtimeProviderForCwd(options.runtime);
+          const trackerLabel = workTrackerLabel(appConfig);
           await activateAgent(provider, service, {
             agentId,
             roomId: config.roomId,
@@ -1315,6 +1317,9 @@ program
             role,
             ...(options.harness !== "custom"
               ? { agentKind: options.harness }
+              : {}),
+            ...(trackerLabel !== undefined
+              ? { workTracker: trackerLabel }
               : {}),
             ...(appConfig !== undefined
               ? { protocolPath: agentRoomProtocolPath() }
@@ -1487,6 +1492,7 @@ program
         (typeof context.binding?.metadata?.["agent"] === "string"
           ? (context.binding.metadata["agent"] as string)
           : undefined);
+      const trackerLabel = workTrackerLabel(appConfig);
       const result = await activateAgent(context.provider, context.service, {
         agentId,
         roomId: config.roomId,
@@ -1495,6 +1501,7 @@ program
           : {}),
         ...(agent?.role !== undefined ? { role: agent.role } : {}),
         ...(agentKind !== undefined ? { agentKind } : {}),
+        ...(trackerLabel !== undefined ? { workTracker: trackerLabel } : {}),
         ...(appConfig !== undefined
           ? { protocolPath: agentRoomProtocolPath() }
           : {}),

@@ -56,6 +56,21 @@ export function defaultRoomIdFromEnv(
   return firstNonEmpty(env.AGENTROOM_ROOM_ID) ?? DEFAULT_ROOM_ID;
 }
 
+/**
+ * Human-readable label for the configured external work tracker (e.g.
+ * "linear (team VUH)"), or undefined when there is no external tracker (no
+ * `workTracker` block, or the `native` provider — both mean "use markdown").
+ */
+export function workTrackerLabel(
+  config: AgentRoomConfig | undefined,
+): string | undefined {
+  const tracker = config?.workTracker;
+  if (!tracker) return undefined;
+  const provider = tracker.providers[tracker.default];
+  if (!provider || provider.type === "native") return undefined;
+  return `${tracker.default}${provider.teamId ? ` (team ${provider.teamId})` : ""}`;
+}
+
 function firstNonEmpty(
   ...values: Array<string | undefined>
 ): string | undefined {

@@ -19,6 +19,8 @@ export interface HerdrPaneObserverOptions {
   service: AgentRoomService;
   provider: RuntimeProvider;
   roomId: string;
+  /** Resolved work-tracker label injected into the activation prompt, when configured. */
+  workTracker?: string;
   defaultRole?: AgentRole;
   logger?: (message: string) => void;
   reconnectDelayMs?: number;
@@ -42,7 +44,10 @@ export interface HerdrPaneObserverOptions {
 
 export class HerdrPaneObserver {
   private readonly client: HerdrSocketClient;
-  private readonly activatedBindings = new Set<string>();
+  // Keyed by Herdr's stable per-process `terminal_id` (falling back to the
+  // pane id) so a reused pane slot running a NEW process re-activates, while
+  // reconcile ticks for the same process never re-prompt a working agent.
+  private readonly activatedTerminals = new Set<string>();
   private stopped = false;
   private reconcileTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -184,7 +189,11 @@ export class HerdrPaneObserver {
     if (!pane) return;
     const agentId = deriveAgentId(this.opts.session, pane.pane_id);
     this.log(`pane closed: ${pane.pane_id} (${agentId})`);
-    await this.markBindingStopped(pane.pane_id, "herdr pane closed");
+    await this.markBindingStopped(
+      pane.pane_id,
+      "herdr pane closed",
+      pane.terminal_id,
+    );
   }
 
   private log(message: string): void {
@@ -226,18 +235,28 @@ export class HerdrPaneObserver {
     state?: RuntimeAgent["state"];
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    const existingByBinding = await this.opts.service.findAgentByBinding(
-      input.bindingId,
-    );
-    if (existingByBinding && existingByBinding !== input.agentId) {
-      const existingAgent = await this.opts.service.getAgent(existingByBinding);
-      if (existingAgent?.state !== "stopped") return;
+    if (!this.opts.provider.adoptAgent) {
+      this.log(
+        `provider ${this.opts.provider.kind} does not support adoptAgent; skipping pane ${input.bindingId}`,
+      );
+      return;
     }
 
-    const existingBinding = await this.opts.service.getRuntimeBinding(
-      input.agentId,
-    );
-    const existingAgent = await this.opts.service.getAgent(input.agentId);
+    const liveTerminalId = metadataString(input.metadata, "terminal_id");
+
+    // Resolve the canonical owner of this pane. Herdr reuses pane ids across
+    // processes, and operators launch agents with custom ids bound to a pane,
+    // so the owner is often not our derived `herdr:session:pane` id. The owning
+    // agent — not a duplicate auto-derived record — is the single source of
+    // truth for the pane's state.
+    const targetId = await this.resolvePaneTarget({
+      derivedId: input.agentId,
+      bindingId: input.bindingId,
+      liveTerminalId,
+    });
+
+    const existingBinding = await this.opts.service.getRuntimeBinding(targetId);
+    const existingAgent = await this.opts.service.getAgent(targetId);
     if (
       existingBinding &&
       existingBinding.bindingId !== input.bindingId &&
@@ -246,35 +265,28 @@ export class HerdrPaneObserver {
       return;
     }
 
-    if (!this.opts.provider.adoptAgent) {
-      this.log(
-        `provider ${this.opts.provider.kind} does not support adoptAgent; skipping pane ${input.bindingId}`,
-      );
-      return;
-    }
-
     const role: AgentRole = this.opts.defaultRole ?? "implementer";
-    const isNewRegistration = shouldRegisterAgent(
-      existingAgent,
-      input.displayName,
-    );
+    // Adopt the pane's detected agent name only for a brand-new derived record;
+    // never rename a pre-existing owner (e.g. operator-launched "claude-reviewer")
+    // to the raw harness kind ("claude").
+    const adoptingDerived = targetId === input.agentId;
+    const displayName = adoptingDerived
+      ? input.displayName
+      : existingAgent?.displayName;
+    const isNewRegistration = shouldRegisterAgent(existingAgent, displayName);
     if (isNewRegistration) {
       await this.opts.service.registerAgent({
-        id: input.agentId,
+        id: targetId,
         role,
-        ...(input.displayName !== undefined
-          ? { displayName: input.displayName }
-          : {}),
+        ...(displayName !== undefined ? { displayName } : {}),
       });
     }
     const agent = await this.opts.provider.adoptAgent({
-      agentId: input.agentId,
+      agentId: targetId,
       bindingId: input.bindingId,
       roomId: this.opts.roomId,
       role,
-      ...(input.displayName !== undefined
-        ? { displayName: input.displayName }
-        : {}),
+      ...(displayName !== undefined ? { displayName } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     });
     const runtime = bindingFor(
@@ -284,40 +296,74 @@ export class HerdrPaneObserver {
     );
     const rebound = shouldBindRuntime(existingAgent?.runtime, runtime);
     if (rebound) {
-      await this.opts.service.bindRuntime({
-        agentId: input.agentId,
-        runtime,
-      });
+      await this.opts.service.bindRuntime({ agentId: targetId, runtime });
     }
     await this.opts.service.recordAgentHeartbeat({
-      agentId: input.agentId,
+      agentId: targetId,
       state: input.state ?? agent.state,
     });
     // Only announce on a genuine (re)adoption. Periodic reconcile re-runs this
     // for every pane on each tick; without this guard it would spam the log.
     if (isNewRegistration || rebound) {
-      this.log(`auto-enrolled pane ${input.bindingId} as ${input.agentId}`);
+      this.log(`auto-enrolled pane ${input.bindingId} as ${targetId}`);
     }
 
     // First-adoption only: nudge the running agent to activate the room skill.
-    // Gated on isNewRegistration so reconcile ticks and daemon restarts (where
-    // the agent is already in the event log) never re-prompt a working agent.
+    // Gated on isNewRegistration (a genuinely new process — a reused pane slot
+    // retires the prior record first, so it re-qualifies) so reconcile ticks
+    // and daemon restarts never re-prompt a working agent.
     if (
       isNewRegistration &&
       this.shouldAutoActivate() &&
-      !this.hasAlreadyActivatedBinding({
+      !this.hasAlreadyActivated({
         bindingId: input.bindingId,
+        ...(liveTerminalId !== undefined ? { terminalId: liveTerminalId } : {}),
         ...(existingBinding !== undefined ? { existingBinding } : {}),
-        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       })
     ) {
       await this.activateAdoptedPane({
-        agentId: input.agentId,
+        agentId: targetId,
         bindingId: input.bindingId,
         role,
+        ...(liveTerminalId !== undefined ? { terminalId: liveTerminalId } : {}),
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       });
     }
+  }
+
+  /**
+   * Decide which room agent should reflect this pane. Returns the owning
+   * agent's id when a non-stopped agent already holds the binding for the same
+   * process, so operator-launched (custom-id) agents stay the source of truth.
+   * When the pane slot has been reused by a new process (terminal_id changed),
+   * the stale owner is retired and the derived id adopts the new process fresh.
+   */
+  private async resolvePaneTarget(input: {
+    derivedId: string;
+    bindingId: string;
+    liveTerminalId: string | undefined;
+  }): Promise<string> {
+    const ownerId = await this.opts.service.findAgentByBinding(input.bindingId);
+    if (!ownerId) return input.derivedId;
+    const owner = await this.opts.service.getAgent(ownerId);
+    if (!owner || owner.state === "stopped") return input.derivedId;
+
+    const ownerTerminalId = metadataString(
+      owner.runtime?.metadata,
+      "terminal_id",
+    );
+    const reused =
+      ownerTerminalId !== undefined &&
+      input.liveTerminalId !== undefined &&
+      ownerTerminalId !== input.liveTerminalId;
+    if (reused) {
+      await this.markAgentStopped(
+        owner,
+        "herdr pane slot reused by a new process",
+      );
+      return input.derivedId;
+    }
+    return ownerId;
   }
 
   private shouldAutoActivate(): boolean {
@@ -331,6 +377,7 @@ export class HerdrPaneObserver {
     agentId: string;
     bindingId: string;
     role: AgentRole;
+    terminalId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
     const agentKind = metadataString(input.metadata, "agent");
@@ -341,9 +388,12 @@ export class HerdrPaneObserver {
         bindingId: input.bindingId,
         role: input.role,
         ...(agentKind !== undefined ? { agentKind } : {}),
+        ...(this.opts.workTracker !== undefined
+          ? { workTracker: this.opts.workTracker }
+          : {}),
         source: { kind: "human", id: "agentroom-auto" },
       });
-      this.activatedBindings.add(input.bindingId);
+      this.activatedTerminals.add(input.terminalId ?? input.bindingId);
       this.log(`sent activation prompt to ${input.agentId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -351,12 +401,16 @@ export class HerdrPaneObserver {
     }
   }
 
-  private hasAlreadyActivatedBinding(input: {
+  private hasAlreadyActivated(input: {
     bindingId: string;
+    terminalId?: string;
     existingBinding?: RuntimeBinding;
-    metadata?: Record<string, unknown>;
   }): boolean {
-    if (this.activatedBindings.has(input.bindingId)) return true;
+    if (this.activatedTerminals.has(input.terminalId ?? input.bindingId)) {
+      return true;
+    }
+    // Survives daemon restart: if the persisted binding already carries this
+    // terminal id, the same process was adopted (and prompted) in a prior run.
     if (input.existingBinding?.providerId !== this.opts.provider.id) {
       return false;
     }
@@ -365,11 +419,10 @@ export class HerdrPaneObserver {
       input.existingBinding.metadata,
       "terminal_id",
     );
-    const nextTerminalId = metadataString(input.metadata, "terminal_id");
     return (
       previousTerminalId !== undefined &&
-      nextTerminalId !== undefined &&
-      previousTerminalId === nextTerminalId
+      input.terminalId !== undefined &&
+      previousTerminalId === input.terminalId
     );
   }
 
@@ -385,9 +438,23 @@ export class HerdrPaneObserver {
     const roomAgents = await this.opts.service.listAgents();
 
     for (const agent of roomAgents) {
-      const binding = agent.runtime;
-      if (binding?.providerId !== this.opts.provider.id) continue;
       if (agent.state === "stopped") continue;
+      const binding = agent.runtime;
+
+      if (binding?.providerId !== this.opts.provider.id) {
+        // Auto-derived agent that was registered but never bound to a live pane
+        // (adopt failed, or the pane vanished mid-registration). Without this it
+        // lingers forever as a phantom "created" record; reap it once the pane
+        // it names is gone.
+        const paneId = derivedPaneId(agent.id, this.opts.session);
+        if (paneId !== undefined && !liveBindings.has(paneId)) {
+          await this.markAgentStopped(
+            agent,
+            "herdr pane never bound or no longer exists",
+          );
+        }
+        continue;
+      }
 
       if (!liveBindings.has(binding.bindingId)) {
         await this.markAgentStopped(agent, "herdr pane no longer exists");
@@ -409,11 +476,23 @@ export class HerdrPaneObserver {
   private async markBindingStopped(
     bindingId: string,
     reason: string,
+    terminalId?: string,
   ): Promise<void> {
     const agentId = await this.opts.service.findAgentByBinding(bindingId);
     if (!agentId) return;
     const agent = await this.opts.service.getAgent(agentId);
     if (!agent || agent.state === "stopped") return;
+    // Guard against a stale close for a pane slot already reused by a new
+    // process: only stop when the closing pane's terminal matches the bound one.
+    if (terminalId !== undefined) {
+      const boundTerminalId = metadataString(
+        agent.runtime?.metadata,
+        "terminal_id",
+      );
+      if (boundTerminalId !== undefined && boundTerminalId !== terminalId) {
+        return;
+      }
+    }
     await this.markAgentStopped(agent, reason);
   }
 
@@ -425,6 +504,12 @@ export class HerdrPaneObserver {
 
 export function deriveAgentId(session: string, paneId: string): string {
   return `herdr:${session}:${paneId}`;
+}
+
+/** Inverse of {@link deriveAgentId}: the pane id encoded in a derived agent id. */
+function derivedPaneId(agentId: string, session: string): string | undefined {
+  const prefix = `herdr:${session}:`;
+  return agentId.startsWith(prefix) ? agentId.slice(prefix.length) : undefined;
 }
 
 function agentIdForRuntimeAgent(session: string, agent: RuntimeAgent): string {
@@ -541,7 +626,9 @@ function shouldBindRuntime(
     metadataString(existing.metadata, "workspaceId") !==
       metadataString(next.metadata, "workspaceId") ||
     metadataString(existing.metadata, "tabId") !==
-      metadataString(next.metadata, "tabId")
+      metadataString(next.metadata, "tabId") ||
+    metadataString(existing.metadata, "terminal_id") !==
+      metadataString(next.metadata, "terminal_id")
   );
 }
 

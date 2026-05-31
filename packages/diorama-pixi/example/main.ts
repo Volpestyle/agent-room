@@ -56,7 +56,7 @@ import type {
   TownLayoutOptions,
   TownPlan,
 } from "@agentroom/diorama-town";
-import { createRenderer } from "../src/index.js";
+import { createRenderer } from "@agentroom/diorama-pixi";
 
 // ---------------------------------------------------------------------------
 // Config.

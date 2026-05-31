@@ -94,6 +94,7 @@ describe("agentroom daemon app", () => {
       cwd: options.cwd,
       protocolPath: join(options.cwd, "home", "AGENTS.md"),
       defaultRuntime: "fake",
+      workTracker: null,
       operator: {
         agentId: "operator",
         displayName: "Clanky Operator",

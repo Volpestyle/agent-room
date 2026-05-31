@@ -35,6 +35,7 @@ import { createOverviewView } from "./views/overview.js";
 import {
   createSettingsView,
   FieldEditorOverlay,
+  type FieldEditorOptions,
   type SettingsAction,
 } from "./views/settings.js";
 import { createWorkspacesView } from "./views/workspaces.js";
@@ -468,25 +469,44 @@ export class Dashboard {
     }
   }
 
+  private editorOptionsFor(action: SettingsAction): FieldEditorOptions {
+    switch (action.kind) {
+      case "token":
+        return {
+          title: `Set token for ${action.label}`,
+          hint: `Stored as ${action.tokenEnv} in the 0600 secret store. Paste is supported.`,
+          mask: true,
+          allowEmpty: false,
+        };
+      case "channel":
+        return {
+          title: `Set channel for ${action.label}`,
+          hint: `Current: ${action.current ?? "#general (default)"}. Channel name or id; leave blank for #general.`,
+          mask: false,
+          allowEmpty: true,
+        };
+      case "tracker":
+        return {
+          title: "Set work tracker",
+          hint: `Current: ${action.current ?? "native (markdown)"}. Enter e.g. "linear TEAM_ID", or "native" for a markdown checklist.`,
+          mask: false,
+          allowEmpty: false,
+        };
+      case "runtime":
+        return {
+          title: "Set default runtime",
+          hint: `Current: ${action.current ?? "(unset)"}. Enter herdr | tmux | fake.`,
+          mask: false,
+          allowEmpty: false,
+        };
+    }
+  }
+
   private openSettingsEditor(action: SettingsAction): void {
     this.closeOverlay();
-    const opts =
-      action.kind === "token"
-        ? {
-            title: `Set token for ${action.label}`,
-            hint: `Stored as ${action.tokenEnv} in the 0600 secret store. Paste is supported.`,
-            mask: true,
-            allowEmpty: false,
-          }
-        : {
-            title: `Set channel for ${action.label}`,
-            hint: `Current: ${action.current ?? "#general (default)"}. Channel name or id; leave blank for #general.`,
-            mask: false,
-            allowEmpty: true,
-          };
     const overlay = new FieldEditorOverlay(
       this.tui,
-      opts,
+      this.editorOptionsFor(action),
       (value) => {
         void this.submitSetting(action, value, overlay);
       },
@@ -505,19 +525,58 @@ export class Dashboard {
   ): Promise<void> {
     overlay.setStatus("Saving…");
     try {
-      if (action.kind === "token") {
-        await this.options.api.setSecret(action.tokenEnv, value);
-      } else {
-        await this.options.api.setRouteChannel(action.routeId, value || null);
+      switch (action.kind) {
+        case "token":
+          await this.options.api.setSecret(action.tokenEnv, value);
+          break;
+        case "channel":
+          await this.options.api.setRouteChannel(action.routeId, value || null);
+          break;
+        case "tracker": {
+          const parts = value.trim().split(/\s+/);
+          const type = parts[0] ?? "";
+          const teamId = parts.slice(1).join(" ").trim();
+          if (!isTrackerKind(type)) {
+            overlay.setError(
+              `tracker must be one of: ${TRACKER_KINDS.join(", ")} (optionally followed by a team id)`,
+            );
+            return;
+          }
+          await this.options.api.updateSetupConfig({
+            workTracker: { type, ...(teamId !== "" ? { teamId } : {}) },
+          });
+          break;
+        }
+        case "runtime": {
+          const runtime = value.trim();
+          if (runtime !== "herdr" && runtime !== "tmux" && runtime !== "fake") {
+            overlay.setError("runtime must be one of: herdr, tmux, fake");
+            return;
+          }
+          await this.options.api.updateSetupConfig({ runtimeDefault: runtime });
+          break;
+        }
       }
       this.closeOverlay();
       // Refresh status and rebuild the settings list to reflect the change.
-      void this.options.poller.tick();
+      await this.options.poller.tick();
       this.switchToId("settings");
     } catch (error) {
       overlay.setError(error instanceof Error ? error.message : String(error));
     }
   }
+}
+
+const TRACKER_KINDS = [
+  "native",
+  "linear",
+  "github-issues",
+  "jira",
+  "custom",
+] as const;
+type TrackerKind = (typeof TRACKER_KINDS)[number];
+function isTrackerKind(value: string): value is TrackerKind {
+  return (TRACKER_KINDS as readonly string[]).includes(value);
 }
 
 function pad(left: string, right: string, width: number): string {

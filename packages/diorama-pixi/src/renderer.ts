@@ -321,7 +321,14 @@ export class DioramaRenderer {
   /** Create a placeholder Graphics node for a new entity, keyed by role color. */
   private addEntityNode(entity: WorldEntity, pos: Vec2): void {
     const graphics = new Graphics();
-    this.drawAvatar(graphics, ROLE_COLORS[entity.role]);
+    // The SkinMap maps role → sprite sheet (skin.roleSkins[role]); real atlases
+    // are bound later via loadSkinAtlas. Until one is registered for this role's
+    // sheet, draw a placeholder tinted by role.
+    const sheet = this.skin.roleSkins[entity.role];
+    const hasAtlas = sheet !== undefined && this.atlases.has(sheet.src);
+    if (!hasAtlas) {
+      this.drawAvatar(graphics, ROLE_COLORS[entity.role]);
+    }
     graphics.position.set(pos.x, pos.y);
     this.entityLayer.addChild(graphics);
     this.entityNodes.set(entity.id, { graphics, position: { x: pos.x, y: pos.y } });

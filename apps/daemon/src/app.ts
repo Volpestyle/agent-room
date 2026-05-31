@@ -34,6 +34,7 @@ import {
   readAgentRoomProtocol,
   resolveStoragePath,
   withDefaultRuntime,
+  workTrackerLabel,
   writeAgentRoomConfig,
   type AgentRoomConfig,
   type ClankyChatGatewayOwner,
@@ -278,6 +279,7 @@ export function createAppWithLifecycle(
       cwd,
       protocolPath: agentRoomProtocolPath(cwd),
       defaultRuntime: configured?.runtime.default ?? null,
+      workTracker: configured?.workTracker ?? null,
       operator: configured?.operator ?? null,
     });
   });
@@ -823,12 +825,14 @@ export function createAppWithLifecycle(
     const bindingId = bindingIdFor(provider, binding);
     const agentKind =
       agent?.harness?.kind ?? metaString(binding?.metadata, "agent");
+    const trackerLabel = workTrackerLabel(configured);
     const result = await activateAgent(provider, service, {
       agentId,
       roomId,
       ...(bindingId !== undefined ? { bindingId } : {}),
       ...(agent?.role !== undefined ? { role: agent.role } : {}),
       ...(agentKind !== undefined ? { agentKind } : {}),
+      ...(trackerLabel !== undefined ? { workTracker: trackerLabel } : {}),
       source: { kind: "human", id: "api" },
     });
     return c.json({ ok: true, ...result });
@@ -1254,6 +1258,7 @@ function startHerdrObservers(input: {
 }): HerdrPaneObserver[] {
   if (!input.config) return [];
   const observers: HerdrPaneObserver[] = [];
+  const trackerLabel = workTrackerLabel(input.config);
   for (const [providerId, runtime] of Object.entries(input.config.runtimes)) {
     if (runtime.type !== "herdr") continue;
     const session = runtime.session ?? process.env.HERDR_SESSION;
@@ -1274,6 +1279,7 @@ function startHerdrObservers(input: {
       provider,
       service: input.service,
       roomId: input.roomId,
+      ...(trackerLabel !== undefined ? { workTracker: trackerLabel } : {}),
       observers,
     });
   }
@@ -1287,6 +1293,7 @@ async function startHerdrObserver(input: {
   provider: RuntimeProvider;
   service: AgentRoomService;
   roomId: string;
+  workTracker?: string;
   observers: HerdrPaneObserver[];
 }): Promise<void> {
   try {
@@ -1298,6 +1305,9 @@ async function startHerdrObserver(input: {
       service: input.service,
       provider: input.provider,
       roomId: input.roomId,
+      ...(input.workTracker !== undefined
+        ? { workTracker: input.workTracker }
+        : {}),
       reconcileIntervalMs: HERDR_RECONCILE_INTERVAL_MS,
       logger: (message) => console.log(`[herdr-observer] ${message}`),
     });

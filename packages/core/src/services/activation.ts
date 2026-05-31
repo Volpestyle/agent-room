@@ -15,6 +15,8 @@ export interface AgentActivationContext {
   role?: string;
   /** Absolute path to the room protocol file, when AgentRoom can resolve it. */
   protocolPath?: string;
+  /** Resolved work-tracker label (e.g. "linear (team VUH)"), when one is configured. */
+  workTracker?: string;
   /**
    * Detected harness/agent kind (e.g. "codex", "claude-code"). Controls TUI
    * submit quirks; safe to omit.
@@ -45,6 +47,11 @@ export function buildAgentActivationPrompt(
     "run `agent-room whoami --json` and `agent-room protocol --json`, track your work in the configured work tracker (or a markdown checklist if none is configured), and post a short status with `agent-room post` before editing.",
     "Use agent-room post/dm/wait for all room coordination.",
   ];
+  if (ctx.workTracker) {
+    parts.push(
+      `Work tracker: ${ctx.workTracker} — track issues there via its MCP (also in the AGENTROOM_WORK_TRACKER env).`,
+    );
+  }
   if (ctx.protocolPath) {
     parts.push(`Room protocol file: ${ctx.protocolPath}.`);
   }

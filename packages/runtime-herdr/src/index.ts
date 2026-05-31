@@ -248,6 +248,10 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
 
   async adoptAgent(request: AdoptAgentRequest): Promise<RuntimeAgent> {
     const pane = await this.getPane(request.bindingId);
+    // terminal_id is Herdr's stable per-process id; carrying it into the
+    // binding lets the observer distinguish "same process" from "pane slot
+    // reused by a new process" when a pane id recycles.
+    const terminalId = stringField(asRecord(pane.metadata), "terminal_id");
     return {
       id: request.agentId,
       bindingId: pane.pane_id,
@@ -260,6 +264,7 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
       metadata: {
         ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
         ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+        ...(terminalId ? { terminal_id: terminalId } : {}),
         adopted: true,
         ...(request.metadata ?? {}),
       },

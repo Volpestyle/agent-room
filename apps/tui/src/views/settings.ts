@@ -16,7 +16,9 @@ import type { View, ViewActivationContext } from "./types.js";
 /** An editable setting the user selected in the Settings view. */
 export type SettingsAction =
   | { kind: "token"; gatewayId: string; tokenEnv: string; label: string }
-  | { kind: "channel"; routeId: string; label: string; current: string | undefined };
+  | { kind: "channel"; routeId: string; label: string; current: string | undefined }
+  | { kind: "tracker"; current: string | undefined }
+  | { kind: "runtime"; current: string | undefined };
 
 export interface SettingsViewOptions {
   store: DashboardStore;
@@ -123,22 +125,14 @@ export class FieldEditorOverlay extends Container implements Focusable {
 }
 
 class SettingsPanel extends PanelBase {
-  constructor(private readonly store: DashboardStore) {
-    super();
-  }
-
   render(width: number): string[] {
-    const health = this.store.get().health;
-    const hasAny =
-      (health?.chatGateways.length ?? 0) > 0 ||
-      (health?.chatRoutes?.length ?? 0) > 0;
-    const lines: string[] = ["", palette.label("SETTINGS · CHAT GATEWAYS"), ""];
-    lines.push(
-      hasAny
-        ? palette.muted("Select a row and press Enter to edit it.")
-        : palette.muted("No chat gateways are configured in config.yaml."),
-    );
-    lines.push("");
+    const lines: string[] = [
+      "",
+      palette.label("SETTINGS"),
+      "",
+      palette.muted("Select a row and press Enter to edit it. Secrets are masked."),
+      "",
+    ];
     return lines.map((line) => fit(line, width));
   }
 }
@@ -146,15 +140,39 @@ class SettingsPanel extends PanelBase {
 export function createSettingsView(options: SettingsViewOptions): View {
   const { store, onEdit } = options;
   const root = new Container();
-  const panel = new SettingsPanel(store);
+  const panel = new SettingsPanel();
 
   const rebuild = (ctx: ViewActivationContext): void => {
     root.clear();
     root.addChild(panel);
 
-    const health = store.get().health;
+    const state = store.get();
+    const health = state.health;
+    const config = state.config;
     const actions: SettingsAction[] = [];
     const items: Array<{ value: string; label: string; description: string }> = [];
+
+    // Runtime + work tracker (non-secret config, via the setup endpoint).
+    const runtimeCurrent = config?.defaultRuntime ?? undefined;
+    items.push({
+      value: String(actions.length),
+      label: "runtime · default",
+      description: runtimeCurrent ?? "(unset)",
+    });
+    actions.push({ kind: "runtime", current: runtimeCurrent ?? undefined });
+
+    const wt = config?.workTracker ?? undefined;
+    const provider = wt ? wt.providers[wt.default] : undefined;
+    const trackerCurrent =
+      wt && provider && provider.type !== "native"
+        ? `${wt.default}${provider.teamId ? ` · team ${provider.teamId}` : ""}`
+        : undefined;
+    items.push({
+      value: String(actions.length),
+      label: "work tracker",
+      description: trackerCurrent ?? "none (native) — agents use a markdown checklist",
+    });
+    actions.push({ kind: "tracker", current: trackerCurrent });
 
     for (const gateway of health?.chatGateways ?? []) {
       if (gateway.tokenEnv === undefined) continue;
@@ -189,11 +207,6 @@ export function createSettingsView(options: SettingsViewOptions): View {
       });
     }
 
-    if (actions.length === 0) {
-      ctx.setFocus(null);
-      return;
-    }
-
     const list = new SelectList(
       items,
       Math.min(items.length, 8),
@@ -212,7 +225,7 @@ export function createSettingsView(options: SettingsViewOptions): View {
     id: "settings",
     label: "Settings",
     hotkey: "s",
-    description: "Configure chat gateway tokens and channels",
+    description: "Configure runtime, work tracker, and chat gateway tokens/channels",
     root,
     onActivate: (ctx) => rebuild(ctx),
   };

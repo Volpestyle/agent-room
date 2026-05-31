@@ -94,6 +94,13 @@ export interface DashboardConfig {
   cwd: string;
   protocolPath?: string;
   defaultRuntime?: string | null;
+  workTracker?: {
+    default: string;
+    providers: Record<
+      string,
+      { type: string; teamId?: string; projectId?: string; baseUrl?: string }
+    >;
+  } | null;
   operator?: DashboardOperatorConfig | null;
 }
 

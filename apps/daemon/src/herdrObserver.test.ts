@@ -381,6 +381,188 @@ describe("HerdrPaneObserver", () => {
 
     await observer.stop();
   });
+
+  it("updates the operator-launched owner of a pane instead of creating a duplicate", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    // An operator launched a custom-id agent bound to pane p_1.
+    await service.registerAgent({
+      id: "claude-reviewer",
+      role: "reviewer",
+      displayName: "claude-reviewer",
+    });
+    await service.bindRuntime({
+      agentId: "claude-reviewer",
+      runtime: {
+        providerId: "test-herdr",
+        bindingId: "p_1",
+        kind: "pane",
+        metadata: { adopted: true },
+      },
+    });
+
+    // Herdr reports the same pane as a working "claude". The owner — not a
+    // duplicate herdr:agent-room:p_1 — must reflect the state.
+    socket.deliverEvent("pane_agent_detected", {
+      pane_id: "p_1",
+      workspace_id: "w1",
+      tab_id: "w1:1",
+      agent: "claude",
+      agent_status: "blocked",
+      terminal_id: "term_A",
+    });
+    await flush();
+    await flush();
+
+    await expect(service.getAgent("claude-reviewer")).resolves.toEqual(
+      expect.objectContaining({ state: "blocked", displayName: "claude-reviewer" }),
+    );
+    // No auto-derived duplicate was created for the same pane.
+    const derivedId = deriveAgentId("agent-room", "p_1");
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "agent.joined" &&
+          event.payload.agent.id === derivedId,
+      ),
+    ).toHaveLength(0);
+
+    await observer.stop();
+  });
+
+  it("retires the owner and re-adopts when a pane slot is reused by a new process", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    // Prior agent occupied pane slot p_1 with process term_A.
+    await service.registerAgent({
+      id: "old-agent",
+      role: "implementer",
+      displayName: "old-agent",
+    });
+    await service.bindRuntime({
+      agentId: "old-agent",
+      runtime: {
+        providerId: "test-herdr",
+        bindingId: "p_1",
+        kind: "pane",
+        metadata: { adopted: true, terminal_id: "term_A" },
+      },
+    });
+
+    // The slot is now occupied by a different process (term_B).
+    socket.deliverEvent("pane_agent_detected", {
+      pane_id: "p_1",
+      workspace_id: "w1",
+      tab_id: "w1:1",
+      agent: "claude",
+      agent_status: "working",
+      terminal_id: "term_B",
+    });
+    await flush();
+    await flush();
+
+    // The stale owner is retired; a fresh derived record represents the new
+    // process and gets exactly one activation prompt.
+    await expect(service.getAgent("old-agent")).resolves.toEqual(
+      expect.objectContaining({ state: "stopped" }),
+    );
+    const derivedId = deriveAgentId("agent-room", "p_1");
+    await expect(service.getAgent(derivedId)).resolves.toEqual(
+      expect.objectContaining({ state: "working" }),
+    );
+    expect(
+      store.events.filter(
+        (event) =>
+          event.type === "runtime.input_sent" &&
+          event.payload.agentId === derivedId,
+      ),
+    ).toHaveLength(1);
+
+    await observer.stop();
+  });
+
+  it("reaps orphaned auto-derived agents that were never bound, but leaves operator agents", async () => {
+    const { socket, factory } = createMockSocket();
+    const store = new TestEventStore();
+    const service = new AgentRoomService(store, { roomId: "room" });
+    const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    // An auto-derived agent registered but never bound (adopt failed / pane
+    // vanished mid-registration), plus an operator-launched agent with no
+    // binding yet.
+    const orphanId = deriveAgentId("agent-room", "p_gone");
+    await service.registerAgent({
+      id: orphanId,
+      role: "implementer",
+      displayName: "claude",
+    });
+    await service.registerAgent({
+      id: "lead-1",
+      role: "lead",
+      displayName: "claude-lead",
+    });
+
+    const observer = new HerdrPaneObserver({
+      socketPath: "ignored",
+      session: "agent-room",
+      service,
+      provider,
+      roomId: "room",
+      reconnectDelayMs: 5000,
+      socketFactory: factory,
+    });
+
+    const startPromise = observer.start();
+    await flush();
+    socket.ackLastSubscribeRequest();
+    await startPromise;
+
+    // Orphaned derived record is reaped; the operator agent is left untouched.
+    await expect(service.getAgent(orphanId)).resolves.toEqual(
+      expect.objectContaining({ state: "stopped" }),
+    );
+    await expect(service.getAgent("lead-1")).resolves.toEqual(
+      expect.objectContaining({ state: "created" }),
+    );
+
+    await observer.stop();
+  });
 });
 
 class TestEventStore implements EventStore {
