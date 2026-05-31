@@ -13,6 +13,13 @@ export interface RuntimeCapabilities {
   stopAgent: boolean;
   readOutput: boolean;
   sendInput: boolean;
+  /**
+   * Provider can deliver discrete named terminal keys (arrows, Enter, Esc, …)
+   * to a pane, distinct from typing literal text. Required to drive interactive
+   * TUI prompts. Optional so existing capability literals stay valid; treat an
+   * absent value as `false`.
+   */
+  sendKeys?: boolean;
   attachInteractive: boolean;
   subscribeEvents: boolean;
   semanticAgentState: boolean;
@@ -90,6 +97,20 @@ export interface SendInputRequest {
   source?: ActorRef;
 }
 
+/**
+ * Send one or more discrete named terminal keys to a pane. Unlike
+ * {@link SendInputRequest}, this types no literal text and appends no implicit
+ * Enter — the caller controls the exact key sequence. Key names are
+ * provider-neutral tokens such as `Up`, `Down`, `Enter`, `Esc`, `Tab`,
+ * `Left`, `Right`; each adapter maps them onto its own terminal key vocabulary.
+ */
+export interface SendKeysRequest {
+  agentId: Id;
+  bindingId?: string;
+  keys: string[];
+  source?: ActorRef;
+}
+
 export type RuntimeEvent =
   | { type: "process.started"; bindingId: string; agentId?: Id; at: string }
   | {
@@ -140,6 +161,7 @@ export interface RuntimeProvider {
   stopAgent(agentId: Id): Promise<void>;
   readAgent(request: ReadAgentRequest): Promise<AgentOutput>;
   sendInput(request: SendInputRequest): Promise<void>;
+  sendKeys?(request: SendKeysRequest): Promise<void>;
   attach?(agentId: Id): Promise<void>;
   subscribeEvents?(handler: RuntimeEventHandler): Promise<RuntimeSubscription>;
 }

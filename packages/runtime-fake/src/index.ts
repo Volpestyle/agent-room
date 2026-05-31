@@ -1,4 +1,4 @@
-import { nowIso, type AdoptAgentRequest, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type StartAgentRequest } from '@agentroom/core';
+import { nowIso, type AdoptAgentRequest, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type SendKeysRequest, type StartAgentRequest } from '@agentroom/core';
 
 interface FakeAgentRecord extends RuntimeAgent {
   output: string[];
@@ -12,6 +12,7 @@ export class FakeRuntimeProvider implements RuntimeProvider {
     stopAgent: true,
     readOutput: true,
     sendInput: true,
+    sendKeys: true,
     attachInteractive: false,
     subscribeEvents: false,
     semanticAgentState: true,
@@ -103,6 +104,11 @@ export class FakeRuntimeProvider implements RuntimeProvider {
   async sendInput(request: SendInputRequest): Promise<void> {
     const agent = this.get(request.agentId);
     agent.output.push(`[${nowIso()}] input from ${request.source?.id ?? 'unknown'}: ${request.text}`);
+  }
+
+  async sendKeys(request: SendKeysRequest): Promise<void> {
+    const agent = this.get(request.agentId);
+    agent.output.push(`[${nowIso()}] keys from ${request.source?.id ?? 'unknown'}: ${request.keys.join(' ')}`);
   }
 
   private get(agentId: string): FakeAgentRecord {

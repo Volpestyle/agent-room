@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { nowIso, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type StartAgentRequest } from '@agentroom/core';
+import { nowIso, type AgentOutput, type ReadAgentRequest, type RuntimeAgent, type RuntimeCapabilities, type RuntimeHealth, type RuntimeProvider, type RuntimeSession, type SendInputRequest, type SendKeysRequest, type StartAgentRequest } from '@agentroom/core';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TMUX_SESSION_PREFIX = 'agent-room';
@@ -19,6 +19,7 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
     stopAgent: true,
     readOutput: true,
     sendInput: true,
+    sendKeys: true,
     attachInteractive: true,
     subscribeEvents: false,
     semanticAgentState: false,
@@ -122,6 +123,13 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
   async sendInput(request: SendInputRequest): Promise<void> {
     const session = request.bindingId ?? this.sessionName(request.agentId);
     await this.run(['send-keys', '-t', session, request.text, request.submit === false ? '' : 'Enter'].filter(Boolean));
+  }
+
+  async sendKeys(request: SendKeysRequest): Promise<void> {
+    const session = request.bindingId ?? this.sessionName(request.agentId);
+    // tmux send-keys accepts named keys (Up, Down, Enter, …) as bare tokens.
+    // Send the whole sequence in one call so ordering is preserved.
+    await this.run(['send-keys', '-t', session, ...request.keys]);
   }
 
   async attach(agentId: string): Promise<void> {
