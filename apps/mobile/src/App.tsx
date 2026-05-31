@@ -20,7 +20,6 @@ import {
   type RoomEvent,
   type RuntimeAgent,
   type RuntimeProviderSummary,
-  type Task,
 } from "./api";
 import {
   defaultConnection,
@@ -47,7 +46,6 @@ export function App() {
   const [draftUrl, setDraftUrl] = useState(defaultConnection.baseUrl);
   const [draftToken, setDraftToken] = useState("");
   const [health, setHealth] = useState<DaemonHealth | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [events, setEvents] = useState<RoomEvent[]>([]);
   const [providers, setProviders] = useState<RuntimeProviderSummary[]>([]);
@@ -74,19 +72,13 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      const [
-        healthResult,
-        tasksResult,
-        messagesResult,
-        eventsResult,
-        providerResult,
-      ] = await Promise.all([
-        client.health(),
-        client.listTasks(),
-        client.listMessages(),
-        client.listEvents(),
-        client.listRuntimeProviders(),
-      ]);
+      const [healthResult, messagesResult, eventsResult, providerResult] =
+        await Promise.all([
+          client.health(),
+          client.listMessages(),
+          client.listEvents(),
+          client.listRuntimeProviders(),
+        ]);
       const activeProvider =
         selectedProviderId ||
         providerResult.providers.find(
@@ -108,7 +100,6 @@ export function App() {
           : undefined;
 
       setHealth(healthResult);
-      setTasks(tasksResult.tasks);
       setMessages(messagesResult.messages);
       setEvents(eventsResult.events);
       setProviders(providerResult.providers);
@@ -279,7 +270,6 @@ export function App() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <View style={styles.statsRow}>
-            <Stat label="Tasks" value={String(tasks.length)} />
             <Stat label="Agents" value={String(agents.length)} />
             <Stat label="Events" value={String(events.length)} />
           </View>
@@ -379,25 +369,6 @@ export function App() {
           </View>
 
           <View style={styles.panel}>
-            <Text style={styles.sectionTitle}>Tasks</Text>
-            {tasks.length === 0 ? (
-              <Text style={styles.muted}>No active tasks.</Text>
-            ) : (
-              tasks.slice(0, 8).map((task) => (
-                <View key={task.id} style={styles.row}>
-                  <View style={styles.rowMain}>
-                    <Text style={styles.rowTitle}>{task.title}</Text>
-                    <Text style={styles.rowMeta}>
-                      {task.assignee?.id ?? "unassigned"} - {task.status}
-                    </Text>
-                  </View>
-                  <TaskStatusDot status={task.status} />
-                </View>
-              ))
-            )}
-          </View>
-
-          <View style={styles.panel}>
             <Text style={styles.sectionTitle}>Messages</Text>
             {messages.slice(0, 8).map((message) => (
               <View key={message.id} style={styles.messageRow}>
@@ -438,24 +409,6 @@ function Stat(props: { label: string; value: string }) {
       <Text style={styles.statValue}>{props.value}</Text>
       <Text style={styles.statLabel}>{props.label}</Text>
     </View>
-  );
-}
-
-function TaskStatusDot(props: { status: string }) {
-  const done = ["approved", "merged", "done"].includes(props.status);
-  const blocked = [
-    "blocked",
-    "changes-requested",
-    "failed",
-    "canceled",
-  ].includes(props.status);
-  return (
-    <View
-      style={[
-        styles.statusDot,
-        done ? styles.doneDot : blocked ? styles.blockedDot : styles.activeDot,
-      ]}
-    />
   );
 }
 

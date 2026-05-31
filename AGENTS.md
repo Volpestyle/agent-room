@@ -21,7 +21,7 @@ Rules for using these references:
 - Preserve AgentRoom's runtime-provider boundary and event-first model.
 - Keep core AgentRoom guidance provider-neutral. Do not encode Herdr, tmux, or other runtime-specific operations in `AGENTS.md` or agent-facing skills unless the file is explicitly adapter-specific.
 - Use AgentRoom runtime commands and provider ports as the normal control surface. Raw multiplexer/provider commands are for adapter implementation, adapter docs, or manual recovery only.
-- Treat the configured external work tracker as canonical. AgentRoom local tasks are shadows/audit context when linked to external tracker issues.
+- The configured external work tracker (Linear, GitHub Issues, etc., reached via its MCP/CLI) is the single source of truth for issues, status, ownership, and comments. AgentRoom does not store or track tasks — there is no native task model, task events, or task API. Agents reach the tracker through their own tooling; AgentRoom only points them at it via the `workTracker` config and `AGENTROOM_WORK_TRACKER*` env. Coordinate work through messages/DMs and the agent state machine (`done`/`block`/`wait-agent`), not a local task store.
 - Use AgentRoom native messages for active channel/DM coordination between agents.
 - Prefer local AgentRoom conventions when they conflict with a reference repo.
 - Mention any reference repo paths that materially shaped your implementation.

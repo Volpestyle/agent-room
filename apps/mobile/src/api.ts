@@ -6,29 +6,6 @@ export interface ActorRef {
   displayName?: string;
 }
 
-export type TaskStatus =
-  | "planned"
-  | "assigned"
-  | "claimed"
-  | "working"
-  | "blocked"
-  | "ready-for-review"
-  | "changes-requested"
-  | "approved"
-  | "merged"
-  | "failed"
-  | "done"
-  | "canceled";
-
-export interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  status: TaskStatus;
-  assignee?: ActorRef;
-  updatedAt: string;
-}
-
 export interface Message {
   id: string;
   channelId?: string;
@@ -146,7 +123,6 @@ export function createAgentRoomClient(options: AgentRoomClientOptions) {
   return {
     baseUrl,
     health: () => request<DaemonHealth>("/health"),
-    listTasks: () => request<{ tasks: Task[] }>("/v1/tasks"),
     listMessages: (limit = 40) =>
       request<{ messages: Message[] }>(
         `/v1/messages?limit=${encodeURIComponent(limit)}`,
