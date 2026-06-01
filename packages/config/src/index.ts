@@ -704,7 +704,7 @@ function formatMcpServer(id: string, server: McpServerConfig): string[] {
       ? [`      command: ${yamlScalar(server.command)}`]
       : []),
     ...(server.args !== undefined && server.args.length > 0
-      ? [`      args: ${yamlScalar(server.args.join(" "))}`]
+      ? formatYamlList("      args:", server.args, "        ")
       : []),
     ...(server.cwd !== undefined ? [`      cwd: ${yamlScalar(server.cwd)}`] : []),
     ...(server.description !== undefined
@@ -717,6 +717,14 @@ function formatMcpServer(id: string, server: McpServerConfig): string[] {
       ? [`      disabled: ${yamlScalar(server.disabled)}`]
       : []),
   ];
+}
+
+function formatYamlList(
+  header: string,
+  values: readonly string[],
+  itemIndent: string,
+): string[] {
+  return [header, ...values.map((value) => `${itemIndent}- ${yamlScalar(value)}`)];
 }
 
 function formatClanky(clanky: ClankyConfig): string[] {

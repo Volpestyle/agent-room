@@ -348,6 +348,34 @@ storage:
     });
   });
 
+  it("round-trips MCP args with whitespace as YAML lists", () => {
+    const config = createDefaultAgentRoomConfig({
+      roomId: "agent-room",
+      defaultRuntime: "fake",
+    });
+    config.mcp = {
+      servers: {
+        local: {
+          type: "stdio",
+          command: "node",
+          args: ["--label", "Foo: bar", "quoted value"],
+        },
+      },
+    };
+
+    const formatted = formatAgentRoomConfig(config);
+
+    expect(formatted).toContain(`      args:
+        - --label
+        - "Foo: bar"
+        - "quoted value"`);
+    expect(parseAgentRoomConfig(formatted).mcp?.servers.local?.args).toEqual([
+      "--label",
+      "Foo: bar",
+      "quoted value",
+    ]);
+  });
+
   it("discovers the nearest project config from subdirectories", async () => {
     const previousHome = process.env.AGENTROOM_HOME;
     delete process.env.AGENTROOM_HOME;
