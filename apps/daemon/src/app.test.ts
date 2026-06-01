@@ -68,6 +68,86 @@ describe("agentroom daemon app", () => {
     }
   });
 
+  it("issues one-time mobile connect grants that registered devices can claim", async () => {
+    const previousToken = process.env.AGENTROOM_API_TOKEN;
+    const previousKeyPath = process.env.AGENTROOM_APNS_KEY_PATH;
+    const previousKeyId = process.env.AGENTROOM_APNS_KEY_ID;
+    const previousTeamId = process.env.AGENTROOM_APNS_TEAM_ID;
+    process.env.AGENTROOM_API_TOKEN = "mobile-secret";
+    process.env.AGENTROOM_APNS_KEY_PATH = "/tmp/AuthKey_TEST.p8";
+    process.env.AGENTROOM_APNS_KEY_ID = "TESTKEY";
+    process.env.AGENTROOM_APNS_TEAM_ID = "TEAM123";
+    try {
+      let grant: string | undefined;
+      const app = createApp({
+        ...(await appOptions()),
+        apnsClientFactory: () => ({
+          async sendConnect(devices, payload) {
+            grant = payload.grantsByDeviceToken?.["device-token"];
+            return devices.map((device) => ({
+              token: device.token,
+              ok: true,
+              status: 200,
+            }));
+          },
+        }),
+      });
+
+      const authHeaders = {
+        ...jsonHeaders(),
+        authorization: "Bearer mobile-secret",
+      };
+      const register = await app.request("/v1/devices", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          token: "device-token",
+          platform: "ios",
+          env: "sandbox",
+          bundleId: "io.agentroom.ios",
+        }),
+      });
+      expect(register.status).toBe(201);
+
+      const push = await app.request("/v1/mobile/connect-push", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          baseUrl: "http://phone-reachable.example:4317",
+          mode: "tailnet",
+        }),
+      });
+      expect(push.status).toBe(200);
+      expect(grant).toEqual(expect.any(String));
+
+      const claim = await app.request("/v1/mobile/claim-connect", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ grant, deviceToken: "device-token" }),
+      });
+      expect(claim.status).toBe(200);
+      await expect(claim.json()).resolves.toMatchObject({
+        ok: true,
+        roomId: "test-room",
+        baseUrl: "http://phone-reachable.example:4317",
+        mode: "tailnet",
+        token: "mobile-secret",
+      });
+
+      const replay = await app.request("/v1/mobile/claim-connect", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ grant, deviceToken: "device-token" }),
+      });
+      expect(replay.status).toBe(401);
+    } finally {
+      restoreEnv("AGENTROOM_API_TOKEN", previousToken);
+      restoreEnv("AGENTROOM_APNS_KEY_PATH", previousKeyPath);
+      restoreEnv("AGENTROOM_APNS_KEY_ID", previousKeyId);
+      restoreEnv("AGENTROOM_APNS_TEAM_ID", previousTeamId);
+    }
+  });
+
   it("serves dashboard config from the daemon room config", async () => {
     const options = await appOptions();
     const app = createApp({
@@ -139,7 +219,11 @@ describe("agentroom daemon app", () => {
       body: JSON.stringify({
         runtimeDefault: "tmux",
         workTracker: { type: "linear", teamId: "team_123" },
-        mcpServer: { id: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+        mcpServer: {
+          id: "linear",
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+        },
         clanky: {
           chatGatewayOwner: "room",
           home: ".clanky-room",

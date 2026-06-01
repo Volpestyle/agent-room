@@ -1,4 +1,8 @@
-import { createPrivateKey, type KeyObject, sign as cryptoSign } from "node:crypto";
+import {
+  createPrivateKey,
+  type KeyObject,
+  sign as cryptoSign,
+} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { connect as http2Connect } from "node:http2";
 import type { ApnsEnvironment, RegisteredDevice } from "./deviceStore.js";
@@ -48,6 +52,8 @@ export interface ConnectPushPayload {
   baseUrl?: string;
   mode?: "tailnet" | "custom";
   silent?: boolean;
+  grant?: string;
+  grantsByDeviceToken?: Record<string, string>;
 }
 
 export class ApnsClient {
@@ -67,7 +73,6 @@ export class ApnsClient {
   ): Promise<ApnsSendResult[]> {
     if (devices.length === 0) return [];
     const jwt = await this.providerToken();
-    const body = JSON.stringify(buildConnectNotification(payload));
 
     const byEnv = new Map<ApnsEnvironment, RegisteredDevice[]>();
     for (const device of devices) {
@@ -79,9 +84,7 @@ export class ApnsClient {
 
     const results: ApnsSendResult[] = [];
     for (const [env, bucket] of byEnv) {
-      results.push(
-        ...(await this.sendBatch(env, bucket, jwt, body, payload.silent)),
-      );
+      results.push(...(await this.sendBatch(env, bucket, jwt, payload)));
     }
     return results;
   }
@@ -90,8 +93,7 @@ export class ApnsClient {
     env: ApnsEnvironment,
     devices: RegisteredDevice[],
     jwt: string,
-    body: string,
-    silent?: boolean,
+    payload: ConnectPushPayload,
   ): Promise<ApnsSendResult[]> {
     const client = http2Connect(APNS_HOSTS[env]);
     const results: ApnsSendResult[] = [];
@@ -100,13 +102,23 @@ export class ApnsClient {
         devices.map(
           (device) =>
             new Promise<void>((resolve) => {
+              const body = JSON.stringify(
+                buildConnectNotification(
+                  withDeviceGrant(
+                    payload,
+                    payload.grantsByDeviceToken?.[device.token] ??
+                      payload.grant,
+                  ),
+                ),
+              );
               const req = client.request({
                 ":method": "POST",
                 ":path": `/3/device/${device.token}`,
                 authorization: `bearer ${jwt}`,
                 "apns-topic": this.config.bundleId,
-                "apns-push-type": silent === true ? "background" : "alert",
-                "apns-priority": silent === true ? "5" : "10",
+                "apns-push-type":
+                  payload.silent === true ? "background" : "alert",
+                "apns-priority": payload.silent === true ? "5" : "10",
                 "content-type": "application/json",
               });
 
@@ -180,12 +192,21 @@ export class ApnsClient {
   }
 }
 
+function withDeviceGrant(
+  payload: ConnectPushPayload,
+  grant: string | undefined,
+): ConnectPushPayload {
+  if (grant === undefined) return payload;
+  return { ...payload, grant };
+}
+
 function buildConnectNotification(payload: ConnectPushPayload): unknown {
   const agentroom: Record<string, unknown> = {
     action: "connect",
     roomId: payload.roomId,
     ...(payload.baseUrl !== undefined ? { baseUrl: payload.baseUrl } : {}),
     ...(payload.mode !== undefined ? { mode: payload.mode } : {}),
+    ...(payload.grant !== undefined ? { grant: payload.grant } : {}),
   };
 
   if (payload.silent === true) {
