@@ -289,6 +289,17 @@ export class HerdrPaneObserver {
       ...(displayName !== undefined ? { displayName } : {}),
       ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     });
+    // The one-shot activation de-dupe is keyed on Herdr's stable per-process
+    // terminal_id. The triggering event does not always carry it:
+    // `pane.agent_detected` — emitted on every agent (re)detection — omits it,
+    // while `pane.created`, `pane.list`, and `pane.get` include it. Take the id
+    // from the adopted agent, which the provider sources from the live pane
+    // (Herdr's `adoptAgent` reads it via `pane.get`), so the key is stable
+    // across every adoption path. Keying on the (often missing) event field
+    // re-prompts a working agent whenever a terminal_id-less detection event
+    // re-adopts a pane the reconcile sweep had transiently marked stopped.
+    const resolvedTerminalId =
+      metadataString(agent.metadata, "terminal_id") ?? liveTerminalId;
     const runtime = bindingFor(
       this.opts.provider,
       agent.bindingId,
@@ -317,7 +328,9 @@ export class HerdrPaneObserver {
       this.shouldAutoActivate() &&
       !this.hasAlreadyActivated({
         bindingId: input.bindingId,
-        ...(liveTerminalId !== undefined ? { terminalId: liveTerminalId } : {}),
+        ...(resolvedTerminalId !== undefined
+          ? { terminalId: resolvedTerminalId }
+          : {}),
         ...(existingBinding !== undefined ? { existingBinding } : {}),
       })
     ) {
@@ -325,7 +338,9 @@ export class HerdrPaneObserver {
         agentId: targetId,
         bindingId: input.bindingId,
         role,
-        ...(liveTerminalId !== undefined ? { terminalId: liveTerminalId } : {}),
+        ...(resolvedTerminalId !== undefined
+          ? { terminalId: resolvedTerminalId }
+          : {}),
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       });
     }

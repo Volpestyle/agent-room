@@ -208,11 +208,24 @@ describe("HerdrPaneObserver", () => {
     await observer.stop();
   });
 
-  it("does not re-send activation when the same pane process is re-detected after a transient stop", async () => {
+  it("does not re-send activation when a transiently-stopped pane is re-detected via a terminal_id-less agent event", async () => {
     const { socket, factory } = createMockSocket();
     const store = new TestEventStore();
     const service = new AgentRoomService(store, { roomId: "room" });
     const provider = new FakeRuntimeProvider({ id: "test-herdr" });
+
+    // A coding agent is already running in pane p_42 when the observer starts.
+    // Herdr's authoritative pane state (pane.list/get, and the pane.get behind
+    // adoptAgent) carries the stable terminal_id, so first adoption keys the
+    // activation de-dupe on it.
+    await provider.adoptAgent({
+      agentId: "p_42",
+      bindingId: "p_42",
+      roomId: "room",
+      role: "implementer",
+      displayName: "claude",
+      metadata: { agent: "claude", terminal_id: "term_1" },
+    });
 
     const observer = new HerdrPaneObserver({
       socketPath: "ignored",
@@ -229,17 +242,6 @@ describe("HerdrPaneObserver", () => {
     socket.ackLastSubscribeRequest();
     await startPromise;
 
-    socket.deliverEvent("pane_agent_detected", {
-      pane_id: "p_42",
-      workspace_id: "w1",
-      tab_id: "w1:1",
-      agent: "claude",
-      agent_status: "working",
-      terminal_id: "term_1",
-    });
-    await flush();
-    await flush();
-
     const expectedAgentId = deriveAgentId("agent-room", "p_42");
     expect(
       store.events.filter(
@@ -249,18 +251,25 @@ describe("HerdrPaneObserver", () => {
       ),
     ).toHaveLength(1);
 
+    // Herdr's heuristic detection transiently loses the agent and the reconcile
+    // sweep marks the room agent stopped.
     await service.leaveAgent({
       agentId: expectedAgentId,
       reason: "transient detector drop",
     });
 
+    // Detection recovers and Herdr emits `pane.agent_detected` — which, unlike
+    // `pane.created`/`pane.list`/`pane.get`, carries NO terminal_id. The observer
+    // must resolve the id from the live pane (via the adopted agent) and
+    // recognize this as the same already-activated process, NOT re-prompt it.
+    // Regression: keying the de-dupe on the event's missing terminal_id re-fired
+    // the "You are enrolled in room ..." prompt at random times.
     socket.deliverEvent("pane_agent_detected", {
       pane_id: "p_42",
       workspace_id: "w1",
       tab_id: "w1:1",
       agent: "claude",
       agent_status: "working",
-      terminal_id: "term_1",
     });
     await flush();
     await flush();
@@ -485,7 +494,11 @@ describe("HerdrPaneObserver", () => {
       },
     });
 
-    // The slot is now occupied by a different process (term_B).
+    // The slot is now occupied by a different process (term_B). The real
+    // `pane.agent_detected` event omits terminal_id; reuse is detected from the
+    // pane's authoritative terminal_id (reconcile/pane.list, or the pane.get
+    // behind adoptAgent). The id is supplied on the event here purely so the test
+    // exercises the reuse branch directly.
     socket.deliverEvent("pane_agent_detected", {
       pane_id: "p_1",
       workspace_id: "w1",

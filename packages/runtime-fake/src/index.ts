@@ -64,6 +64,13 @@ export class FakeRuntimeProvider implements RuntimeProvider {
   }
 
   async adoptAgent(request: AdoptAgentRequest): Promise<RuntimeAgent> {
+    // A real runtime (e.g. Herdr) sources a pane's stable terminal_id from its
+    // own live state, so an adopt resolves it even when the event that triggered
+    // the adopt omitted it (Herdr's `pane.agent_detected` carries no terminal_id,
+    // unlike `pane.created`/`pane.list`/`pane.get`). Model that: once a binding's
+    // terminal_id is known, preserve it across re-adoptions so the provider stays
+    // the source of truth for the id rather than the inbound request.
+    const knownTerminalId = this.terminalIdForBinding(request.bindingId);
     const record: FakeAgentRecord = {
       id: request.agentId,
       bindingId: request.bindingId,
@@ -73,6 +80,7 @@ export class FakeRuntimeProvider implements RuntimeProvider {
       metadata: {
         role: request.role,
         adopted: true,
+        ...(knownTerminalId !== undefined ? { terminal_id: knownTerminalId } : {}),
         ...(request.metadata ?? {})
       },
       output: [`[${nowIso()}] adopted fake agent ${request.agentId} on ${request.bindingId}`]
@@ -80,6 +88,15 @@ export class FakeRuntimeProvider implements RuntimeProvider {
     this.agents.set(request.agentId, record);
     const { output, ...agent } = record;
     return agent;
+  }
+
+  private terminalIdForBinding(bindingId: string): string | undefined {
+    for (const record of this.agents.values()) {
+      if (record.bindingId !== bindingId) continue;
+      const terminalId = record.metadata?.['terminal_id'];
+      if (typeof terminalId === 'string' && terminalId.length > 0) return terminalId;
+    }
+    return undefined;
   }
 
   async stopAgent(agentId: string): Promise<void> {
