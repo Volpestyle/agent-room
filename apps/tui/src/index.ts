@@ -6,6 +6,10 @@ import {
   createDashboardAgent,
   type DashboardThinkingLevel,
 } from "./agent/index.js";
+import {
+  createAnnouncerAgent,
+  isAnnouncerEnabled,
+} from "./agent/announcer.js";
 import { DashboardAgentLogger } from "./agent/dashboard-log.js";
 import { AuthStorage } from "./auth/storage.js";
 import { Dashboard } from "./dashboard.js";
@@ -86,6 +90,30 @@ export async function runAgentRoomTui(
 
   const agent = buildAgent();
 
+  // The announcer is an isolated sub-agent that watches room state and posts
+  // announcements without interrupting the dashboard agent. Default-on; opt out
+  // with AGENTROOM_TUI_ANNOUNCER=0.
+  const announcer = isAnnouncerEnabled()
+    ? createAnnouncerAgent({
+        api,
+        poller,
+        auth,
+        roomId: bootHealth.roomId,
+        cwd: bootConfig.cwd,
+      })
+    : undefined;
+  if (announcer && "reason" in announcer) {
+    logger.record("warn", "announcer_unavailable", announcer.reason, {
+      reason: announcer.reason,
+    });
+  }
+  const announcerDebounceRaw = process.env.AGENTROOM_TUI_ANNOUNCER_DEBOUNCE_MS;
+  const announcerDebounceMs =
+    announcerDebounceRaw !== undefined &&
+    Number.isFinite(Number(announcerDebounceRaw))
+      ? Number(announcerDebounceRaw)
+      : undefined;
+
   const terminal = new ProcessTerminal();
   const dashboard = new Dashboard({
     terminal,
@@ -96,6 +124,8 @@ export async function runAgentRoomTui(
     auth,
     logger,
     rebuildAgent: buildAgent,
+    ...(announcer !== undefined ? { announcer } : {}),
+    ...(announcerDebounceMs !== undefined ? { announcerDebounceMs } : {}),
     baseUrl,
   });
 

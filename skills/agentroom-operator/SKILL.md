@@ -168,7 +168,7 @@ Discord is a projection surface, not AgentRoom's source of truth. AgentRoom owns
 
 ### Lead-as-public-face pattern (multi-agent room)
 
-When mirroring a room-owned Discord conversation into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to that Discord conversation and are only reached via AgentRoom DMs/tasks from the lead.
+When mirroring a room-owned Discord conversation into a multi-agent room, designate one agent as the lead and route inbound chat to its stdin. Workers stay invisible to that Discord conversation and are only reached via AgentRoom DMs or tracker-linked delegations from the lead.
 
 Example launch for a Pi/Clanky-style room:
 

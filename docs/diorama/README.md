@@ -2,7 +2,10 @@
 
 Design docs for **Diorama** — a thin framework for building game-like UIs over the AgentRoom (and later Clanky) ecosystem, where live agent/room state is rendered as an animated, clickable world instead of a dashboard.
 
-Status: **proposal / design — no code yet.** Names (Diorama / Clankton / Town Mode) are placeholders.
+Status: **implementation started.** `@agentroom/diorama-core`,
+`@agentroom/diorama-town`, and `@agentroom/diorama-pixi` now exist, and the
+daemon exposes the SSE event stream these docs proposed. Names (Diorama /
+Clankton / Town Mode) are still placeholders.
 
 ## Docs
 
@@ -12,7 +15,13 @@ Status: **proposal / design — no code yet.** Names (Diorama / Clankton / Town 
 
 ## The relationship in one line
 
-Both docs describe **one world** (the same `WorldSnapshot` derived from the daemon's event stream) viewed two ways: **Observer Mode** (fixed camera, click) and **Town Mode** (follow-cam, embodied avatar, walk-up-and-talk). Town Mode is a strict superset of the observer renderer — it adds a player controller, proximity, conversation, voice, and a procedural-town layout, all **client-side**, with **no daemon/protocol/core changes** beyond the single SSE route.
+Both docs describe **one world** (the same `WorldSnapshot` derived from the
+daemon's event stream) viewed two ways: **Observer Mode** (fixed camera, click)
+and **Town Mode** (follow-cam, embodied avatar, walk-up-and-talk). Town Mode is
+a strict superset of the observer renderer — it adds a player controller,
+proximity, conversation, voice, and a procedural-town layout, all
+**client-side**, with **no core domain changes**. The daemon SSE route is now
+part of the built API.
 
 ## Key shared principle
 

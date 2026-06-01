@@ -16,9 +16,12 @@ Choose one durable work tracker for planned work:
 - durable implementation notes
 - review comments that should survive outside the room
 
-Agents should use the selected tracker through that tracker's MCP server, CLI, or skill. AgentRoom should not reimplement an issue database or workflow engine.
+Agents should use the selected tracker through that tracker's MCP server, CLI,
+or skill. AgentRoom should not reimplement an issue database or workflow
+engine.
 
-AgentRoom stores provider-neutral `tracker-issue` refs that point local task shadows at durable external issues.
+AgentRoom can record provider-neutral tracker refs on room messages, reports,
+and imported tracker events, but those refs do not make AgentRoom the tracker.
 
 ## AgentRoom Is The Room
 
@@ -26,12 +29,12 @@ AgentRoom is the native coordination plane around active agent execution:
 
 - channel messages
 - direct messages
-- task-specific threads
 - handoffs
 - short status updates
 - human questions
 - runtime launch/input/output audit events
-- local task shadows that can link active agent work to external tracker refs
+- agent-state signals such as `blocked`, `done`, and `idle`
+- user-visible reports and imported tracker events
 
 These messages are intentionally lighter than tracker comments. Use them for coworker-style coordination that would be noisy in the durable tracker.
 
@@ -57,20 +60,25 @@ Put it in AgentRoom when it coordinates active execution:
 
 If a room message becomes important to the durable work record, post a concise tracker comment through the selected tracker integration and keep the AgentRoom message as local execution context.
 
-## Local Task Shadows
+## No Native Task Store
 
-AgentRoom can keep local task shadows so agents can attach runtime state and room messages to a piece of work. These local tasks should normally link to the selected tracker when a durable issue exists.
+AgentRoom does not store or track tasks. There are no `agent-room task ...`
+commands and no task API. Assignment inside the room is a message or DM that
+points an agent at a tracker issue, branch, file, URL, or markdown checklist
+item.
 
-Tracker ref example:
+Common flow:
 
 ```bash
-agent-room task create "Implement runtime audit" --tracker-issue ENG-123 --tracker-kind linear --tracker-provider linear
-agent-room task link-tracker task_implement_runtime_audit_xxx ENG-123 --kind linear --provider linear
+agent-room delegate impl "Pick up ENG-123: implement runtime audit" --json
+agent-room wait-agent impl --state done,idle
+agent-room feed --json
 ```
 
-New local task IDs include a creation-time title slug plus a UUID suffix, for example `task_implement_runtime_audit_<uuid>`, so logs and commands stay readable without losing uniqueness.
-
-When an external tracker ref is present, treat that tracker as canonical and AgentRoom as the local room/audit layer.
+If no external tracker is configured, keep the durable checklist in the repo
+such as `TASKS.md` or the PR description. AgentRoom still records the room
+coordination around that work: messages, handoffs, runtime audit, agent state,
+reports, and human questions.
 
 ## Tracker Update Failures
 

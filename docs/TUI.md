@@ -24,7 +24,7 @@ Use plain language first:
 
 ```text
 What is running in this room?
-Show me the active tasks.
+Show me active agents and anything that needs attention.
 Launch an implementation agent in this workspace.
 Read the last 80 lines from reviewer-1.
 Send impl-2 a reminder to post status before editing.
@@ -33,7 +33,7 @@ Open dashboard logs and search for failed tool calls.
 ```
 
 The dashboard agent should translate those requests into room operations:
-messages, tasks, launches, runtime reads, runtime sends, waits, and status
+messages, launches, runtime reads, runtime sends, waits, reports, and status
 summaries. You do not need to know the full CLI for day-to-day operation.
 
 ## Views
@@ -46,7 +46,6 @@ Use the views when you want to inspect state directly:
 | Overview   | Check daemon health, runtime provider, room id, and recent status. |
 | Workspaces | See registered cwd/project contexts.                               |
 | Agents     | See launched or adopted agents and their runtime bindings.         |
-| Tasks      | Inspect local task shadows and active ownership.                   |
 | Messages   | Read room channels, direct messages, and handoffs.                 |
 | Events     | Audit room activity, runtime reads/sends, and provider changes.    |
 | Logs       | Search dashboard-agent prompts, tool calls/results, and errors.    |
@@ -90,7 +89,7 @@ flowchart LR
   human["Human operator"]
   tui["AgentRoom TUI<br/>chat + dashboard"]
   daemon["agentroomd"]
-  room["Room events<br/>messages, tasks, audit"]
+  room["Room events<br/>messages, reports, audit"]
   runtime["Runtime provider<br/>Herdr, tmux, future"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, custom"]
 

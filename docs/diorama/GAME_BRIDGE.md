@@ -1,6 +1,8 @@
 # Design: Diorama — a game-like surface for AgentRoom
 
-> Status: **proposal / design doc** (no code yet).
+> Status: **implementation started**. `@agentroom/diorama-core`,
+> `@agentroom/diorama-town`, `@agentroom/diorama-pixi`, and the daemon SSE event
+> stream now exist; this doc remains the product/architecture design record.
 > Working names: **Diorama** (the framework), **Clankton** (the reference Sims-like game). Both are placeholders — rename freely.
 > Author seed: design consult, 2026-05-30.
 > Companion: **`TOWN_MODE.md`** — the embodied, walk-up-and-talk *Town Mode* variant (player avatar, proximity chat, voice, procedural town). Same protocol, different camera/input/layout.
@@ -9,9 +11,9 @@
 
 A way to build **game-like UIs over the AgentRoom (and later Clanky) ecosystem** —
 where live agent/room state is expressed as an animated, clickable world instead of a
-dashboard. The motivating example: a **Sims-like** scene of pixel-art clankers that walk
-around, sit at desks, raise "!" bubbles when blocked, hand tasks to each other, and that
-you can click to command.
+dashboard. The motivating example: a **Sims-like** scene of pixel-art clankers
+that walk around, sit at desks, raise "!" bubbles when blocked, hand
+tracker-linked work to each other, and that you can click to command.
 
 The question this doc answers: *do we just build a game, or build a framework so others can?*
 
@@ -36,16 +38,18 @@ Two facts from the existing architecture make this almost a natural fit:
 | `Agent.state`: `idle` / `working` / `waiting` / `blocked` / `needs-human` / `reviewing` / `done` / `failed` | **sprite animation state** — idle loop, typing, thinking, "!" bubble, waving for help, celebration, slump |
 | `Agent.role`: `lead` / `planner` / `implementer` / `reviewer` / `runner` / `qa` / `observer` | **character skin / sprite sheet** |
 | `message.posted` (`kind`, `importance`) | **speech bubble + walk-to-recipient**; `urgent` = red bubble |
-| `handoff.created` / `delegation.created` | one clanker **walks over and hands a task** to another |
-| `Task` (`planned`→`working`→`done`) + `assignee` | a **desk / workstation / job object** in the world, owned by a Sim |
+| `handoff.created` / `delegation.created` | one clanker **walks over and hands work** to another |
+| external tracker work / event `taskId` refs | a **desk / workstation / job object** in the world, owned by a Sim |
 | `approval.requested` / `human_escalation.created` | Sim **waves at the player**; the "click me, I need a decision" moment |
 | `RuntimeBinding` (herdr/tmux pane) | which **machine** the Sim is sitting at |
 | `runtime.output_observed` / `runtime.input_sent` | the terminal *is* the Sim's thought stream — peek inside on click |
 | `Workspace` / `channelId` | **rooms / zones** of the floor plan |
 
-Commands also already exist as REST on the daemon (`apps/daemon/src/app.ts`): launch agent,
-send input, stop, delegate, claim/approve task, post message, ask-human. So "click a Sim →
-tell it what to do" is wired at the API level today.
+Commands already exist as REST on the daemon (`apps/daemon/src/app.ts`) for the
+runtime and room primitives: launch agent, send input, stop, post message, and
+ask-human. Delegation is represented as a tracker-linked prompt to an agent; the
+core app does not expose native task create/claim/approve routes. So "click a
+Sim → tell it what to do" is wired at the API level without adding a task store.
 
 ## 3. Architectural placement (do not pollute core)
 
@@ -110,7 +114,7 @@ existing `/v1/*` middleware. This is the **only required daemon change** and is 
 interface WorldSnapshot {
   rooms: Record<Id, WorldRoom>          // from Workspace / channelId
   entities: Record<Id, WorldEntity>     // agents (+ later humans, bots)
-  objects: Record<Id, WorldObject>      // tasks rendered as desks/jobs
+  objects: Record<Id, WorldObject>      // external work refs rendered as desks/jobs
   links: WorldLink[]                    // active handoffs / delegations / DMs
   effects: WorldEffect[]                // transient: bubbles, "!", celebrations
   clock: { cursor: string; lastEventAt: ISODateTime }
@@ -250,15 +254,15 @@ world with shared, mutable placement** — deferred to §10.
 
 A small Sims-like proving the framework end-to-end and serving as the template others copy:
 
-- **Floor plan** from workspaces/channels; each task is a desk; agents are clankers.
+- **Floor plan** from workspaces/channels; external work refs can render as desks; agents are clankers.
 - **Idle**: clankers wander/idle near their desks. **Working**: sit + typing animation,
-  progress shown via task status. **Blocked / needs-human**: "!" bubble, wave — clicking opens
+  progress inferred from agent/tracker events. **Blocked / needs-human**: "!" bubble, wave — clicking opens
   the resolve/answer flow (`/v1/human-escalations`, send-input).
 - **Messages**: a clanker walks toward the recipient and emits a speech bubble; `urgent` glows.
 - **Handoff/delegation**: carry-item walk animation from one desk to another.
 - **Click a clanker** → inspector panel with the live terminal scrollback
   (`runtime.output_observed`) and a command bar (send input, stop, delegate).
-- **Done**: brief celebration, task desk flips to a "done" skin.
+- **Done**: brief celebration; any derived work object can flip to a "done" skin.
 
 ## 8. Free superpower: replay / time-travel
 

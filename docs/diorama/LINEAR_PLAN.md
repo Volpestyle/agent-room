@@ -135,7 +135,7 @@
 - **A3 — Per-role animation sets (idle/walk/typing/thinking/alert/wave/celebrate/slump), Aseprite export w/ frame-tags = AnimationState enum** `[8]` `assets` · *blocked by A2*
 - **A4 — Player avatar sprite (4-dir walk + idle)** `[3]` `assets` · *blocked by A1*
 - **A5 — Exterior town tileset (grass/path/water/trees/fences/buildings/signs) + hand-fix seams** `[8]` `assets` · *blocked by A1*
-- **A6 — Object/desk skins (task planned/working/done) + FX (bubble/"!"/confetti/carry-item)** `[5]` `assets` · *blocked by A1*
+- **A6 — Work-object/desk skins (planned/working/done) + FX (bubble/"!"/confetti/carry-item)** `[5]` `assets` · *blocked by A1*
 - **A7 — Dialogue UI art (box, prompt, beacon, waypoint)** `[3]` `assets` · *blocked by A1*
 
 ---
@@ -153,10 +153,9 @@
 | Assets | 7 | 35 |
 | **Total** | **47** | **171** |
 
-## How to create this in Linear
+## Linear Import Note
 
-The `linear-server` MCP is configured for `/Users/jamesvolpe/dev/outofcontext` and currently unauthenticated, so its tools aren't loaded in this workspace. To let me create the project + issues directly, do **one** of:
-1. Run Claude Code from `/Users/jamesvolpe/dev/outofcontext`, then `/mcp` → authenticate `linear-server`; or
-2. Add the same `linear-server` block to this project's MCP config (`.claude.json` / `/mcp add`) and authenticate.
-
-Once connected, I'll need the target **team** (I can list teams), then I'll create the project, the six milestones, and all 47 issues with estimates + blocking relations in a batch.
+This plan has already been imported into Linear for the Vuhlp team as the
+project linked at the top of this file. Keep this page as the local
+cross-reference for phase codes, milestone structure, and acceptance criteria;
+make durable status, ownership, and issue comments in Linear.

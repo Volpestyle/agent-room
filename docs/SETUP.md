@@ -122,11 +122,12 @@ operator:
 
 ## 5. Choose The Work Tracker
 
-AgentRoom local tasks are execution shadows. Choose one durable work tracker for issues, ownership, workflow status, acceptance criteria, and long-lived comments.
+AgentRoom does not store tasks. Choose one durable work tracker for issues,
+ownership, workflow status, acceptance criteria, and long-lived comments.
 
 Options:
 
-- Native only: use AgentRoom local tasks without an external tracker.
+- Native only: keep a markdown checklist in the repo or PR description.
 - Linear, GitHub Issues, Jira, or custom: keep the tracker as the durable source and use that provider's MCP server, CLI, or skill for provider-specific issue actions.
 
 For Linear-backed rooms, put the non-secret tracker defaults in AgentRoom
@@ -140,19 +141,20 @@ If the selected tracker is unavailable, agents must report `tracker_update_skipp
 Design is optional. If design data matters for the room, choose one source of
 truth and let the agents use the right tool directly:
 
-- Native only: link screenshots, files, or URLs in room messages and task refs.
+- Native only: link screenshots, files, or URLs in room messages and reports.
 - Figma or another design system: use that tool's MCP server, connector, CLI,
   browser workflow, or skill inside the relevant agent runtime.
 - Custom: document the room's design source of truth in `.agentroom/AGENTS.md`
-  and have agents link stable refs back to task shadows or room messages.
+  and have agents link stable refs back to room messages or reports.
 
-Workers should discuss design work through AgentRoom messages and task refs, not by assuming every room uses Figma.
+Workers should discuss design work through AgentRoom messages and stable refs,
+not by assuming every room uses Figma.
 
 ## 7. Choose The Messaging Surface
 
 Native-only rooms need no external chat setup. Agents and the TUI can use room
-channels, DMs, waits, tasks, and human questions without Discord, Telegram,
-Slack, SMS, or any other gateway.
+channels, DMs, waits, reports, agent-state signals, and human questions without
+Discord, Telegram, Slack, SMS, or any other gateway.
 
 If you add an external messaging surface, choose ownership per conversation:
 
@@ -188,7 +190,7 @@ The daemon can be driven from several local clients:
 - CLI: `agent-room ...` commands read and write the same room event log.
 - TUI: `agent-room` opens the terminal dashboard. Use
   `agent-room --daemon <url>` only when connecting to a non-default daemon.
-- MCP: `agentroom-mcp` exposes room context, messages, tasks, waits, and audit reads to MCP-capable agents.
+- MCP: `agentroom-mcp` exposes room context, messages, directed-message reads, waits, reports/feed, and audit reads to MCP-capable agents.
 - Mobile: `apps/mobile` connects to the daemon API. For iPhone access over Tailscale, start with `agent-room daemon start --tailnet`, then run `agent-room mobile-connect --copy` and open the `agentroom://connect?...` link on the phone.
 
 When `AGENTROOM_API_TOKEN` is set, or when the daemon is started with `--tailnet`, `/v1/*` routes require `Authorization: Bearer <token>` or `x-agentroom-api-token`.

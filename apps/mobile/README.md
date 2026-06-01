@@ -1,6 +1,6 @@
 # AgentRoom Mobile
 
-Expo/React Native client for the AgentRoom daemon API. The app can check daemon health, show tasks/messages/events, inspect runtime providers and agents, post room messages, read agent output, and send runtime input.
+Expo/React Native client for the AgentRoom daemon API. The app can check daemon health, show messages/events, inspect runtime providers and agents, post room messages, read agent output, and send runtime input.
 
 Run it locally:
 

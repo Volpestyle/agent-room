@@ -1,6 +1,7 @@
 # Design: Town Mode — an embodied, walk-up-and-talk Diorama
 
-> Status: **proposal / design doc** (no code yet).
+> Status: **implementation started**. Core/town/pixi packages now exist; this
+> doc remains the embodied-mode design record.
 > Working names: **Diorama** (framework), **Clankton** (reference game), **Town Mode** (this embodied variant). Placeholders — rename freely.
 > Companion: **`GAME_BRIDGE.md`** — the framework + protocol + observer-mode design. Read it first; this doc assumes its §-numbered concepts (`WorldSnapshot`, `WorldSource`, `WorldCommands`, `LayoutStrategy`, `SkinMap`, the event→world reducer).
 > Author seed: design consult, 2026-05-30.
@@ -15,7 +16,9 @@ The motivating moment, end to end: you walk up to a clanker standing by its hous
 
 ## 2. The one thing to internalize: Town Mode is additive and client-side
 
-**Town Mode introduces zero new daemon, protocol, or `packages/core` changes beyond the single SSE route `GAME_BRIDGE.md §9.1` already specifies.** Everything new lives in the renderer/client:
+**Town Mode introduces zero `packages/core` domain changes.** The daemon SSE
+route from `GAME_BRIDGE.md §9.1` is now part of the built API; everything else
+new lives in the renderer/client:
 
 - The **player avatar** is the first piece of world state with no backing `RoomEvent` — and that's fine. Its position is real-time input, purely local, ephemeral, and (single-player) seen by no one else. It never enters core, the event log, or the protocol. This is *more* defensible than agent positions, not less.
 - **"Walk up and talk"** is the `GAME_BRIDGE.md §7` inspector, triggered by **proximity** instead of a **click**. Same `WorldCommands.sendInput`, same `runtime.output_observed` / `message.posted` stream.
@@ -92,7 +95,10 @@ interface ProximitySystem {
 }
 ```
 
-Mapping: an **agent** in radius → `talk-to-agent`; a **task desk** in radius → `inspect-task`; a **building door** → `enter-building` (post-PoC); a **signboard** → `read-sign` (room/workspace label). The affordance is the classic AC "press A / tap to interact" prompt over the target.
+Mapping: an **agent** in radius → `talk-to-agent`; a derived **work desk** in
+radius → `inspect-task`; a **building door** → `enter-building` (post-PoC); a
+**signboard** → `read-sign` (room/workspace label). The affordance is the
+classic AC "press A / tap to interact" prompt over the target.
 
 ### 5.3 Conversation model (the heart of Town Mode)
 
@@ -233,7 +239,7 @@ interface TownSkinMap extends SkinMap {
 | `Workspace` / `channelId` | a **district / neighborhood** |
 | default channel | the central **plaza** (player spawn) |
 | `Agent` | a **resident** standing by its **house/shop** (skin by `role`) |
-| `Task` (`assignee` + status) | **yard object / signboard** at the owner's lot; status → skin |
+| external tracker work / event `taskId` refs | **yard object / signboard** at the owner's lot; derived status → skin |
 | `handoff.created` / `delegation.created` | a resident **walks the road** to another's lot, carrying an item |
 | `Agent.state` | body language at the lot (idle/typing/alert/wave/celebrate/slump) |
 | `human_escalation` / `approval.requested` | a **beacon** over the lot + a town-wide **waypoint** (§7) |
@@ -325,7 +331,7 @@ The reducer (events → world) and the `ProceduralTownLayout` determinism (same 
 | `Workspace` / `channelId` | district / neighborhood; default channel = plaza |
 | `Agent` + `role` | resident + house/shop skin |
 | `Agent.state` (`idle`/`working`/`waiting`/`blocked`/`needs-human`/`reviewing`/`done`/`failed`) | resident body language at the lot |
-| `Task` (`assignee`, status) | yard object/signboard at the lot; status → skin |
+| external tracker work / event `taskId` refs | yard object/signboard at the lot; derived status → skin |
 | `message.posted` (from agent) | **spoken dialogue** → dialogue box + TTS |
 | `runtime.output_observed` | **inner monologue / their screen** → optional panel, not spoken |
 | `runtime/input` (command) | what you **say** to a resident (typed or STT'd) |

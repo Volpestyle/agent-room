@@ -35,6 +35,8 @@ import {
   type RoomEvent,
   type RuntimeBinding,
   type RuntimeProvider,
+  type RuntimeSearchResult,
+  searchRuntimeAgents,
 } from "@agentroom/core";
 import {
   agentRoomDir,
@@ -1540,6 +1542,63 @@ program
         });
       }
       output(result, options.json);
+    },
+  );
+
+program
+  .command("search-runtime")
+  .description("Search recent output across AgentRoom-bound runtime agents")
+  .argument("<query>", "query text")
+  .option(
+    "--runtime <runtime>",
+    "bound runtime provider to search; defaults to all bound providers",
+  )
+  .option("--lines <number>", "recent line count per agent", parseInteger, 200)
+  .option(
+    "--before <number>",
+    "context lines before each match",
+    parseInteger,
+    2,
+  )
+  .option("--after <number>", "context lines after each match", parseInteger, 2)
+  .option("--limit <number>", "maximum matches to return", parseInteger, 20)
+  .option("--case-sensitive", "use case-sensitive matching")
+  .option("--json", "print JSON")
+  .action(
+    async (
+      query: string,
+      options: {
+        runtime?: string;
+        lines: number;
+        before: number;
+        after: number;
+        limit: number;
+        caseSensitive?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      const service = await serviceForCwd();
+      const agents = await service.listAgents();
+      const result = await searchRuntimeAgents({
+        agents,
+        providerForBinding: async (binding) =>
+          (await runtimeProviderForCwd(binding.providerId)).provider,
+        query,
+        ...(options.runtime !== undefined
+          ? { providerId: options.runtime }
+          : {}),
+        lines: options.lines,
+        linesBefore: options.before,
+        linesAfter: options.after,
+        limit: options.limit,
+        ...(options.caseSensitive !== undefined
+          ? { caseSensitive: options.caseSensitive }
+          : {}),
+      });
+      output(
+        options.json ? result : formatRuntimeSearchResult(result),
+        options.json,
+      );
     },
   );
 
@@ -3307,6 +3366,42 @@ function output(value: unknown, json?: boolean): void {
   }
 
   console.log(JSON.stringify(value, null, 2));
+}
+
+function formatRuntimeSearchResult(result: RuntimeSearchResult): string {
+  const lines = [
+    `${result.matchCount} match${result.matchCount === 1 ? "" : "es"} across ` +
+      `${result.matchedAgents} agent${result.matchedAgents === 1 ? "" : "s"} ` +
+      `(${result.searchedAgents} searched)` +
+      (result.truncated ? `, showing ${result.matches.length}` : ""),
+  ];
+
+  if (result.matches.length === 0) {
+    lines.push("(no matches)");
+  }
+
+  for (const match of result.matches) {
+    lines.push("");
+    lines.push(
+      `${match.agentId} (${match.displayName}) ` +
+        `state=${match.state} runtime=${match.runtime.providerId}:${match.runtime.bindingId}`,
+    );
+    for (const before of match.before) lines.push(`  ${before}`);
+    lines.push(`> ${match.matchedLine}`);
+    for (const after of match.after) lines.push(`  ${after}`);
+  }
+
+  if (result.errors.length > 0) {
+    lines.push("");
+    lines.push("Errors:");
+    for (const error of result.errors) {
+      lines.push(
+        `  ${error.agentId} runtime=${error.providerId}:${error.bindingId}: ${error.error}`,
+      );
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function printShellExports(env: Record<string, string>): void {

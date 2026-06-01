@@ -1,5 +1,4 @@
 import {
-  Container,
   Key,
   matchesKey,
   SelectList,
@@ -24,7 +23,13 @@ import type { DashboardAgentLogger } from "./agent/dashboard-log.js";
 import type { ApiClient } from "./api.js";
 import type { Poller } from "./poller.js";
 import { selectListTheme, palette } from "./theme.js";
-import { dashboardActor } from "./agent/identity.js";
+import {
+  announcerActor,
+  announcerAgentId,
+  dashboardActor,
+  dashboardAgentId,
+} from "./agent/identity.js";
+import { AnnouncerWatcher } from "./announcer-watcher.js";
 import { isLocalDaemon, restartLocalDaemon } from "./daemonControl.js";
 import type { DashboardState, DashboardStore } from "./state.js";
 import type { AgentRoomSetupPatch } from "./types.js";
@@ -73,6 +78,10 @@ export interface DashboardOptions {
   rebuildAgent(
     thinkingLevel?: DashboardThinkingLevel,
   ): DashboardAgent | DashboardAgentError;
+  /** Optional announcer sub-agent; undefined when disabled or unavailable. */
+  announcer?: DashboardAgent | DashboardAgentError;
+  /** Coalesce window for the announcer watcher (ms). */
+  announcerDebounceMs?: number;
   baseUrl: string;
 }
 
@@ -115,6 +124,59 @@ class FooterBar extends PanelBase {
   }
 }
 
+interface ViewportComponent extends Component {
+  renderViewport(width: number, height: number): string[];
+}
+
+function isViewportComponent(
+  component: Component,
+): component is ViewportComponent {
+  return "renderViewport" in component;
+}
+
+function renderBody(
+  component: Component,
+  width: number,
+  rows: number,
+): string[] {
+  return isViewportComponent(component)
+    ? component.renderViewport(width, rows)
+    : component.render(width);
+}
+
+class ActiveViewContainer extends PanelBase implements ViewportComponent {
+  private child: Component | undefined;
+  private useScrollback = false;
+
+  setChild(
+    component: Component,
+    options: { scrollback?: boolean | undefined } = {},
+  ): void {
+    this.child = component;
+    this.useScrollback = options.scrollback === true;
+  }
+
+  clear(): void {
+    this.child = undefined;
+    this.useScrollback = false;
+  }
+
+  render(width: number): string[] {
+    return this.child?.render(width) ?? [];
+  }
+
+  renderViewport(width: number, height: number): string[] {
+    if (!this.child) return [];
+    if (this.useScrollback) return this.child.render(width);
+    const lines = renderBody(this.child, width, height);
+    return height > 0 ? lines.slice(Math.max(0, lines.length - height)) : [];
+  }
+
+  override invalidate(): void {
+    this.child?.invalidate();
+  }
+}
+
 class DashboardLayout extends PanelBase {
   constructor(
     private readonly header: Component,
@@ -134,11 +196,12 @@ class DashboardLayout extends PanelBase {
       0,
       height - headerLines.length - footerLines.length - spacerRows,
     );
-    const bodyLines = this.body.render(width);
+    const bodyLines = renderBody(this.body, width, bodyRows);
+    const bodyOverflows = bodyLines.length > bodyRows;
     const visibleBody =
-      bodyRows > 0
+      bodyRows > 0 && !bodyOverflows
         ? bodyLines.slice(Math.max(0, bodyLines.length - bodyRows))
-        : [];
+        : bodyLines;
 
     const lines = [
       ...headerLines,
@@ -148,7 +211,7 @@ class DashboardLayout extends PanelBase {
       ...footerLines,
     ];
 
-    return lines.slice(0, height);
+    return bodyOverflows ? lines : lines.slice(0, height);
   }
 }
 
@@ -207,11 +270,13 @@ export class Dashboard {
   private readonly views: View[];
   private readonly viewIndexById: Map<string, number>;
   private activeIndex = 0;
-  private currentViewContainer = new Container();
+  private currentViewContainer = new ActiveViewContainer();
   private overlayHandle: OverlayHandle | undefined;
   private shuttingDown = false;
   private restartInFlight = false;
   private currentAgent: DashboardAgent | DashboardAgentError;
+  private readonly announcer: DashboardAgent | undefined;
+  private readonly announcerWatcher: AnnouncerWatcher | undefined;
   private readonly closed: Promise<void>;
   private resolveClosed: () => void = () => undefined;
 
@@ -219,6 +284,21 @@ export class Dashboard {
     this.closed = new Promise((resolve) => {
       this.resolveClosed = resolve;
     });
+    this.announcer =
+      options.announcer && !("reason" in options.announcer)
+        ? options.announcer
+        : undefined;
+    if (this.announcer) {
+      this.announcerWatcher = new AnnouncerWatcher({
+        store: options.store,
+        announcer: this.announcer,
+        ignoreAgentIds: new Set([dashboardAgentId(), announcerAgentId()]),
+        logger: options.logger,
+        ...(options.announcerDebounceMs !== undefined
+          ? { debounceMs: options.announcerDebounceMs }
+          : {}),
+      });
+    }
     this.tui = new TUI(options.terminal);
     options.store.subscribe(() => {
       this.tui.requestRender();
@@ -328,8 +408,34 @@ export class Dashboard {
     if (!("reason" in this.currentAgent)) {
       await this.announceJoin(this.currentAgent);
     }
+    if (this.announcer) {
+      await this.registerAnnouncer(this.announcer);
+      this.announcerWatcher?.start();
+    }
     this.options.poller.start();
     await this.closed;
+  }
+
+  /**
+   * Register the announcer as a room agent so its feed reports and channel
+   * announcements have a valid identity. Silent — no "online" post, so the
+   * announcer never announces itself.
+   */
+  private async registerAnnouncer(agent: DashboardAgent): Promise<void> {
+    try {
+      await this.options.api.registerRoomAgent({
+        agentId: announcerActor().id,
+        displayName: "Announcer",
+        role: "observer",
+        capabilities: ["announcer", "feed-writer"],
+      });
+      await this.options.api.agentHeartbeat(announcerActor().id, {
+        state: "idle",
+        status: `${agent.resolvedModel.provider}/${agent.resolvedModel.modelId}`,
+      });
+    } catch {
+      // ignore — the daemon may be unreachable at boot
+    }
   }
 
   private async announceJoin(agent: DashboardAgent): Promise<void> {
@@ -369,6 +475,21 @@ export class Dashboard {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
     this.options.poller.stop();
+    this.announcerWatcher?.stop();
+    if (this.announcer) {
+      try {
+        this.announcer.abort("dashboard shutdown");
+      } catch {
+        // ignore — agent may already be settled
+      }
+      try {
+        await this.options.api.leaveRoomAgent(announcerActor().id, {
+          reason: "dashboard shutdown",
+        });
+      } catch {
+        // ignore
+      }
+    }
     if (!("reason" in this.currentAgent)) {
       try {
         this.currentAgent.abort("dashboard shutdown");
@@ -402,7 +523,9 @@ export class Dashboard {
     this.activeIndex = index;
     const next = this.views[index]!;
     this.currentViewContainer.clear();
-    this.currentViewContainer.addChild(next.root);
+    this.currentViewContainer.setChild(next.root, {
+      scrollback: next.scrollback,
+    });
     next.onActivate?.({
       setFocus: (component) => this.tui.setFocus(component),
     });

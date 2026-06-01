@@ -16,6 +16,21 @@ export function dashboardActor(): ActorRef {
   };
 }
 
+export function announcerAgentId(): string {
+  return (
+    process.env.AGENTROOM_TUI_ANNOUNCER_ID?.trim() ||
+    `${dashboardAgentId()}-announcer`
+  );
+}
+
+export function announcerActor(): ActorRef {
+  return {
+    kind: "agent",
+    id: announcerAgentId(),
+    displayName: "Announcer",
+  };
+}
+
 export function humanActor(): ActorRef {
   return {
     kind: "human",

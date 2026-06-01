@@ -41,6 +41,12 @@ class HelpPanel extends PanelBase {
           "It can post messages, manage tasks, launch/read/send to runtime agents.",
         ),
     );
+    lines.push(
+      "  " +
+        palette.muted(
+          "Scroll transcript history with terminal scrollback (trackpad/mouse or Shift+PgUp/PgDn).",
+        ),
+    );
     lines.push("  " + palette.muted("Built-in slash commands:"));
     lines.push(
       "    " +

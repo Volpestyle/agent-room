@@ -26,13 +26,13 @@ The core domain owns:
 
 - rooms
 - agents
-- local task shadows linked to external tracker refs
 - channel and direct messages
 - threads
 - approvals
 - human escalations
 - decisions
 - handoffs
+- agent reports and imported tracker events
 - normalized events
 
 The core domain does not own terminal multiplexing, cloud scheduling, durable
@@ -44,7 +44,9 @@ AgentRoom is not a durable work tracker replacement.
 
 The selected external tracker is canonical for issues, assignment, priority, workflow status, and durable comments. Agents should use that tracker's MCP server, CLI, or skill for that layer.
 
-AgentRoom owns the local room around active execution: channel messages, direct messages, handoffs, human questions, runtime launch/input/output audit, and local task shadows that can point to external tracker issues through refs.
+AgentRoom owns the local room around active execution: channel messages, direct
+messages, handoffs, human questions, runtime launch/input/output audit,
+agent-state signals, user-visible reports, and imported tracker events.
 
 ## Ports
 
@@ -59,7 +61,7 @@ Work trackers are not an AgentRoom port. `.agentroom/config.yaml` records the ch
 Code hosts, design systems, and one-off notification services are not
 AgentRoom ports either. Agents use those tools directly through the MCP servers,
 connectors, CLIs, skills, browsers, and auth stores available in their runtime,
-then link stable refs or summaries back to AgentRoom messages and task shadows.
+then link stable refs or summaries back to AgentRoom messages and reports.
 
 `ChatGatewayProvider` is the exception because it lets AgentRoom orchestrate a
 room-owned messaging layer: a Discord/Telegram/SMS/etc. conversation can attach

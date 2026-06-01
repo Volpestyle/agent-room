@@ -17,8 +17,8 @@ Use AgentRoom when one of these is true:
 - more than one agent needs to coordinate
 - you want a simple terminal dashboard instead of watching raw panes
 - you need audited `send`, `read`, `launch`, and `stop` for runtime agents
-- work should be tied to local task shadows and durable tracker issues
-- an agent should wait for room messages, task changes, or human approval
+- work should stay tied to durable tracker issues while execution happens in one room
+- an agent should wait for room messages, peer agent state, or human approval
 - you want to check the room from a phone over a private network
 
 Use Clanky directly when you want a personal Pi agent with profile state,
@@ -41,18 +41,18 @@ AgentRoom is the control layer in the agent-first workspace:
 - keep durable work trackers canonical while AgentRoom records execution state
 
 <!-- Capture backlog:
-- docs/assets/gifs/agentroom-tui-overview.gif: TUI moving between operator chat, overview, agents, tasks, messages, runtime output, and events.
-- docs/assets/gifs/agentroom-launch-provider.gif: provider-backed launch, send, read, and task handoff in the same room.
+- docs/assets/gifs/agentroom-tui-overview.gif: TUI moving between operator chat, overview, agents, messages, runtime output, and events.
+- docs/assets/gifs/agentroom-launch-provider.gif: provider-backed launch, send, read, and handoff in the same room.
 -->
 
 ## 2. What To Let Agents Handle
 
 Let agents use AgentRoom for active execution:
 
-- claim local task shadows before editing
+- identify the configured work tracker before editing
 - post short status updates and handoffs
 - ask reviewers or humans through room DMs
-- wait for DMs, task changes, or review signals
+- wait for DMs, peer agent state, or review signals
 - launch helper workers when the configured runtime supports it
 - update the external tracker when durable status changes
 - summarize terminal output instead of forcing the human to read every pane
@@ -66,7 +66,7 @@ link back to room state.
 ```mermaid
 flowchart TB
   human["Human<br/>TUI, CLI, iOS, chat"]
-  room["AgentRoom<br/>messages, tasks, audit, runtime control"]
+  room["AgentRoom<br/>messages, reports, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini, custom"]
   runtimes["Runtime providers<br/>Herdr, tmux, future hosted"]
   gateways["Room-owned chat gateways<br/>Discord first"]
@@ -122,7 +122,7 @@ apps/
   tui/             interactive terminal dashboard and operator chat
   mobile/          Expo/React Native client for daemon API access
 packages/
-  core/            rooms, agents, messages, tasks, events, ports
+  core/            rooms, agents, messages, reports, events, ports
   config/          typed AgentRoom home config parser and writer
   storage-jsonl/   append-only event store for local rooms
   runtime-herdr/   Herdr runtime adapter
@@ -164,7 +164,7 @@ agent-room launch impl \
   --command "AGENT_COMMAND" \
   --cwd /path/to/workspace
 
-agent-room send impl "Use AgentRoom, claim your task, and post status before editing."
+agent-room send impl "Use AgentRoom, check the configured tracker, and post status before editing."
 agent-room read impl --lines 40
 ```
 
@@ -187,7 +187,7 @@ agent-room
 The TUI starts in operator chat. Type normally to ask what is happening or to
 request room actions. Use `/help`, `/runtime`, `/trace`, and `/effort` for
 operator controls; use `Esc` or `Ctrl+G` / `Ctrl+L` to move across chat,
-overview, workspaces, agents, tasks, messages, and events.
+overview, workspaces, agents, messages, events, logs, settings, and help.
 
 Expose room tools to agents through the MCP server:
 
@@ -196,9 +196,8 @@ agentroom-mcp
 ```
 
 The MCP surface includes identity/context, post/DM/messages, directed-message
-reads, task shadow actions, filtered waits, agent presence, and
-`agentroom_delegate_task`, which returns a watchable task handle for
-`agentroom_wait`.
+reads, filtered waits, agent presence, audit events, the user-visible feed,
+reports, and iOS diagnostics.
 
 Pair mobile over a private tailnet:
 
@@ -224,7 +223,7 @@ replaceable:
   custom adapters later.
 - Work tracker config: provider-neutral selection plus room protocol. Agents
   use the selected tracker's MCP server, connector, CLI, or skill and link
-  external refs back to local task shadows.
+  external refs back to room messages, reports, or tracker events.
 - `ChatGatewayProvider`: communication gateway routing primitives. Discord is
   the first adapter; other chat surfaces should follow the same owner/routing
   model.
@@ -232,13 +231,12 @@ replaceable:
 Code hosts, design tools, one-off notifications, and durable tracker mutations
 are agent-owned tool usage, not AgentRoom adapter ports. Agents use the MCP
 servers, connectors, CLIs, skills, or auth stores available in their runtime and
-bring the result back to the room through messages, refs, task shadows, and
-status.
+bring the result back to the room through messages, refs, reports, and status.
 
 The external work tracker remains canonical for issues, ownership, workflow
 status, acceptance criteria, and durable comments. AgentRoom keeps execution
-messages, local task shadows, handoffs, human questions, runtime audit, and
-active coordination.
+messages, handoffs, human questions, runtime audit, agent-state signals,
+tracker events, reports, and active coordination.
 
 ## Clanky And Other Agents
 
@@ -287,8 +285,8 @@ High-signal pages:
 1. AgentRoom is the room, not a wrapper around one terminal multiplexer.
 2. Every agent opt-in is explicit.
 3. Runtime input/output is privileged and auditable.
-4. Agents coordinate through room commands, channel messages, DMs, and task
-   shadows.
+4. Agents coordinate through room commands, channel messages, DMs, waits,
+   reports, and agent-state signals.
 5. External trackers, design tools, and code hosts stay agent-owned; room-owned
    chat gateways are explicit adapters with one owner per conversation.
 6. The local MVP should work on one machine, but the ports should survive
@@ -299,9 +297,9 @@ High-signal pages:
 AgentRoom is a runnable local coordination plane. It includes the core room
 model, CLI, daemon HTTP API, TUI, MCP server, Expo mobile client, JSONL event
 storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/
-stop, Herdr pane adoption, wait/events-follow, local task shadows, tracker
-refs, chat gateway routing primitives with a Discord adapter today, and mobile
-tailnet pairing.
+stop, Herdr pane adoption, wait/events-follow, tracker refs/events,
+user-visible reports/feed, chat gateway routing primitives with a Discord
+adapter today, and mobile tailnet pairing.
 
 Next useful work: SQLite event storage, stronger real-runtime contract tests,
 operator CLI support for chat route mutation, more ergonomic tracker protocol,

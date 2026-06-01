@@ -432,6 +432,84 @@ describe("agentroom daemon app", () => {
     ]);
   });
 
+  it("searches recent output across AgentRoom-bound runtime agents", async () => {
+    const app = createApp(await appOptions());
+
+    const firstLaunch = await app.request("/v1/runtime/fake/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "demo",
+        displayName: "Demo Agent",
+        role: "implementer",
+        harness: { kind: "shell", command: "bash" },
+      }),
+    });
+    expect(firstLaunch.status).toBe(201);
+    const secondLaunch = await app.request("/v1/runtime/fake/agents", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        agentId: "reviewer",
+        displayName: "Reviewer",
+        role: "reviewer",
+        harness: { kind: "shell", command: "bash" },
+      }),
+    });
+    expect(secondLaunch.status).toBe(201);
+
+    await app.request("/v1/runtime/fake/agents/demo/input", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ text: "npm test failed with TypeError: boom" }),
+    });
+    await app.request("/v1/runtime/fake/agents/reviewer/input", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ text: "all quiet here" }),
+    });
+
+    const searchResponse = await app.request(
+      "/v1/runtime/search?query=typeerror&linesBefore=1&linesAfter=0&limit=5",
+    );
+
+    expect(searchResponse.status).toBe(200);
+    const body = (await searchResponse.json()) as {
+      searchedAgents: number;
+      matchCount: number;
+      matches: Array<{
+        agentId: string;
+        displayName: string;
+        state: string;
+        matchedLine: string;
+        before: string[];
+        after: string[];
+        runtime: {
+          providerId: string;
+          providerKind: string;
+          bindingId: string;
+        };
+      }>;
+    };
+    expect(body.searchedAgents).toBe(2);
+    expect(body.matchCount).toBe(1);
+    expect(body.matches).toEqual([
+      expect.objectContaining({
+        agentId: "demo",
+        displayName: "Demo Agent",
+        state: "created",
+        matchedLine: expect.stringContaining("TypeError: boom"),
+        before: [expect.stringContaining("command: bash")],
+        after: [],
+        runtime: expect.objectContaining({
+          providerId: "fake",
+          providerKind: "fake",
+          bindingId: "fake:demo",
+        }),
+      }),
+    ]);
+  });
+
   it("sends discrete named keys to a runtime agent and audits them", async () => {
     const app = createApp(await appOptions());
 

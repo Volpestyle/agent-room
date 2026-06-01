@@ -54,12 +54,12 @@ room.
 Surface protocols when they change the mental model:
 
 - AgentRoom enrollment: how a process knows it is participating in a room.
-- Room-native coordination: channel messages, DMs, waits, handoffs, task
-  shadows, human questions, blockers, and completion.
+- Room-native coordination: channel messages, DMs, waits, handoffs, reports,
+  human questions, blockers, and completion.
 - Runtime audit: launch, input, output, binding, and stop events go through the
   room rather than raw terminal assumptions.
-- Tracker refs: the durable tracker owns project work; AgentRoom task shadows
-  connect active execution to that tracker.
+- Tracker refs: the durable tracker owns project work; AgentRoom messages,
+  reports, and imported tracker events can point to stable tracker context.
 - Gateway ownership: an external chat conversation is either agent-owned or
   room-owned, not both.
 - Clanky participation: Clanky can run as a normal AgentRoom participant while

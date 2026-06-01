@@ -119,8 +119,9 @@ function defaultModelFor(provider: KnownProvider): string {
 
 export function resolveModelOrError(
   auth: AuthStorage,
+  overrideRaw: string | undefined = process.env.AGENTROOM_TUI_MODEL?.trim(),
 ): ResolvedModel | DashboardAgentError {
-  const override = process.env.AGENTROOM_TUI_MODEL?.trim();
+  const override = overrideRaw;
   if (override) {
     const [providerPart, ...rest] = override.split("/");
     if (!providerPart || rest.length === 0) {

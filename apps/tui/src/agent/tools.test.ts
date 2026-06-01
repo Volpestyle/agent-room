@@ -31,6 +31,7 @@ describe("dashboard launch tool", () => {
         "post_agent_report",
         "list_mcp_tools",
         "call_mcp_tool",
+        "search_runtime_agents",
       ]),
     );
     expect(tools.map((tool) => tool.name)).not.toEqual(
@@ -99,6 +100,60 @@ describe("dashboard launch tool", () => {
     const firstContent = result?.content[0];
     expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
       "tracker.event",
+    );
+  });
+
+  it("searches AgentRoom-bound runtime output", async () => {
+    const searchRuntimeAgents = vi.fn(async () => ({
+      query: "TypeError",
+      searchedAgents: 2,
+      matchedAgents: 1,
+      matchCount: 1,
+      truncated: false,
+      matches: [
+        {
+          agentId: "impl",
+          displayName: "Implementer",
+          state: "working",
+          matchedLine: "TypeError: boom",
+          before: ["npm test"],
+          after: [],
+          runtime: {
+            providerId: "herdr",
+            providerKind: "herdr",
+            bindingId: "pane-1",
+            kind: "pane",
+          },
+          lineNumber: 42,
+          observedAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+      errors: [],
+    }));
+    const tools = createDashboardTools({
+      api: { searchRuntimeAgents } as unknown as ApiClient,
+      poller: { tick: async () => undefined } as unknown as Poller,
+    });
+    const tool = tools.find((entry) => entry.name === "search_runtime_agents");
+
+    const result = await tool?.execute("call-1", {
+      query: "TypeError",
+      providerId: "herdr",
+      linesBefore: 1,
+      linesAfter: 0,
+      limit: 10,
+    });
+
+    expect(searchRuntimeAgents).toHaveBeenCalledWith({
+      query: "TypeError",
+      providerId: "herdr",
+      linesBefore: 1,
+      linesAfter: 0,
+      limit: 10,
+    });
+    const firstContent = result?.content[0];
+    expect(firstContent?.type === "text" ? firstContent.text : "").toContain(
+      "TypeError: boom",
     );
   });
 

@@ -29,17 +29,17 @@ from the desk.
 Use AgentRoom as an agent command center:
 
 - open the TUI and ask the operator what is happening in plain language
-- see active agents, tasks, messages, runtime output, and recent audit events
+- see active agents, messages, runtime output, and recent audit events
 - launch workers into Herdr or tmux without leaving the room model
 - send instructions and read output through audited AgentRoom commands
-- link local task shadows to durable tracker issues
+- keep durable tracker issues canonical while room coordination stays local
 - let compatible agents inspect and update room context through their tools
 - route Discord or another communication surface into a room-owned conversation
 - pair a phone over tailnet and check the room on the go
 - run Clanky as a personal agent, a room lead, a worker, or a reviewer
 
 <!-- Capture backlog:
-- docs/assets/gifs/agentroom-tui-overview.gif: ask the operator "what is happening?", then move through Overview, Agents, Tasks, Messages, and Events.
+- docs/assets/gifs/agentroom-tui-overview.gif: ask the operator "what is happening?", then move through Overview, Agents, Messages, and Events.
 - docs/assets/gifs/mobile-room-check.gif: mobile-connect pairing link on iPhone, then inspect a running room.
 -->
 
@@ -48,11 +48,11 @@ Use AgentRoom as an agent command center:
 Let agents own the work that benefits from durable context, room awareness, and
 tool access:
 
-- claim a task shadow before editing
+- identify the configured work tracker before editing
 - inspect the current repo and post a concise plan
 - launch or request helper workers when a task splits cleanly
 - ask reviewers for focused checks through room DMs
-- wait for messages, task status changes, or human approval without polling
+- wait for messages, peer agent state, or human approval without polling
   chat manually
 - update the external tracker when durable work status changes
 - summarize runtime output for the operator instead of dumping raw logs
@@ -64,7 +64,7 @@ The agent should not treat a terminal pane, chat channel, or tracker issue as
 the whole system. Those are surfaces. The room is the coordination model.
 
 <!-- Capture backlog:
-- docs/assets/gifs/agentroom-launch-provider.gif: launch two workers, assign implementation and review tasks, then show the room event log.
+- docs/assets/gifs/agentroom-launch-provider.gif: launch two workers, assign implementation and review work, then show the room event log.
 - docs/assets/gifs/clanky-tui-discord.gif: Clanky continuing local TUI work while Discord routes a side request through a subagent.
 -->
 
@@ -75,7 +75,7 @@ The workspace has three layers:
 ```mermaid
 flowchart TB
   user["Human operator<br/>TUI, CLI, phone, chat"]
-  room["AgentRoom<br/>room state, messages, tasks, audit, runtime control"]
+  room["AgentRoom<br/>room state, messages, reports, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini CLI, shell/custom"]
   providers["Room providers<br/>Herdr, tmux, chat gateways"]
   external["Agent-owned tools<br/>Linear, GitHub, Figma, MCP, CLI"]
@@ -171,7 +171,7 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 | Repo             | Role                   | What the docs should prove                                                                                                                    |
 | ---------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, optional room chat gateway, mobile pairing, room events, and task shadows form one control surface. |
+| `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, optional room chat gateway, mobile pairing, room events, reports, and runtime audit form one control surface. |
 | `clanky-pi`      | Personal Pi agent      | Clanky is stateful, profile-scoped, memory-aware, communication-gateway-capable, voice/media-capable, and launchable as a normal AgentRoom worker. |
 | `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and JSON-line IPC.                   |
 | `agent-room-ios` | Mobile operator client | A room can be checked and steered over a private tailnet without exposing the daemon publicly.                                                |

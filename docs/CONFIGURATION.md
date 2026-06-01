@@ -28,9 +28,9 @@ CLI commands, daemon APIs, and future TUI settings screens should all round-trip
 through that same package.
 
 The event log is not static configuration. `events.jsonl` next to the AgentRoom
-config records runtime bindings, workspace registrations, messages, task shadows, chat
-ingress/egress, and audit events. It can rebuild room views, but it should not
-become the place where topology is configured.
+config records runtime bindings, workspace registrations, messages, reports,
+tracker events, chat ingress/egress, and audit events. It can rebuild room
+views, but it should not become the place where topology is configured.
 
 Secrets do not belong in `config.yaml`. Daemon-owned gateways may store env var
 references such as `tokenEnv: AGENTROOM_DISCORD_TOKEN`, then read the secret
@@ -71,7 +71,7 @@ AgentRoom files:
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `.agentroom/config.yaml` or `$AGENTROOM_HOME/config.yaml` | Room topology: runtime, work tracker defaults, Clanky launch defaults, room-owned gateway routes, and storage path. | Commit only when this is shared project topology. Keep personal rooms local. |
 | `.agentroom/AGENTS.md`                                    | Room protocol and worker behavior.                                                                                  | Usually commit for shared project rooms.                                     |
-| `.agentroom/events.jsonl`                                 | Generated room audit log: messages, tasks, runtime bindings, gateway ingress/egress.                                | No.                                                                          |
+| `.agentroom/events.jsonl`                                 | Generated room audit log: messages, reports, tracker events, runtime bindings, gateway ingress/egress.             | No.                                                                          |
 | `.agentroom/daemon.pid`                                   | Local daemon process metadata.                                                                                      | No.                                                                          |
 | `.agentroom/daemon.log`                                   | Local daemon logs.                                                                                                  | No.                                                                          |
 | `.agentroom/dashboard-agent.log`                          | Local dashboard-agent prompt/tool/error JSONL logs.                                                                 | No.                                                                          |

@@ -990,6 +990,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     label: "Chat",
     hotkey: "c",
     description: "Talk to the dashboard agent",
+    scrollback: true,
     root,
     onActivate: (ctx) => ctx.setFocus(editor),
     focus: () => tui.setFocus(editor),

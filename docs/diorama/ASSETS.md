@@ -31,13 +31,14 @@ wraps this same CLI later. `forge.json` is the readable source of truth between 
 | A3 | Per-role animation sets, Aseprite export w/ frame-tags = `AnimationState` | `sf animate` (video→frames / multi-pose) → `sf pack` | **pending** (broaden phase) |
 | A4 | Player avatar (4-dir walk + idle) | `sf character` + `sf animate` | pending |
 | A5 | Exterior town tileset (+ seam fix) | `sf bg` / `sf tileset` (seamless mode) | **pending** (net-new stage) |
-| A6 | Object/desk skins + FX (bubble/!/confetti/carry) | `sf bg --kind prop` + `sf animate` | pending |
+| A6 | Work-object/desk skins + FX (bubble/!/confetti/carry) | `sf bg --kind prop` + `sf animate` | pending |
 | A7 | Dialogue UI art (box, prompt, beacon, waypoint) | `sf bg --kind prop` (one-shot) | pending |
 
 The vertical slice covers **A1 + A2** (style/palette/cohesion + base character generation,
 view, critique, approve, palette-apply, pack). The **broaden phase** adds two stages:
 `animate` (A3/A4/A6 — the frame generation game-asset-pipeline did via video→frames) and
-`bg`/`tileset` (A5/A6/A7 — backgrounds/tilesets, which neither prior tool supported).
+`bg`/`tileset` (A5/A6/A7 — backgrounds, tilesets, and work-object props, which
+neither prior tool supported).
 
 ## How it feeds the renderer
 

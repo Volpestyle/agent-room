@@ -9,8 +9,8 @@ point of view first, then from the agent's point of view.
 flowchart TB
   user["Human operator"]
   surfaces["Control surfaces<br/>TUI, CLI, iOS, MCP, chat gateway"]
-  room["AgentRoom room<br/>agents, messages, task shadows, handoffs, audit"]
-  action["Room action<br/>launch, send, read, assign, wait, route"]
+  room["AgentRoom room<br/>agents, messages, reports, handoffs, audit"]
+  action["Room action<br/>launch, send, read, delegate, wait, route"]
   result["Readable state<br/>overview, events, output, status"]
 
   user --> surfaces
@@ -22,27 +22,27 @@ flowchart TB
 ```
 
 The operator should not need to remember which terminal pane matters. The room
-collects runtime state, coordination messages, task shadows, and recent audit
-events into one control surface.
+collects runtime state, coordination messages, reports, agent state, and recent
+audit events into one control surface.
 
 ## Agent Delegation Loop
 
 ```mermaid
 flowchart TB
   lead["Lead/operator agent"]
-  task["Task shadow<br/>linked to tracker ref when durable"]
+  tracker["External tracker<br/>Linear, GitHub, Jira"]
+  assignment["Directed handoff<br/>DM with tracker ref"]
   worker["Worker agent"]
   reviewer["Reviewer agent"]
-  tracker["External tracker<br/>Linear, GitHub, Jira"]
-  room["AgentRoom messages + events"]
+  room["AgentRoom messages, reports + events"]
 
-  lead --> task
-  task --> worker
+  lead --> tracker
+  lead --> assignment
+  assignment --> worker
   worker --> room
   room --> reviewer
   reviewer --> room
   room --> lead
-  task --> tracker
   worker --> tracker
 ```
 
@@ -56,7 +56,7 @@ execution context, summarize it into the tracker.
 flowchart TB
   surfaces["User-facing surfaces<br/>humans, lead agents, enrolled workers, chat participants<br/>CLI, TUI, MCP, mobile app, gateways"]
   daemon["agentroomd / CLI handlers<br/>HTTP API, daemon lifecycle, gateway routing, local ops"]
-  core["@agentroom/core<br/>rooms, agents, task shadows, messages, approvals,<br/>handoffs, normalized events"]
+  core["@agentroom/core<br/>rooms, agents, messages, approvals,<br/>reports, handoffs, normalized events"]
   store["EventStore<br/>room state and audit history"]
   runtime["RuntimeProvider<br/>audited launch, read, send, stop"]
   gateways["ChatGatewayProvider<br/>optional room-owned conversation routing"]
@@ -84,8 +84,9 @@ flowchart TB
   singleton room home when discovery is not desired.
 - `.agentroom/AGENTS.md` owns editable room protocol for dashboard-agent and
   worker behavior.
-- The event log owns room state and audit history: messages, local task shadows,
-  runtime bindings, chat ingress/egress, and terminal input/output observations.
+- The event log owns room state and audit history: messages, reports, imported
+  tracker events, runtime bindings, chat ingress/egress, and terminal
+  input/output observations.
 - Runtime providers own process placement and terminal control. AgentRoom uses
   provider capabilities instead of assuming Herdr, tmux, Docker, SSH, or a
   hosted scheduler.

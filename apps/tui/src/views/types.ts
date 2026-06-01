@@ -9,6 +9,7 @@ export interface View {
   label: string;
   hotkey: string; // single character pressed alone (no modifier) to switch
   description?: string;
+  scrollback?: boolean;
   root: Component;
   onActivate?(ctx: ViewActivationContext): void;
   onDeactivate?(): void;

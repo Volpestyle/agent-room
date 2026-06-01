@@ -615,6 +615,42 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     },
   });
 
+  const searchRuntimeAgents = defineTool({
+    name: "search_runtime_agents",
+    label: "Search runtime agents",
+    description:
+      "Search recent terminal output across AgentRoom-bound runtime agents only. Returns agent id, display name, runtime/provider, state, matched line, and compact before/after context.",
+    parameters: Type.Object({
+      query: Type.String(),
+      providerId: Type.Optional(Type.String()),
+      lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
+      linesBefore: Type.Optional(Type.Integer({ minimum: 0, maximum: 20 })),
+      linesAfter: Type.Optional(Type.Integer({ minimum: 0, maximum: 20 })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      caseSensitive: Type.Optional(Type.Boolean({ default: false })),
+    }),
+    execute: async (_callId, params) => {
+      const result = await api.searchRuntimeAgents({
+        query: params.query,
+        ...(params.providerId !== undefined
+          ? { providerId: params.providerId }
+          : {}),
+        ...(params.lines !== undefined ? { lines: params.lines } : {}),
+        ...(params.linesBefore !== undefined
+          ? { linesBefore: params.linesBefore }
+          : {}),
+        ...(params.linesAfter !== undefined
+          ? { linesAfter: params.linesAfter }
+          : {}),
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.caseSensitive !== undefined
+          ? { caseSensitive: params.caseSensitive }
+          : {}),
+      });
+      return jsonContent(result);
+    },
+  });
+
   const sendInput = defineTool({
     name: "send_runtime_agent_input",
     label: "Send input to an agent",
@@ -675,6 +711,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     getRuntimeStatus,
     launchAgent,
     readAgent,
+    searchRuntimeAgents,
     sendInput,
     refresh,
     getHealth,

@@ -14,6 +14,7 @@ import {
   humanEscalationCreateSchema,
   messageCreateSchema,
   nowIso,
+  searchRuntimeAgents,
   workspaceRegisterSchema,
   type ChatGatewayProvider,
   type HarnessSpec,
@@ -684,6 +685,46 @@ export function createAppWithLifecycle(
     return c.json({ sessions: await provider.listSessions() });
   });
 
+  app.get("/v1/runtime/search", async (c) => {
+    const query = c.req.query("query") ?? c.req.query("q");
+    if (query === undefined || query.trim().length === 0) {
+      return c.json({ error: "query is required" }, 400);
+    }
+
+    try {
+      const lines = parseOptionalIntegerQuery(c.req.query("lines"), "lines");
+      const linesBefore = parseOptionalIntegerQuery(
+        c.req.query("linesBefore") ?? c.req.query("before"),
+        "linesBefore",
+      );
+      const linesAfter = parseOptionalIntegerQuery(
+        c.req.query("linesAfter") ?? c.req.query("after"),
+        "linesAfter",
+      );
+      const limit = parseOptionalIntegerQuery(c.req.query("limit"), "limit");
+      const caseSensitive = parseOptionalBooleanQuery(
+        c.req.query("caseSensitive"),
+        "caseSensitive",
+      );
+      const providerId = c.req.query("providerId") ?? c.req.query("runtime");
+      const agents = await service.listAgents();
+      const result = await searchRuntimeAgents({
+        agents,
+        providerForBinding: (binding) => registry.runtime(binding.providerId),
+        query,
+        ...(providerId !== undefined ? { providerId } : {}),
+        ...(lines !== undefined ? { lines } : {}),
+        ...(linesBefore !== undefined ? { linesBefore } : {}),
+        ...(linesAfter !== undefined ? { linesAfter } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(caseSensitive !== undefined ? { caseSensitive } : {}),
+      });
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: errorMessage(error) }, 400);
+    }
+  });
+
   app.get("/v1/runtime/bindings/:agentId", async (c) => {
     const binding = await service.getRuntimeBinding(c.req.param("agentId"));
     return c.json({ binding: binding ?? null });
@@ -1248,6 +1289,26 @@ function optionalBoolean(value: unknown): boolean | undefined {
   if (value === undefined) return undefined;
   if (typeof value === "boolean") return value;
   throw new Error("visibleToUser must be a boolean");
+}
+
+function parseOptionalIntegerQuery(
+  value: string | undefined,
+  name: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new Error(`${name} must be an integer`);
+  return parsed;
+}
+
+function parseOptionalBooleanQuery(
+  value: string | undefined,
+  name: string,
+): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  throw new Error(`${name} must be true or false`);
 }
 
 interface ConfigSetupWorkTrackerPatch {

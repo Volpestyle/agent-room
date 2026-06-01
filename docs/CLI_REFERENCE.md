@@ -73,11 +73,12 @@ Supported runtime kinds today: `herdr`, `tmux`, and `fake`.
 | Command                                | Purpose                                                       |
 | -------------------------------------- | ------------------------------------------------------------- |
 | `agent-room launch <agentId>`          | Launch an opted-in agent through a runtime provider.          |
-| `agent-room delegate <agentId> <work>` | Assign work to an agent and return a waitable task handle.    |
+| `agent-room delegate <agentId> <work>` | DM a tracker-linked work assignment and wake the agent if idle. |
 | `agent-room enroll`                    | Enroll the current pane or shell into the room.               |
 | `agent-room agents`                    | Show enrolled agents, roles, state, and heartbeat.            |
 | `agent-room wait-agent <agentId>`      | Wait until an agent reaches a state such as `done` or `idle`. |
 | `agent-room read <agentId>`            | Read recent output from a runtime-backed agent.               |
+| `agent-room search-runtime <query>`    | Search recent output across AgentRoom-bound runtime agents.   |
 | `agent-room send <agentId> <text>`     | Send input to a runtime-backed agent.                         |
 | `agent-room activate <agentId>`        | Inject the activation prompt so an enrolled agent loads the `agentroom` skill. |
 | `agent-room stop <agentId>`            | Stop a runtime-backed agent.                                  |
@@ -113,16 +114,19 @@ fires it automatically on first adoption, and `agent-room enroll` fires it after
 binding unless you pass `--no-activate`. Daemon API:
 `POST /v1/runtime/:providerId/agents/:agentId/activate`.
 
-Use `delegate` when the lead already has a worker and wants a watchable handle:
+Use `delegate` when the lead already has a worker and wants the assignment to
+land as a directed room message:
 
 ```bash
-agent-room delegate impl "Implement OAuth callback" --notify dashboard --json
-agent-room wait-task task_... --state done,failed,blocked
+agent-room delegate impl "Pick up ENG-123: implement OAuth callback" --json
+agent-room wait-agent impl --state done,idle
 ```
 
-`delegate` creates an assigned task shadow, records a delegation event, and DMs
-the assignee. Terminal task states emit `task.completed` and
-`delegation.resolved`; agent completion emits `agent.finished`.
+`delegate` is a thin convenience wrapper over `dm`: it records a handoff message
+to the assignee and returns a suggested `wait-agent` command. It does not create
+or update an AgentRoom task. The assignee tracks issue state in the configured
+work tracker and reports room progress through `status`, `report`, `block`, and
+`done`.
 
 ## Messages And Waits
 
@@ -133,9 +137,9 @@ the assignee. Terminal task states emit `task.completed` and
 | `agent-room dm <agentIds> <body>` | Send a direct message to one or more agents.             |
 | `agent-room messages`             | Show recent room messages.                               |
 | `agent-room wait`                 | Wait until a matching room event appears.                |
-| `agent-room wait-task <taskId>`   | Wait until a task reaches a terminal or requested state. |
 | `agent-room events`               | Show recent local room events.                           |
 | `agent-room events --follow`      | Stream new events.                                       |
+| `agent-room feed`                 | Show the user-visible tracker/report feed.               |
 
 Examples:
 
@@ -151,34 +155,26 @@ agent-room wait --message "ready" --from impl --channel implementation --kind st
 
 `--message` is a JavaScript regular expression. Use `--ignore-case` instead of
 inline `(?i)` flags. `wait` exits 0 on match, 2 on timeout, and 1 on command or
-regex errors. `wait-task` exits 0 for success states, 3 for `failed`, 4 for
-`blocked`, and 5 for `canceled`.
+regex errors.
 
-## Tasks
+## Agent State And Feed
 
-AgentRoom tasks are local execution shadows. Link them to the durable tracker
-when a real issue exists.
+AgentRoom has no built-in task store. Issues, ownership, workflow state, and
+durable comments live in the configured work tracker. Use AgentRoom for runtime
+coordination and user-visible execution summaries.
 
-| Command                                           | Purpose                                             |
-| ------------------------------------------------- | --------------------------------------------------- |
-| `agent-room task create <title>`                  | Create a local task shadow.                         |
-| `agent-room task list`                            | List local task shadows.                            |
-| `agent-room task show <taskId>`                   | Show one task shadow.                               |
-| `agent-room task claim <taskId>`                  | Claim a task.                                       |
-| `agent-room task status <taskId> <status>`        | Set task status.                                    |
-| `agent-room task request-review <taskId>`         | Mark ready for review and optionally DM a reviewer. |
-| `agent-room task approve <taskId>`                | Approve a task review.                              |
-| `agent-room task changes-requested <taskId>`      | Request changes on a task review.                   |
-| `agent-room task link-tracker <taskId> <issueId>` | Link a task to an external tracker issue.           |
-| `agent-room task comment <taskId> <body>`         | Post a local AgentRoom task comment.                |
-| `agent-room block <taskId> --reason <reason>`     | Mark a task blocked.                                |
-| `agent-room done <taskId>`                        | Mark a task done.                                   |
-| `agent-room ask-human <question>`                 | Create a human escalation question.                 |
+| Command                             | Purpose                                                       |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `agent-room block --reason <reason>` | Report that the current enrolled agent is blocked.            |
+| `agent-room done --summary <summary>` | Report that the current enrolled agent finished its work.     |
+| `agent-room report --summary <text>` | Add a narrative agent report to the user-visible feed.        |
+| `agent-room ask-human <question>`    | Create a human escalation question in the room.               |
+| `agent-room feed`                    | Read tracker webhook/importer events plus narrative reports.  |
 
-Statuses come from the AgentRoom task model, including `planned`, `assigned`,
-`claimed`, `working`, `blocked`, `ready-for-review`, `changes-requested`,
-`approved`, `merged`, `failed`, `done`, and `canceled`. Use `task status` for
-explicit state changes and `done` / `block` for the common paths.
+`block` and `done` update agent state for room coordination. They are not task
+tracker commands. If the configured tracker is unavailable when an issue update
+is required, the agent should report that the tracker update was skipped instead
+of inventing local task state.
 
 ## Workspaces And Trackers
 

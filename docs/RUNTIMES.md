@@ -80,7 +80,7 @@ agent-room launch impl --placement tab --workspace my-project --harness shell --
 agent-room launch reviewer --placement pane --workspace my-project --panes-per-tab 2 --harness shell --command "bash" --cwd /path/to/workspace
 ```
 
-For fresh pane-grid work, use a workspace label that is unique to the team or task:
+For fresh pane-grid work, use a workspace label that is unique to the team or workstream:
 
 ```bash
 agent-room launch impl-a --workspace squad-foo --harness HARNESS_KIND --command "AGENT_COMMAND" --cwd /path/to/workspace

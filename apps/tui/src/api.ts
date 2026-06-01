@@ -21,6 +21,7 @@ import type {
   RuntimeAgent,
   RuntimeAgentLaunchInput,
   RuntimeProviderSummary,
+  RuntimeSearchResult,
   RuntimeSession,
   TrackerEvent,
   TrackerEventActor,
@@ -273,6 +274,35 @@ export function createApiClient(options: ApiClientOptions = {}) {
       apiRequest<{ output: AgentOutput }>(
         `/v1/runtime/${encodeURIComponent(providerId)}/agents/${encodeURIComponent(agentId)}/output?lines=${encodeURIComponent(lines)}`,
       ),
+    searchRuntimeAgents: (input: {
+      query: string;
+      providerId?: string;
+      lines?: number;
+      linesBefore?: number;
+      linesAfter?: number;
+      limit?: number;
+      caseSensitive?: boolean;
+    }) => {
+      const search = new URLSearchParams();
+      search.set("query", input.query);
+      if (input.providerId !== undefined) {
+        search.set("providerId", input.providerId);
+      }
+      if (input.lines !== undefined) search.set("lines", String(input.lines));
+      if (input.linesBefore !== undefined) {
+        search.set("linesBefore", String(input.linesBefore));
+      }
+      if (input.linesAfter !== undefined) {
+        search.set("linesAfter", String(input.linesAfter));
+      }
+      if (input.limit !== undefined) search.set("limit", String(input.limit));
+      if (input.caseSensitive !== undefined) {
+        search.set("caseSensitive", String(input.caseSensitive));
+      }
+      return apiRequest<RuntimeSearchResult>(
+        `/v1/runtime/search?${search.toString()}`,
+      );
+    },
     sendRuntimeAgentInput: (
       providerId: string,
       agentId: string,
