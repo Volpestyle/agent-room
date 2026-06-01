@@ -158,6 +158,7 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
 }
 
 function tmuxShellCommand(command: string, args: string[]): string {
+  if (args.length === 0) return command;
   return [command, ...args].map(shellQuote).join(' ');
 }
 

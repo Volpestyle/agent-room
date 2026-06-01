@@ -46,4 +46,32 @@ describe('TmuxRuntimeProvider', () => {
       "printf 'hello world' 'it'\\''s ok' '$(touch /tmp/pwned)'"
     ]);
   });
+
+  it('preserves single shell command strings when no args are supplied', async () => {
+    const { TmuxRuntimeProvider } = await import('./index.js');
+    const provider = new TmuxRuntimeProvider({
+      cli: 'tmux-test',
+      sessionPrefix: 'room'
+    });
+
+    await provider.startAgent({
+      agentId: 'agent/one',
+      roomId: 'room',
+      role: 'implementer',
+      harness: {
+        kind: 'shell',
+        command: 'clanky --profile lead --home ./.clanky-room'
+      }
+    });
+
+    expect(execFileMock.mock.calls[0]?.[1]).toEqual([
+      'new-session',
+      '-d',
+      '-s',
+      'room_agent_one',
+      '-c',
+      process.cwd(),
+      'clanky --profile lead --home ./.clanky-room'
+    ]);
+  });
 });
