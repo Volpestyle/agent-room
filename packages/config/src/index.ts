@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { parse } from "yaml";
 import type {
   ChatConversationKind,
   ChatCredentialKind,
@@ -615,7 +616,7 @@ export function formatAgentRoomConfig(config: AgentRoomConfig): string {
 }
 
 export function parseAgentRoomConfig(text: string): AgentRoomConfig {
-  const parsed = parseSimpleYaml(text);
+  const parsed = parseYamlRecord(text);
   const room = objectAt(parsed, "room");
   const runtime = objectAt(parsed, "runtime");
   const workTracker = parseWorkTrackerConfig(objectAt(parsed, "workTracker"));
@@ -1313,51 +1314,8 @@ function parseHerdrLayoutConfig(
   };
 }
 
-function parseSimpleYaml(text: string): Record<string, unknown> {
-  const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; value: Record<string, unknown> }> = [
-    { indent: -1, value: root },
-  ];
-
-  for (const rawLine of text.split("\n")) {
-    const withoutComment = rawLine.replace(/\s+#.*$/, "");
-    if (!withoutComment.trim()) continue;
-
-    const indent = withoutComment.match(/^ */)?.[0].length ?? 0;
-    const trimmed = withoutComment.trim();
-    const match = /^([^:]+):(.*)$/.exec(trimmed);
-    if (!match) throw new Error(`Invalid config line: ${rawLine}`);
-
-    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent)
-      stack.pop();
-
-    const parent = stack[stack.length - 1]!.value;
-    const key = match[1]!.trim();
-    const rest = match[2]!.trim();
-
-    if (rest === "") {
-      const child: Record<string, unknown> = {};
-      parent[key] = child;
-      stack.push({ indent, value: child });
-    } else {
-      parent[key] = parseScalar(rest);
-    }
-  }
-
-  return root;
-}
-
-function parseScalar(value: string): string | number | boolean {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
-  return value;
+function parseYamlRecord(text: string): Record<string, unknown> {
+  return asRecord(parse(text));
 }
 
 function yamlScalar(value: string | number | boolean): string {
@@ -1415,9 +1373,15 @@ function stringListAt(
   value: Record<string, unknown>,
   key: string,
 ): string[] | undefined {
-  const raw = stringAt(value, key);
-  if (raw === undefined) return undefined;
-  const entries = raw
+  const rawValue = value[key];
+  if (Array.isArray(rawValue)) {
+    const entries = rawValue.filter(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0,
+    );
+    return entries.length > 0 ? entries : undefined;
+  }
+  if (typeof rawValue !== "string") return undefined;
+  const entries = rawValue
     .split(/[,\s]+/)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);

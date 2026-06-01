@@ -25,9 +25,6 @@
       "@agentroom/config": [
         "packages/config/src/index.ts"
       ],
-      "@agentroom/storage-memory": [
-        "packages/storage-memory/src/index.ts"
-      ],
       "@agentroom/storage-jsonl": [
         "packages/storage-jsonl/src/index.ts"
       ],

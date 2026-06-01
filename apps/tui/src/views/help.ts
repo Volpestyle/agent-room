@@ -38,7 +38,7 @@ class HelpPanel extends PanelBase {
     lines.push(
       "  " +
         palette.muted(
-          "It can post messages, manage tasks, launch/read/send to runtime agents.",
+          "It can post messages, summarize tracker context, launch/read/send to runtime agents.",
         ),
     );
     lines.push(

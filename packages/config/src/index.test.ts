@@ -312,6 +312,42 @@ storage:
     expect(parseAgentRoomConfig(formatAgentRoomConfig(parsed))).toEqual(parsed);
   });
 
+  it("parses standard YAML lists in MCP server config", () => {
+    const parsed = parseAgentRoomConfig(`room:
+  id: agent-room
+
+runtime:
+  default: fake
+
+mcp:
+  servers:
+    local-docs:
+      type: stdio
+      command: docs-mcp
+      args:
+        - --site
+        - agent-room
+      allowedTools:
+        - docs_search
+        - docs_read
+
+runtimes:
+  fake:
+    type: fake
+
+storage:
+  driver: jsonl
+  path: events.jsonl
+`);
+
+    expect(parsed.mcp?.servers["local-docs"]).toEqual({
+      type: "stdio",
+      command: "docs-mcp",
+      args: ["--site", "agent-room"],
+      allowedTools: ["docs_search", "docs_read"],
+    });
+  });
+
   it("discovers the nearest project config from subdirectories", async () => {
     const previousHome = process.env.AGENTROOM_HOME;
     delete process.env.AGENTROOM_HOME;

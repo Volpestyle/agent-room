@@ -348,7 +348,7 @@ The reducer (events → world) and the `ProceduralTownLayout` determinism (same 
 - Domain & states: `agent-room/packages/core/src/domain.ts`
 - Events / cursor primitive (SSE basis): `agent-room/packages/core/src/services/AgentRoomService.ts`
 - Daemon REST (commands; SSE route lives here): `agent-room/apps/daemon/src/app.ts`
-- iOS client contract to mirror: `agent-room-ios/SwarmiOS/Services/AgentRoomAPIClient.swift`
+- iOS client contract to mirror: `agent-room-ios/AgentRoomiOS/Services/AgentRoomAPIClient.swift`
 - Architecture principles (event-first, provider-neutral): `agent-room/docs/ARCHITECTURE.md`
 - Sprite/tileset asset pipeline: `dev/game-asset-pipeline` (reference → identity → frames → Aseprite spritesheet)
 - Optional video-portrait persona tooling: `dev/ft-gen` (persona / lip-sync / audio-speech) — post-PoC only
