@@ -173,7 +173,7 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 | ---------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, optional room chat gateway, mobile pairing, room events, reports, and runtime audit form one control surface. |
 | `clanky-pi`      | Personal Pi agent      | Clanky is stateful, profile-scoped, memory-aware, communication-gateway-capable, voice/media-capable, and launchable as a normal AgentRoom worker. |
-| `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and JSON-line IPC.                   |
+| `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and framed media IPC.                |
 | `agent-room-ios` | Mobile operator client | A room can be checked and steered over a private tailnet without exposing the daemon publicly.                                                |
 | `docs`           | Shared docs shell      | Night Compiler keeps the docs sites consistent while each repo owns its content.                                                              |
 | `discord_mcp`    | Discord utility MCP    | Discord-only inspection and operations stay available without turning Discord into the room source of truth.                                  |

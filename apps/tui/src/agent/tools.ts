@@ -676,7 +676,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "refresh_dashboard",
     label: "Refresh dashboard",
     description:
-      "Force a refresh of dashboard data (health/messages/tasks/agents).",
+      "Force a refresh of dashboard data (health/messages/agents/events).",
     parameters: Type.Object({}),
     execute: async () => {
       await poller.tick();

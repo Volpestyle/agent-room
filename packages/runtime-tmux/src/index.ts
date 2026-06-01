@@ -72,7 +72,7 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
 
   async startAgent(request: StartAgentRequest): Promise<RuntimeAgent> {
     const session = this.sessionName(request.agentId);
-    const command = [request.harness.command, ...(request.harness.args ?? [])].join(' ');
+    const command = tmuxShellCommand(request.harness.command, request.harness.args ?? []);
 
     await this.run([
       'new-session',
@@ -155,4 +155,13 @@ export class TmuxRuntimeProvider implements RuntimeProvider {
       throw error;
     }
   }
+}
+
+function tmuxShellCommand(command: string, args: string[]): string {
+  return [command, ...args].map(shellQuote).join(' ');
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

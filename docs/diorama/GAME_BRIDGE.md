@@ -325,5 +325,5 @@ Deliberately minimal — almost everything is additive and client-side:
 - State projections: `agent-room/packages/core/src/services/AgentRoomService.ts`
 - Event cursor primitive (basis for SSE): same service, `eventCursor` / `listEventsFromCursor`
 - Daemon REST (commands + where the stream route goes): `agent-room/apps/daemon/src/app.ts`
-- Existing client contract to mirror: `agent-room-ios/SwarmiOS/Services/AgentRoomAPIClient.swift`
+- Existing client contract to mirror: `agent-room-ios/AgentRoomiOS/Services/AgentRoomAPIClient.swift`
 - Architecture principles (event-first, provider-neutral): `agent-room/docs/ARCHITECTURE.md`

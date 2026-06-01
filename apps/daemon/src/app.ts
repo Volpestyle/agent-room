@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -56,7 +56,13 @@ import {
   ChatGatewayRegistry,
   type ChatGatewayFactory,
 } from "./chatGatewayRegistry.js";
-import { ApnsClient, apnsConfigFromEnv } from "./apns.js";
+import {
+  ApnsClient,
+  apnsConfigFromEnv,
+  type ApnsConfig,
+  type ApnsSendResult,
+  type ConnectPushPayload,
+} from "./apns.js";
 import { DeviceRegistry } from "./deviceStore.js";
 import {
   ClientTelemetry,
@@ -90,6 +96,13 @@ export interface CreateAppOptions {
   startChatOutboundTail?: boolean;
   /** Poll cadence for the chat outbound tail's event-log tail. */
   chatOutboundTailPollIntervalMs?: number;
+  /** Test seam for APNs delivery. Production uses the real APNs HTTP/2 client. */
+  apnsClientFactory?: (config: ApnsConfig) => {
+    sendConnect: (
+      devices: Awaited<ReturnType<DeviceRegistry["list"]>>,
+      payload: ConnectPushPayload,
+    ) => Promise<ApnsSendResult[]>;
+  };
 }
 
 export interface CreateAppResult {
@@ -232,6 +245,16 @@ export function createAppWithLifecycle(
   void chatOutboundTail?.start();
 
   const apiToken = process.env.AGENTROOM_API_TOKEN?.trim();
+  const mobileConnectGrants = new Map<
+    string,
+    {
+      deviceToken: string;
+      expiresAt: number;
+      baseUrl?: string;
+      mode?: "tailnet" | "custom";
+      apiToken?: string;
+    }
+  >();
 
   const app = new Hono();
   if (process.env.AGENTROOM_LOG_REQUESTS === "1") {
@@ -451,7 +474,9 @@ export function createAppWithLifecycle(
         });
         let idleMs = 0;
         while (!aborted && !stream.aborted) {
-          const batch = await service.listEventsFromCursor(cursor, { limit: 1 });
+          const batch = await service.listEventsFromCursor(cursor, {
+            limit: 1,
+          });
           const event = batch.events[0];
           if (event !== undefined) {
             cursor = batch.cursor;
@@ -1015,6 +1040,42 @@ export function createAppWithLifecycle(
     return c.json({ ok: removed });
   });
 
+  app.post("/v1/mobile/claim-connect", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      grant?: unknown;
+      deviceToken?: unknown;
+    } | null;
+    const grant = typeof body?.grant === "string" ? body.grant.trim() : "";
+    const deviceToken =
+      typeof body?.deviceToken === "string" ? body.deviceToken.trim() : "";
+    if (!grant || !deviceToken) {
+      return c.json({ error: "grant and deviceToken are required" }, 400);
+    }
+
+    const entry = mobileConnectGrants.get(grant);
+    mobileConnectGrants.delete(grant);
+    if (!entry || entry.expiresAt < Date.now()) {
+      return c.json({ error: "connect grant is invalid or expired" }, 401);
+    }
+    if (!tokenMatches(deviceToken, entry.deviceToken)) {
+      return c.json({ error: "connect grant does not match this device" }, 401);
+    }
+    const registered = (await deviceRegistry.list()).some((device) =>
+      tokenMatches(device.token, deviceToken),
+    );
+    if (!registered) {
+      return c.json({ error: "device is not registered" }, 401);
+    }
+
+    return c.json({
+      ok: true,
+      roomId,
+      ...(entry.baseUrl !== undefined ? { baseUrl: entry.baseUrl } : {}),
+      ...(entry.mode !== undefined ? { mode: entry.mode } : {}),
+      ...(entry.apiToken !== undefined ? { token: entry.apiToken } : {}),
+    });
+  });
+
   app.post("/v1/mobile/connect-push", async (c) => {
     const apnsConfig = apnsConfigFromEnv();
     if (!apnsConfig) {
@@ -1036,14 +1097,34 @@ export function createAppWithLifecycle(
     if (devices.length === 0) {
       return c.json({ error: "no registered devices" }, 404);
     }
-    const client = new ApnsClient(apnsConfig);
+    const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl : undefined;
+    const mode =
+      body.mode === "tailnet" || body.mode === "custom" ? body.mode : undefined;
+    const grantExpiresAt = Date.now() + 60_000;
+    const grantsByDeviceToken =
+      apiToken !== undefined
+        ? Object.fromEntries(
+            devices.map((device) => {
+              const grant = randomUUID();
+              mobileConnectGrants.set(grant, {
+                deviceToken: device.token,
+                expiresAt: grantExpiresAt,
+                ...(baseUrl !== undefined ? { baseUrl } : {}),
+                ...(mode !== undefined ? { mode } : {}),
+                apiToken,
+              });
+              return [device.token, grant];
+            }),
+          )
+        : undefined;
+    const client =
+      options.apnsClientFactory?.(apnsConfig) ?? new ApnsClient(apnsConfig);
     const results = await client.sendConnect(devices, {
       roomId,
-      ...(typeof body.baseUrl === "string" ? { baseUrl: body.baseUrl } : {}),
-      ...(body.mode === "tailnet" || body.mode === "custom"
-        ? { mode: body.mode }
-        : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(mode !== undefined ? { mode } : {}),
       ...(body.silent === true ? { silent: true } : {}),
+      ...(grantsByDeviceToken !== undefined ? { grantsByDeviceToken } : {}),
     });
     const sent = results.filter((result) => result.ok).length;
     return c.json({
@@ -1095,7 +1176,9 @@ export function createAppWithLifecycle(
   app.post("/v1/clients/:clientId/commands", async (c) => {
     const body = await c.req.json().catch(() => null);
     const kind = parseCommandKind(
-      body && typeof body === "object" ? (body as Record<string, unknown>).kind : undefined,
+      body && typeof body === "object"
+        ? (body as Record<string, unknown>).kind
+        : undefined,
     );
     if (!kind) {
       return c.json({ error: "invalid or missing command kind" }, 400);
@@ -1272,7 +1355,9 @@ function parseRefKind(value: string | undefined): Ref["kind"] | undefined {
   return undefined;
 }
 
-function parseImportanceValue(value: string | undefined): Importance | undefined {
+function parseImportanceValue(
+  value: string | undefined,
+): Importance | undefined {
   if (
     value === "low" ||
     value === "normal" ||
@@ -1414,7 +1499,9 @@ function parseMcpServerSetupPatch(
     ...(url !== undefined ? { url } : {}),
   });
   if (type === undefined) {
-    throw new Error("mcpServer.type must be stdio, http, streamable-http, or sse");
+    throw new Error(
+      "mcpServer.type must be stdio, http, streamable-http, or sse",
+    );
   }
   if (type === "stdio" && command === undefined) {
     throw new Error("mcpServer.command is required for stdio servers");
@@ -1530,7 +1617,9 @@ function setupMcpServer(patch: ConfigSetupMcpServerPatch): McpServerConfig {
     ...(patch.args !== undefined ? { args: patch.args } : {}),
     ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
     ...(patch.url !== undefined ? { url: patch.url } : {}),
-    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.description !== undefined
+      ? { description: patch.description }
+      : {}),
     ...(patch.disabled !== undefined ? { disabled: patch.disabled } : {}),
     ...(patch.allowedTools !== undefined
       ? { allowedTools: patch.allowedTools }
@@ -1622,7 +1711,9 @@ function optionalStringArrayProp<T extends string>(
   key: T,
 ): { [K in T]?: string[] } {
   const value = optionalStringArray(input[key]);
-  return value === undefined ? {} : ({ [key]: value } as { [K in T]?: string[] });
+  return value === undefined
+    ? {}
+    : ({ [key]: value } as { [K in T]?: string[] });
 }
 
 function optionalBooleanProp<T extends string>(
@@ -1630,7 +1721,9 @@ function optionalBooleanProp<T extends string>(
   key: T,
 ): { [K in T]?: boolean } {
   const value = optionalBoolean(input[key]);
-  return value === undefined ? {} : ({ [key]: value } as { [K in T]?: boolean });
+  return value === undefined
+    ? {}
+    : ({ [key]: value } as { [K in T]?: boolean });
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -1642,7 +1735,8 @@ function optionalString(value: unknown): string | undefined {
 function optionalStringArray(value: unknown): string[] | undefined {
   if (Array.isArray(value)) {
     const entries = value.filter(
-      (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+      (entry): entry is string =>
+        typeof entry === "string" && entry.trim().length > 0,
     );
     return entries.length > 0 ? entries : undefined;
   }
@@ -1913,7 +2007,9 @@ function errorMessage(error: unknown): string {
 }
 
 function isPublicV1Path(pathname: string): boolean {
-  return pathname.startsWith("/v1/admin/");
+  return (
+    pathname.startsWith("/v1/admin/") || pathname === "/v1/mobile/claim-connect"
+  );
 }
 
 function isAuthorizedApiRequest(

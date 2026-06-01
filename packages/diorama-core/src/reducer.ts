@@ -580,6 +580,8 @@ export function reduceEvent(
     case "chat.inbound_received":
     case "chat.outbound_sent":
     case "tracker.ref_event":
+    case "tracker.event":
+    case "agent.report":
     case "decision.recorded":
       return { ...snapshot, clock };
 
