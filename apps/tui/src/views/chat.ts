@@ -64,6 +64,7 @@ const SLASH_COMMANDS = [
   { name: "logout", description: "Sign out of a provider" },
   { name: "effort", description: "Show or set model effort level" },
   { name: "trace", description: "Show or set transcript trace mode" },
+  { name: "logs", description: "Open searchable dashboard-agent logs" },
   { name: "runtime", description: "Show runtime session/socket status" },
   { name: "setup runtime", description: "Set the default runtime" },
   { name: "setup tracker", description: "Set the work tracker defaults" },
@@ -297,7 +298,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       banner.addChild(
         new Text(
           palette.muted(
-            "Talk to it in plain language. /setup · /protocol · /help · /clear · /copy · /refresh · /post · /login · /logout · /effort · /trace · /runtime · /quit",
+            "Talk to it in plain language. /setup · /protocol · /help · /clear · /copy · /refresh · /post · /login · /logout · /effort · /trace · /logs · /runtime · /quit",
           ),
           1,
           0,

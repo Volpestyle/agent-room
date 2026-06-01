@@ -12,6 +12,10 @@ import {
 import type { AuthStorage } from "../auth/storage.js";
 import type { ApiClient } from "../api.js";
 import type { Poller } from "../poller.js";
+import type {
+  DashboardAgentLogContext,
+  DashboardAgentLogger,
+} from "./dashboard-log.js";
 import { dashboardAgentId } from "./identity.js";
 import { loadDashboardOperatorSkillPrompt } from "./operator-skill.js";
 import { createDashboardTools } from "./tools.js";
@@ -26,6 +30,7 @@ export interface DashboardAgentOptions {
   cwd: string;
   thinkingLevel?: ThinkingLevel;
   operatorSkillPrompt?: string | false;
+  logger?: DashboardAgentLogger;
 }
 
 export interface ResolvedModel {
@@ -42,7 +47,7 @@ export interface DashboardAgent {
   agentId: string;
   subscribe(listener: (event: AgentEvent) => void | Promise<void>): () => void;
   prompt(text: string): Promise<void>;
-  abort(): void;
+  abort(reason?: string): void;
 }
 
 export interface DashboardAgentError {
@@ -216,7 +221,10 @@ export function createDashboardAgent(
   options: DashboardAgentOptions,
 ): DashboardAgent | DashboardAgentError {
   const resolved = resolveModelOrError(options.auth);
-  if ("reason" in resolved) return resolved;
+  if ("reason" in resolved) {
+    options.logger?.recordAgentUnavailable(resolved.reason);
+    return resolved;
+  }
 
   const tools = createDashboardTools({
     api: options.api,
@@ -236,6 +244,16 @@ export function createDashboardAgent(
   const model = getModel(resolved.provider, resolved.modelId as never);
   const requestedThinking = resolveThinkingLevel(options.thinkingLevel);
   const thinkingLevel = clampThinkingLevel(model, requestedThinking);
+  const agentContext: DashboardAgentLogContext = {
+    agentId,
+    roomId: options.roomId,
+    cwd: options.cwd,
+    provider: resolved.provider,
+    modelId: resolved.modelId,
+    modelSource: resolved.source,
+    requestedThinkingLevel: requestedThinking,
+    thinkingLevel,
+  };
 
   const agent = new Agent({
     initialState: {
@@ -246,6 +264,12 @@ export function createDashboardAgent(
     },
     getApiKey: async (provider) => options.auth.getApiKey(provider),
   });
+  options.logger?.recordAgentCreated(agentContext);
+  if (options.logger) {
+    agent.subscribe((event) => {
+      options.logger?.recordAgentEvent(event, agentContext);
+    });
+  }
 
   return {
     agent,
@@ -254,7 +278,19 @@ export function createDashboardAgent(
     thinkingLevel,
     agentId,
     subscribe: (listener) => agent.subscribe(listener),
-    prompt: (text) => agent.prompt(text),
-    abort: () => agent.abort(),
+    prompt: async (text) => {
+      options.logger?.recordPromptStart(text, agentContext);
+      try {
+        await agent.prompt(text);
+        options.logger?.recordPromptEnd(agentContext);
+      } catch (error) {
+        options.logger?.recordPromptError(error, agentContext);
+        throw error;
+      }
+    },
+    abort: (reason?: string) => {
+      options.logger?.recordAbort(agentContext, reason);
+      agent.abort();
+    },
   };
 }

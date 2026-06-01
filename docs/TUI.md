@@ -29,6 +29,7 @@ Launch an implementation agent in this workspace.
 Read the last 80 lines from reviewer-1.
 Send impl-2 a reminder to post status before editing.
 Which agent is blocked?
+Open dashboard logs and search for failed tool calls.
 ```
 
 The dashboard agent should translate those requests into room operations:
@@ -48,6 +49,7 @@ Use the views when you want to inspect state directly:
 | Tasks      | Inspect local task shadows and active ownership.                   |
 | Messages   | Read room channels, direct messages, and handoffs.                 |
 | Events     | Audit room activity, runtime reads/sends, and provider changes.    |
+| Logs       | Search dashboard-agent prompts, tool calls/results, and errors.    |
 | Help       | See hotkeys, slash commands, and environment knobs.                |
 
 `Ctrl+G` and `Ctrl+L` cycle views. `Esc` opens the view picker. `?` opens Help.
@@ -74,6 +76,12 @@ Setup commands write the same `.agentroom/config.yaml` model as the CLI.
 dashboard agent and launched workers. Secrets stay in environment variables,
 MCP/connector auth, or auth stores; the config file stores portable non-secret
 defaults.
+
+Use `/logs` when the dashboard agent behaves unexpectedly. The Logs view tails
+`.agentroom/dashboard-agent.log` from the active AgentRoom home, filters across
+event names, summaries, tool arguments/results, model errors, and message-end
+records, and lets you expand a row for the JSON details. The file stays on disk
+as JSONL for `rg`, `jq`, or sharing a focused excerpt during debugging.
 
 ## Mental Model
 

@@ -1,4 +1,8 @@
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
 import { palette } from "../theme.js";
 import type { View } from "./types.js";
@@ -23,14 +27,14 @@ class HelpPanel extends PanelBase {
     lines.push("  " + this.hotkeyHint());
     lines.push(
       "  " +
-        palette.muted(
-          "Ctrl+G / Ctrl+L cycle views · Esc opens the view menu",
-        ),
+        palette.muted("Ctrl+G / Ctrl+L cycle views · Esc opens the view menu"),
     );
 
     lines.push("");
     lines.push(palette.label("CHAT VIEW"));
-    lines.push("  " + palette.muted("Talk to the dashboard agent in plain language."));
+    lines.push(
+      "  " + palette.muted("Talk to the dashboard agent in plain language."),
+    );
     lines.push(
       "  " +
         palette.muted(
@@ -38,7 +42,11 @@ class HelpPanel extends PanelBase {
         ),
     );
     lines.push("  " + palette.muted("Built-in slash commands:"));
-    lines.push("    " + palette.accent("/help") + palette.muted("           this screen"));
+    lines.push(
+      "    " +
+        palette.accent("/help") +
+        palette.muted("           this screen"),
+    );
     lines.push(
       "    " +
         palette.accent("/setup") +
@@ -49,9 +57,23 @@ class HelpPanel extends PanelBase {
         palette.accent("/config") +
         palette.muted("         current AgentRoom config summary"),
     );
-    lines.push("    " + palette.accent("/refresh") + palette.muted("        force a poll"));
-    lines.push("    " + palette.accent("/clear") + palette.muted("          clear the chat transcript"));
-    lines.push("    " + palette.accent("/copy") + palette.muted("           copy the last dashboard reply to the clipboard"));
+    lines.push(
+      "    " +
+        palette.accent("/refresh") +
+        palette.muted("        force a poll"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/clear") +
+        palette.muted("          clear the chat transcript"),
+    );
+    lines.push(
+      "    " +
+        palette.accent("/copy") +
+        palette.muted(
+          "           copy the last dashboard reply to the clipboard",
+        ),
+    );
     lines.push(
       "    " +
         palette.accent("/login [provider]") +
@@ -74,6 +96,11 @@ class HelpPanel extends PanelBase {
     );
     lines.push(
       "    " +
+        palette.accent("/logs") +
+        palette.muted("          open searchable dashboard-agent logs"),
+    );
+    lines.push(
+      "    " +
         palette.accent("/runtime [provider]") +
         palette.muted(" show runtime sessions, sockets, and workspace ids"),
     );
@@ -83,17 +110,24 @@ class HelpPanel extends PanelBase {
         palette.muted("     post raw text to the room as the dashboard agent"),
     );
     lines.push(
-      "    " + palette.accent("/quit") + palette.muted("           exit the dashboard"),
+      "    " +
+        palette.accent("/quit") +
+        palette.muted("           exit the dashboard"),
     );
 
     lines.push("");
     lines.push(palette.label("ENVIRONMENT"));
     lines.push(
       "  " +
-        palette.muted("AGENTROOM_DAEMON          base URL of the daemon (default http://127.0.0.1:4317)"),
+        palette.muted(
+          "AGENTROOM_DAEMON          base URL of the daemon (default http://127.0.0.1:4317)",
+        ),
     );
     lines.push(
-      "  " + palette.muted("AGENTROOM_API_TOKEN       bearer token if --tailnet daemon"),
+      "  " +
+        palette.muted(
+          "AGENTROOM_API_TOKEN       bearer token if --tailnet daemon",
+        ),
     );
     lines.push(
       "  " +

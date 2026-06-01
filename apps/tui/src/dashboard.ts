@@ -20,6 +20,7 @@ import type {
   DashboardAgentError,
   DashboardThinkingLevel,
 } from "./agent/index.js";
+import type { DashboardAgentLogger } from "./agent/dashboard-log.js";
 import type { ApiClient } from "./api.js";
 import type { Poller } from "./poller.js";
 import { selectListTheme, palette } from "./theme.js";
@@ -31,6 +32,7 @@ import { createAgentsView } from "./views/agents.js";
 import { createChatView } from "./views/chat.js";
 import { createEventsView } from "./views/events.js";
 import { createHelpView } from "./views/help.js";
+import { createLogsView } from "./views/logs.js";
 import { createMessagesView } from "./views/messages.js";
 import { createOverviewView } from "./views/overview.js";
 import {
@@ -67,6 +69,7 @@ export interface DashboardOptions {
   store: DashboardStore;
   agent: DashboardAgent | DashboardAgentError;
   auth: AuthStorage;
+  logger: DashboardAgentLogger;
   rebuildAgent(
     thinkingLevel?: DashboardThinkingLevel,
   ): DashboardAgent | DashboardAgentError;
@@ -232,7 +235,7 @@ export class Dashboard {
       rebuildAgent: (thinkingLevel) => {
         if (!("reason" in this.currentAgent)) {
           try {
-            this.currentAgent.abort();
+            this.currentAgent.abort("dashboard agent rebuild");
           } catch {
             // ignore — agent may already be settled
           }
@@ -255,6 +258,10 @@ export class Dashboard {
           this.switchToId("help");
           return true;
         }
+        if (cmd === "logs") {
+          this.switchToId("logs");
+          return true;
+        }
         return false;
       },
     });
@@ -266,6 +273,10 @@ export class Dashboard {
       createAgentsView(options.store),
       createMessagesView(options.store),
       createEventsView(options.store),
+      createLogsView({
+        logger: options.logger,
+        requestRender: () => this.tui.requestRender(),
+      }),
       createSettingsView({
         store: options.store,
         onEdit: (action) => this.openSettingsEditor(action),
@@ -360,7 +371,7 @@ export class Dashboard {
     this.options.poller.stop();
     if (!("reason" in this.currentAgent)) {
       try {
-        this.currentAgent.abort();
+        this.currentAgent.abort("dashboard shutdown");
       } catch {
         // ignore — agent may already be settled
       }
@@ -375,6 +386,12 @@ export class Dashboard {
       }
       await this.announceLeave("dashboard shutdown");
     }
+    this.options.logger.record(
+      "info",
+      "session_end",
+      "dashboard TUI session ended",
+    );
+    await this.options.logger.flush();
     this.tui.stop();
     this.resolveClosed();
   }
@@ -437,7 +454,10 @@ export class Dashboard {
       // Reserved as the daemon-recovery hotkey; only acts when the local daemon
       // is actually offline, so it can never bounce a healthy daemon.
       const state = this.options.store.get();
-      if (state.connection === "offline" && isLocalDaemon(this.options.baseUrl)) {
+      if (
+        state.connection === "offline" &&
+        isLocalDaemon(this.options.baseUrl)
+      ) {
         void this.restartDaemon();
       }
       return { consume: true };
@@ -626,7 +646,10 @@ function parseMcpSetting(
   action: Extract<SettingsAction, { kind: "mcp" }>,
   value: string,
 ): McpServerPatch | string {
-  const parts = value.trim().split(/\s+/).filter((part) => part.length > 0);
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   if (parts.length === 0) return "MCP server value cannot be empty";
   if (action.serverId !== undefined && isRemoveCommand(parts[0]!)) {
     return { id: action.serverId, remove: true };
@@ -649,9 +672,7 @@ function parseMcpSetting(
   }
 
   const first = parts[0]!;
-  const type =
-    kind ??
-    (isUrl(first) ? "streamable-http" : ("stdio" as const));
+  const type = kind ?? (isUrl(first) ? "streamable-http" : ("stdio" as const));
   if (type === "stdio") {
     return {
       id,

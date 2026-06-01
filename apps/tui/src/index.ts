@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { dirname, join } from "node:path";
 import { ProcessTerminal } from "@earendil-works/pi-tui";
 import { createApiClient } from "./api.js";
 import {
   createDashboardAgent,
   type DashboardThinkingLevel,
 } from "./agent/index.js";
+import { DashboardAgentLogger } from "./agent/dashboard-log.js";
 import { AuthStorage } from "./auth/storage.js";
 import { Dashboard } from "./dashboard.js";
 import { Poller } from "./poller.js";
@@ -20,9 +22,7 @@ export async function runAgentRoomTui(
   options: AgentRoomTuiOptions = {},
 ): Promise<void> {
   const baseUrl =
-    options.baseUrl ??
-    process.env.AGENTROOM_DAEMON ??
-    "http://127.0.0.1:4317";
+    options.baseUrl ?? process.env.AGENTROOM_DAEMON ?? "http://127.0.0.1:4317";
   const apiToken = options.apiToken ?? process.env.AGENTROOM_API_TOKEN;
   const refreshMs =
     options.refreshMs ?? Number(process.env.AGENTROOM_TUI_REFRESH_MS ?? 3000);
@@ -59,6 +59,12 @@ export async function runAgentRoomTui(
   });
   const poller = new Poller(api, store, { intervalMs: refreshMs });
   const auth = AuthStorage.default();
+  const dashboardLogPath = await resolveDashboardLogPath(api, bootConfig.cwd);
+  const logger = await DashboardAgentLogger.create({
+    path: dashboardLogPath,
+    roomId: bootHealth.roomId,
+    cwd: bootConfig.cwd,
+  });
 
   let thinkingLevelOverride: DashboardThinkingLevel | undefined;
   const buildAgent = (thinkingLevel?: DashboardThinkingLevel) => {
@@ -71,6 +77,7 @@ export async function runAgentRoomTui(
       auth,
       roomId: bootHealth.roomId,
       cwd: bootConfig.cwd,
+      logger,
       ...(thinkingLevelOverride !== undefined
         ? { thinkingLevel: thinkingLevelOverride }
         : {}),
@@ -87,6 +94,7 @@ export async function runAgentRoomTui(
     store,
     agent,
     auth,
+    logger,
     rebuildAgent: buildAgent,
     baseUrl,
   });
@@ -98,6 +106,18 @@ export async function runAgentRoomTui(
   process.on("SIGTERM", handleSignal);
 
   await dashboard.start();
+}
+
+async function resolveDashboardLogPath(
+  api: ReturnType<typeof createApiClient>,
+  cwd: string,
+): Promise<string> {
+  try {
+    const response = await api.config();
+    return join(dirname(response.path), "dashboard-agent.log");
+  } catch {
+    return join(cwd, ".agentroom", "dashboard-agent.log");
+  }
 }
 
 if (isDirectRun()) {

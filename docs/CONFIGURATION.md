@@ -67,36 +67,37 @@ the files created on their machine.
 
 AgentRoom files:
 
-| Path | Purpose | Commit? |
-| --- | --- | --- |
+| Path                                                      | Purpose                                                                                                             | Commit?                                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `.agentroom/config.yaml` or `$AGENTROOM_HOME/config.yaml` | Room topology: runtime, work tracker defaults, Clanky launch defaults, room-owned gateway routes, and storage path. | Commit only when this is shared project topology. Keep personal rooms local. |
-| `.agentroom/AGENTS.md` | Room protocol and worker behavior. | Usually commit for shared project rooms. |
-| `.agentroom/events.jsonl` | Generated room audit log: messages, tasks, runtime bindings, gateway ingress/egress. | No. |
-| `.agentroom/daemon.pid` | Local daemon process metadata. | No. |
-| `.agentroom/daemon.log` | Local daemon logs. | No. |
-| `~/.agentroom/auth.json` | Dashboard/TUI model credentials. | No. |
+| `.agentroom/AGENTS.md`                                    | Room protocol and worker behavior.                                                                                  | Usually commit for shared project rooms.                                     |
+| `.agentroom/events.jsonl`                                 | Generated room audit log: messages, tasks, runtime bindings, gateway ingress/egress.                                | No.                                                                          |
+| `.agentroom/daemon.pid`                                   | Local daemon process metadata.                                                                                      | No.                                                                          |
+| `.agentroom/daemon.log`                                   | Local daemon logs.                                                                                                  | No.                                                                          |
+| `.agentroom/dashboard-agent.log`                          | Local dashboard-agent prompt/tool/error JSONL logs.                                                                 | No.                                                                          |
+| `~/.agentroom/auth.json`                                  | Dashboard/TUI model credentials.                                                                                    | No.                                                                          |
 
 Clanky profile files:
 
-| Path | Purpose | Commit? |
-| --- | --- | --- |
-| `~/.clanky/.profile` | Active profile pointer. | No. |
-| `~/.clanky/.token` | Local Clanky HTTP/daemon token. | No. |
-| `~/.clanky/skills/` | Home-level user skills. | Only when intentionally sharing a skill; never commit secrets. |
-| `~/.clanky/profiles/<profile>/auth.json` | Profile credentials: OpenAI, agent-owned Discord, xAI, ElevenLabs, and similar providers. | No. |
-| `~/.clanky/profiles/<profile>/discord-voice.json` | Non-secret Discord voice settings. | No by default. |
-| `~/.clanky/profiles/<profile>/models.json` | Profile model registry entries. | Usually no. |
-| `~/.clanky/profiles/<profile>/SELF.md` | Profile-local self memory. | No. |
-| `~/.clanky/profiles/<profile>/skills/` | Profile-local skills and skill usage metadata. | Usually no. |
-| `~/.clanky/profiles/<profile>/memory/` | Remembered facts and reflections. | No. |
-| `~/.clanky/profiles/<profile>/sessions/` | Pi session transcripts and state. | No. |
-| `~/.clanky/profiles/<profile>/subagents/` | Gateway and voice subagent state and sessions. | No. |
-| `~/.clanky/profiles/<profile>/work-trackers/` | Provider-neutral tracker refs and local work state. | No. |
-| `~/.clanky/profiles/<profile>/index.db` | Profile search/session index. | No. |
-| `~/.clanky/profiles/<profile>/cron/` | Optional scheduled job state, runs, outputs, and locks. | No. |
-| `~/.clanky/profiles/<profile>/.sock` | Profile-local daemon socket. | No. |
-| `~/.clanky/profiles/<profile>/.daemon.lock` | Profile-local daemon lock. | No. |
-| `~/.clanky/profiles/<profile>/discord-*.log` | Local Discord bridge and voice logs. | No. |
+| Path                                              | Purpose                                                                                   | Commit?                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `~/.clanky/.profile`                              | Active profile pointer.                                                                   | No.                                                            |
+| `~/.clanky/.token`                                | Local Clanky HTTP/daemon token.                                                           | No.                                                            |
+| `~/.clanky/skills/`                               | Home-level user skills.                                                                   | Only when intentionally sharing a skill; never commit secrets. |
+| `~/.clanky/profiles/<profile>/auth.json`          | Profile credentials: OpenAI, agent-owned Discord, xAI, ElevenLabs, and similar providers. | No.                                                            |
+| `~/.clanky/profiles/<profile>/discord-voice.json` | Non-secret Discord voice settings.                                                        | No by default.                                                 |
+| `~/.clanky/profiles/<profile>/models.json`        | Profile model registry entries.                                                           | Usually no.                                                    |
+| `~/.clanky/profiles/<profile>/SELF.md`            | Profile-local self memory.                                                                | No.                                                            |
+| `~/.clanky/profiles/<profile>/skills/`            | Profile-local skills and skill usage metadata.                                            | Usually no.                                                    |
+| `~/.clanky/profiles/<profile>/memory/`            | Remembered facts and reflections.                                                         | No.                                                            |
+| `~/.clanky/profiles/<profile>/sessions/`          | Pi session transcripts and state.                                                         | No.                                                            |
+| `~/.clanky/profiles/<profile>/subagents/`         | Gateway and voice subagent state and sessions.                                            | No.                                                            |
+| `~/.clanky/profiles/<profile>/work-trackers/`     | Provider-neutral tracker refs and local work state.                                       | No.                                                            |
+| `~/.clanky/profiles/<profile>/index.db`           | Profile search/session index.                                                             | No.                                                            |
+| `~/.clanky/profiles/<profile>/cron/`              | Optional scheduled job state, runs, outputs, and locks.                                   | No.                                                            |
+| `~/.clanky/profiles/<profile>/.sock`              | Profile-local daemon socket.                                                              | No.                                                            |
+| `~/.clanky/profiles/<profile>/.daemon.lock`       | Profile-local daemon lock.                                                                | No.                                                            |
+| `~/.clanky/profiles/<profile>/discord-*.log`      | Local Discord bridge and voice logs.                                                      | No.                                                            |
 
 When AgentRoom config sets `clanky.home: .clanky-room`, those Clanky profile
 paths move under `.clanky-room/profiles/<profile>/`. They are still
@@ -115,6 +116,7 @@ Recommended project ignore block for AgentRoom + Clanky rooms:
 .agentroom/events.jsonl
 .agentroom/daemon.pid
 .agentroom/daemon.log
+.agentroom/dashboard-agent.log
 .clanky-room/
 ```
 
