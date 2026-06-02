@@ -7,7 +7,6 @@ harness:
 permissions:
   - room:read_all
   - room:post_all
-  - task:assign
   - runtime:read_recent
   - human:escalate
 startupPrompt: |

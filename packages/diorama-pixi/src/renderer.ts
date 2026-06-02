@@ -25,7 +25,7 @@
  * the entity layer is diffed against the snapshot (add / remove / move) and
  * re-sorted by world-y for correct painter's-algorithm overlap.
  *
- * Strict TS, no `any`, no fallback/fabricated data (`dev/CLAUDE.md`). Presentation
+ * Strict TS, no `any`, no fallback/fabricated data (`dev/AGENTS.md`). Presentation
  * is deterministic: colors are keyed by role/tile-kind, never randomized, and the
  * renderer reads no wall-clock for layout.
  *
@@ -331,7 +331,10 @@ export class DioramaRenderer {
     }
     graphics.position.set(pos.x, pos.y);
     this.entityLayer.addChild(graphics);
-    this.entityNodes.set(entity.id, { graphics, position: { x: pos.x, y: pos.y } });
+    this.entityNodes.set(entity.id, {
+      graphics,
+      position: { x: pos.x, y: pos.y },
+    });
   }
 
   /**

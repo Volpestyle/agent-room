@@ -7,7 +7,7 @@
  * spatial language. Nothing here is randomized or wall-clock dependent — every
  * value is derived deterministically from the world snapshot and its ids.
  *
- * No `any`, no fallback data (`dev/CLAUDE.md`).
+ * No `any`, no fallback data (`dev/AGENTS.md`).
  */
 
 import type { Vec2, Rect } from "@agentroom/diorama-core";

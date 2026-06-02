@@ -52,13 +52,14 @@ tool access:
 - inspect the current repo and post a concise plan
 - launch or request helper workers when a task splits cleanly
 - ask reviewers for focused checks through room DMs
-- wait for messages, peer agent state, or human approval without polling
-  chat manually
+- wait for room messages, peer agent state, or human approval without polling
+  terminal panes or external chat surfaces manually
 - update the external tracker when durable work status changes
 - summarize runtime output for the operator instead of dumping raw logs
 - preserve terminal audit by letting AgentRoom handle runtime `send` and `read`
-- delegate voice, communication-gateway, web, media, or connector-specific work
-  to the agent with the right profile and skills
+- use AgentRoom native messages for room coordination, and delegate voice, web,
+  media, or connector-specific operations to the agent with the right profile
+  and skills
 
 The agent should not treat a terminal pane, chat channel, or tracker issue as
 the whole system. Those are surfaces. The room is the coordination model.
@@ -139,6 +140,9 @@ flowchart LR
 The surfaces are ways into the room. They are not the source of truth. The
 runtime provider controls process placement. The external tracker remains
 canonical for durable project work. AgentRoom keeps the active execution record.
+AgentRoom native messages are the room-chat path even when no external gateway
+is configured; chat gateways are optional projections to Discord, Slack, SMS, or
+similar conversations.
 
 ## Clanky In The Room
 

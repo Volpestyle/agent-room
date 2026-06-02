@@ -18,13 +18,13 @@ export class ProviderRegistry {
       }
     } else {
       this.registerRuntime(
-        providerForConfig("fake-local", builtInRuntimeConfig("fake")),
+        providerForConfig("fake", builtInRuntimeConfig("fake")),
       );
       this.registerRuntime(
-        providerForConfig("local-herdr", builtInRuntimeConfig("herdr")),
+        providerForConfig("herdr", builtInRuntimeConfig("herdr")),
       );
       this.registerRuntime(
-        providerForConfig("local-tmux", builtInRuntimeConfig("tmux")),
+        providerForConfig("tmux", builtInRuntimeConfig("tmux")),
       );
     }
   }

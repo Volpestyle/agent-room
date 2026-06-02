@@ -8,7 +8,7 @@
  * skin map is a declarative, fully-typed costume; swapping it reskins the world.
  *
  * No `any`, no fallback/fabricated data — every value here is a real, intentional
- * default (`dev/CLAUDE.md`).
+ * default (`dev/AGENTS.md`).
  */
 
 import type {

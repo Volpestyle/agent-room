@@ -1,7 +1,7 @@
 /**
  * Player simulation tests (Diorama town, T4).
  *
- * These pin externally meaningful, long-term player behavior (`dev/CLAUDE.md`
+ * These pin externally meaningful, long-term player behavior (`dev/AGENTS.md`
  * testing philosophy): the key→axis mapping that drives all input, the
  * idle/moving/facing/animation derivation the renderer reads, and the hard
  * collision invariant that the player never walks into a blocked tile. None of
@@ -9,16 +9,16 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  inputFromKeys,
-  stepPlayer,
-  PLAYER_RADIUS_PX,
-} from "./player.js";
+import { inputFromKeys, stepPlayer, PLAYER_RADIUS_PX } from "./player.js";
 import type { CollisionGrid } from "./collision.js";
 import type { PlayerState } from "./types.js";
 
 /** An entirely-clear collision grid; no movement is ever blocked. */
-function clearGrid(cols: number, rows: number, tileSize: number): CollisionGrid {
+function clearGrid(
+  cols: number,
+  rows: number,
+  tileSize: number,
+): CollisionGrid {
   return {
     cols,
     rows,
@@ -93,15 +93,29 @@ describe("stepPlayer", () => {
   });
 
   it("faces the dominant axis", () => {
-    const start: PlayerState = { ...idleAtOrigin(), position: { x: 64, y: 64 } };
-    expect(stepPlayer(start, inputFromKeys(new Set(["d"])), 16, grid).facing).toBe("right");
-    expect(stepPlayer(start, inputFromKeys(new Set(["a"])), 16, grid).facing).toBe("left");
-    expect(stepPlayer(start, inputFromKeys(new Set(["s"])), 16, grid).facing).toBe("down");
-    expect(stepPlayer(start, inputFromKeys(new Set(["w"])), 16, grid).facing).toBe("up");
+    const start: PlayerState = {
+      ...idleAtOrigin(),
+      position: { x: 64, y: 64 },
+    };
+    expect(
+      stepPlayer(start, inputFromKeys(new Set(["d"])), 16, grid).facing,
+    ).toBe("right");
+    expect(
+      stepPlayer(start, inputFromKeys(new Set(["a"])), 16, grid).facing,
+    ).toBe("left");
+    expect(
+      stepPlayer(start, inputFromKeys(new Set(["s"])), 16, grid).facing,
+    ).toBe("down");
+    expect(
+      stepPlayer(start, inputFromKeys(new Set(["w"])), 16, grid).facing,
+    ).toBe("up");
   });
 
   it("sets animation to walk while moving", () => {
-    const start: PlayerState = { ...idleAtOrigin(), position: { x: 64, y: 64 } };
+    const start: PlayerState = {
+      ...idleAtOrigin(),
+      position: { x: 64, y: 64 },
+    };
     const next = stepPlayer(start, inputFromKeys(new Set(["d"])), 16, grid);
     expect(next.moving).toBe(true);
     expect(next.animation).toBe("walk");

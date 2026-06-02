@@ -12,7 +12,7 @@
  *    {@link RoomEvent}s with their resume cursor.
  *  - Commands: thin typed `fetch` wrappers over the daemon's REST routes. Every
  *    request carries the bearer token. Non-2xx responses reject with a typed
- *    {@link SseCommandError} — there is no silent fallback (see `dev/CLAUDE.md`).
+ *    {@link SseCommandError} — there is no silent fallback (see `dev/AGENTS.md`).
  *
  * Routes wired (verbatim from `apps/daemon/src/app.ts`):
  *  - `GET    /v1/events/stream?cursor=<cursor>`                    (subscribe)
@@ -90,10 +90,7 @@ export function createSseWorldSource(opts: SseWorldSourceOptions): WorldSource {
     return headers;
   }
 
-  async function requestJson<T>(
-    route: string,
-    init: RequestInit,
-  ): Promise<T> {
+  async function requestJson<T>(route: string, init: RequestInit): Promise<T> {
     const response = await fetchImpl(`${baseUrl}${route}`, init);
     if (!response.ok) {
       throw new SseCommandError(
@@ -112,10 +109,9 @@ export function createSseWorldSource(opts: SseWorldSourceOptions): WorldSource {
 
   async function resolveProviderId(agentId: Id): Promise<string> {
     const bindingRoute = `/v1/runtime/bindings/${encodeURIComponent(agentId)}`;
-    const binding = await requestJson<{ binding: { providerId?: string } | null }>(
-      bindingRoute,
-      { method: "GET", headers: authHeaders() },
-    );
+    const binding = await requestJson<{
+      binding: { providerId?: string } | null;
+    }>(bindingRoute, { method: "GET", headers: authHeaders() });
     const bound = binding.binding?.providerId;
     if (bound !== undefined && bound !== "") return bound;
 
@@ -424,7 +420,8 @@ function isRoomEvent(value: unknown): value is RoomEvent {
 
 /** Deterministically derive a launch agent id from the spec (slug of label, else role). */
 function deriveAgentId(spec: LaunchSpec): string {
-  const base = spec.label !== undefined && spec.label !== "" ? spec.label : spec.role;
+  const base =
+    spec.label !== undefined && spec.label !== "" ? spec.label : spec.role;
   const slug = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

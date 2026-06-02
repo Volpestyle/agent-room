@@ -6,7 +6,7 @@
  * {@link WorldSnapshot}. The renderer never touches raw events — it binds to this
  * snapshot and diffs it to tween sprites.
  *
- * Hard rule (`agent-room/CLAUDE.md`, GAME_BRIDGE §3): spatial position, animation
+ * Hard rule (`agent-room/AGENTS.md`, GAME_BRIDGE §3): spatial position, animation
  * state, skins, and layout are **client-side presentation concerns**. They never
  * enter `@agentroom/core` domain types or the event log. The backend stays
  * semantic; the world is *derived*. Everything here is fully typed — no `any`.

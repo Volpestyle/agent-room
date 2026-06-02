@@ -79,7 +79,7 @@ export class HerdrRuntimeProvider implements RuntimeProvider {
   private readonly runner: HerdrCommandRunner;
 
   constructor(options: HerdrRuntimeProviderOptions = {}) {
-    this.id = options.id ?? "local-herdr";
+    this.id = options.id ?? "herdr";
     this.cli = options.cli ?? "herdr";
     this.session = options.session;
     this.layout = { ...DEFAULT_HERDR_LAYOUT, ...(options.layout ?? {}) };

@@ -9,7 +9,7 @@
  *
  * Pure math, fully deterministic: same inputs always produce the same camera.
  * No randomness, no wall-clock reads, no `any`, no fallback data
- * (`dev/CLAUDE.md`).
+ * (`dev/AGENTS.md`).
  */
 
 import type { Vec2 } from "@agentroom/diorama-core";

@@ -9,17 +9,24 @@
  *
  *  - {@link LayoutStrategy} owns space (the backend has none). Implementations MUST
  *    be deterministic, seeded by entity/object id — no randomness, no wall-clock
- *    reads (see `agent-room/CLAUDE.md`, GAME_BRIDGE §3 & §6). Same inputs → same scene.
+ *    reads (see `agent-room/AGENTS.md`, GAME_BRIDGE §3 & §6). Same inputs → same scene.
  *  - {@link SkinMap} is the theming seam: a declarative map from domain facts →
  *    visual assets/behaviors. Swapping it reskins the whole world.
  *  - {@link WorldSource} / {@link WorldCommands} abstract where events come from and
  *    where commands go, so a world can be backed by an AgentRoom daemon today (SSE +
  *    REST) and another source (e.g. Clanky) later, without the renderer knowing.
  *
- * Everything here is fully typed — no `any` (see `dev/CLAUDE.md`).
+ * Everything here is fully typed — no `any` (see `dev/AGENTS.md`).
  */
 
-import type { AgentRole, AgentState, Id, Importance, RoomEvent, RoomEventType } from "@agentroom/core";
+import type {
+  AgentRole,
+  AgentState,
+  Id,
+  Importance,
+  RoomEvent,
+  RoomEventType,
+} from "@agentroom/core";
 import type {
   AnimationState,
   MoveIntent,
@@ -188,7 +195,10 @@ export interface WorldSource {
    * cursor; "start"/"end" or a byte-position string per F1). `onEvent` receives
    * each event with the cursor that follows it, for durable resume.
    */
-  subscribe(cursor: string, onEvent: (event: RoomEvent, cursor: string) => void): Subscription;
+  subscribe(
+    cursor: string,
+    onEvent: (event: RoomEvent, cursor: string) => void,
+  ): Subscription;
   /** The command surface for this source. */
   commands: WorldCommands;
 }

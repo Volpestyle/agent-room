@@ -555,10 +555,8 @@ export function withDefaultRuntime(
 export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
   switch (runtimeName) {
     case "fake":
-    case "fake-local":
       return { type: "fake" };
     case "herdr":
-    case "local-herdr":
       return {
         type: "herdr",
         session: DEFAULT_HERDR_SESSION,
@@ -571,7 +569,6 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
         },
       };
     case "tmux":
-    case "local-tmux":
       return {
         type: "tmux",
         sessionPrefix: DEFAULT_TMUX_SESSION_PREFIX,
@@ -699,14 +696,18 @@ function formatMcpServer(id: string, server: McpServerConfig): string[] {
   return [
     `    ${id}:`,
     `      type: ${yamlScalar(server.type)}`,
-    ...(server.url !== undefined ? [`      url: ${yamlScalar(server.url)}`] : []),
+    ...(server.url !== undefined
+      ? [`      url: ${yamlScalar(server.url)}`]
+      : []),
     ...(server.command !== undefined
       ? [`      command: ${yamlScalar(server.command)}`]
       : []),
     ...(server.args !== undefined && server.args.length > 0
       ? formatYamlList("      args:", server.args, "        ")
       : []),
-    ...(server.cwd !== undefined ? [`      cwd: ${yamlScalar(server.cwd)}`] : []),
+    ...(server.cwd !== undefined
+      ? [`      cwd: ${yamlScalar(server.cwd)}`]
+      : []),
     ...(server.description !== undefined
       ? [`      description: ${yamlScalar(server.description)}`]
       : []),
@@ -724,7 +725,10 @@ function formatYamlList(
   values: readonly string[],
   itemIndent: string,
 ): string[] {
-  return [header, ...values.map((value) => `${itemIndent}- ${yamlScalar(value)}`)];
+  return [
+    header,
+    ...values.map((value) => `${itemIndent}- ${yamlScalar(value)}`),
+  ];
 }
 
 function formatClanky(clanky: ClankyConfig): string[] {

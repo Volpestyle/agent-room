@@ -35,7 +35,7 @@ const APNS_HOSTS: Record<ApnsEnvironment, string> = {
 export function apnsConfigFromEnv(): ApnsConfig | undefined {
   const keyPath = process.env.AGENTROOM_APNS_KEY_PATH?.trim();
   const keyId = process.env.AGENTROOM_APNS_KEY_ID?.trim();
-  const teamId = process.env.AGENTROOM_APNS_TEAM_ID?.trim() || "8YW4D4C6CW";
+  const teamId = process.env.AGENTROOM_APNS_TEAM_ID?.trim();
   const bundleId =
     process.env.AGENTROOM_APNS_BUNDLE_ID?.trim() || "io.agentroom.ios";
   const defaultEnv: ApnsEnvironment =

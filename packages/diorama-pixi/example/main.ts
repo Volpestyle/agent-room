@@ -21,7 +21,7 @@
  *
  * The harness needs the daemon reachable on :4317 PLUS a valid token; without
  * them the SSE subscription cannot authenticate and the town stays empty (it
- * never fabricates agents — see `dev/CLAUDE.md` "no fallback data").
+ * never fabricates agents — see `dev/AGENTS.md` "no fallback data").
  *
  * Vite exposes string env via `import.meta.env`; this file reads
  * `VITE_DIORAMA_BASE_URL` / `VITE_DIORAMA_TOKEN` first (Vite convention) and
@@ -154,7 +154,9 @@ async function main(): Promise<void> {
 
   // --- live event subscription -------------------------------------------
   const source = createSseWorldSource(
-    TOKEN !== undefined ? { baseUrl: BASE_URL, token: TOKEN } : { baseUrl: BASE_URL },
+    TOKEN !== undefined
+      ? { baseUrl: BASE_URL, token: TOKEN }
+      : { baseUrl: BASE_URL },
   );
 
   const subscription: Subscription = source.subscribe(
