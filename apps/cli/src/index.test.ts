@@ -3,8 +3,9 @@ import {
   execFile,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
-import { createServer } from "node:net";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -910,6 +911,87 @@ describe("agent-room daemon lifecycle", () => {
     }
   });
 
+  it("keeps mobile-connect --json --push stdout machine-readable", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-mobile-push-json-"));
+    const env = testEnv("cli-mobile-push-json-test");
+    const pidFile = join(cwd, "daemon.pid");
+    const requests: Array<{
+      url: string | undefined;
+      method: string | undefined;
+      authorization: string | undefined;
+      body: string;
+    }> = [];
+    const server = createHttpServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        requests.push({
+          url: req.url,
+          method: req.method,
+          authorization: req.headers.authorization,
+          body: Buffer.concat(chunks).toString("utf8"),
+        });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sent: 1, failed: 0 }));
+      });
+    });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => resolve());
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Failed to bind mobile push test server");
+      }
+      await writeFile(
+        pidFile,
+        JSON.stringify({
+          pid: 1,
+          host: "127.0.0.1",
+          port: address.port,
+          cwd,
+          startedAt: new Date().toISOString(),
+          command: "agentroomd",
+          apiToken: "test-token",
+        }),
+      );
+
+      const result = await execAgentRoom(
+        cwd,
+        ["mobile-connect", "--pid-file", pidFile, "--json", "--push"],
+        env,
+      );
+      const payload = JSON.parse(result.stdout) as {
+        baseUrl: string;
+        mode: string;
+        token: string;
+      };
+      expect(payload).toMatchObject({
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        mode: "custom",
+        token: "test-token",
+      });
+      expect(result.stderr).toContain("Sent connect push to 1 device(s).");
+      expect(requests).toHaveLength(1);
+      const request = requests[0];
+      if (request === undefined) throw new Error("Expected one push request");
+      expect(request).toMatchObject({
+        url: "/v1/mobile/connect-push",
+        method: "POST",
+        authorization: "Bearer test-token",
+      });
+      expect(JSON.parse(request.body)).toMatchObject({
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        mode: "custom",
+      });
+    } finally {
+      server.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("passes top-level TUI options through to the AgentRoom TUI command", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-tui-root-options-"));
     const env = testEnv("cli-tui-root-options-test");
@@ -1175,7 +1257,7 @@ async function sleep(ms: number): Promise<void> {
 
 async function freePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
-    const server = createServer();
+    const server = createNetServer();
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();

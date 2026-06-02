@@ -1,7 +1,7 @@
 /**
  * Reducer invariant test (Diorama Phase 0, F4).
  *
- * Per `dev/CLAUDE.md` testing philosophy this is the ONE reducer test worth
+ * Per `dev/AGENTS.md` testing philosophy this is the ONE reducer test worth
  * keeping: it pins the two cross-cutting invariants the whole bridge relies on —
  *
  *  1. DETERMINISM: building the same event log twice yields a deeply-equal world
@@ -94,7 +94,11 @@ function message(
   };
 }
 
-function escalation(id: string, fromId: string, question: string): HumanEscalation {
+function escalation(
+  id: string,
+  fromId: string,
+  question: string,
+): HumanEscalation {
   return {
     id,
     roomId: ROOM_ID,
@@ -163,7 +167,9 @@ const events: readonly RoomEvent[] = [
     id: "e7",
     roomId: ROOM_ID,
     type: "human_escalation.created",
-    payload: { escalation: escalation(ESC_ID, BOB, "Need a decision on the API shape") },
+    payload: {
+      escalation: escalation(ESC_ID, BOB, "Need a decision on the API shape"),
+    },
     createdAt: "2026-01-01T00:00:07.000Z",
   },
   {
@@ -177,7 +183,11 @@ const events: readonly RoomEvent[] = [
     id: "e9",
     roomId: ROOM_ID,
     type: "agent.done",
-    payload: { agentId: BOB, taskId: TASK_ID, summary: "Reviewed and approved" },
+    payload: {
+      agentId: BOB,
+      taskId: TASK_ID,
+      summary: "Reviewed and approved",
+    },
     createdAt: "2026-01-01T00:00:09.000Z",
   },
 ];

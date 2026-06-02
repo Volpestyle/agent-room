@@ -2304,7 +2304,9 @@ async function pushMobileConnect(
     );
   }
   const failedSuffix = result.failed ? `, ${result.failed} failed` : "";
-  console.log(`Sent connect push to ${result.sent ?? 0} device(s)${failedSuffix}.`);
+  console.error(
+    `Sent connect push to ${result.sent ?? 0} device(s)${failedSuffix}.`,
+  );
 }
 
 async function mobileConnectBaseUrl(record: DaemonPidRecord): Promise<string> {

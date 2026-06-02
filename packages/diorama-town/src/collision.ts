@@ -8,7 +8,7 @@
  * entirely inside the town and clear of every blocked tile.
  *
  * Pure, deterministic logic: no randomness, no wall-clock reads. Strict TS, no
- * `any`, no fallback data (`dev/CLAUDE.md`).
+ * `any`, no fallback data (`dev/AGENTS.md`).
  */
 
 import type { Vec2 } from "@agentroom/diorama-core";
@@ -104,7 +104,12 @@ function footprintBlocked(
   const maxY = cy + radius;
 
   // Any part of the footprint leaving the world is treated as a wall.
-  if (minX < 0 || minY < 0 || maxX > cols * tileSize || maxY > rows * tileSize) {
+  if (
+    minX < 0 ||
+    minY < 0 ||
+    maxX > cols * tileSize ||
+    maxY > rows * tileSize
+  ) {
     return true;
   }
 

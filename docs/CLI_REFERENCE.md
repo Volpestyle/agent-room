@@ -46,6 +46,7 @@ agent-room init --runtime herdr --clanky --work-tracker linear --tracker-team te
 | `agent-room --daemon <url>`         | Open the dashboard against a non-default daemon URL.         |
 | `agent-room mobile-connect`         | Print AgentRoom iOS/mobile connection settings.              |
 | `agent-room mobile-connect --copy`  | Copy the `agentroom://connect?...` pairing link on macOS.    |
+| `agent-room mobile-connect --push`  | Send the connection settings to registered iOS devices.      |
 
 Useful options:
 
@@ -56,6 +57,16 @@ Useful options:
 | `--api-token <token>` | `daemon`, `agent-room` | Bearer token for remote clients. Prefer env for secrets. |
 | `--daemon <url>`      | `agent-room`           | Connect the TUI to an existing daemon.                   |
 | `--no-auto-start`     | `agent-room`           | Do not start a daemon if none is reachable.              |
+
+APNs push pairing requires daemon environment variables:
+
+| Env var                    | Purpose                                      |
+| -------------------------- | -------------------------------------------- |
+| `AGENTROOM_APNS_KEY_PATH`  | Path to the APNs provider `.p8` key.         |
+| `AGENTROOM_APNS_KEY_ID`    | Apple key id for that provider key.          |
+| `AGENTROOM_APNS_TEAM_ID`   | Apple Developer Team id.                     |
+| `AGENTROOM_APNS_BUNDLE_ID` | Optional app bundle id override.             |
+| `AGENTROOM_APNS_ENV`       | Optional APNs host: `sandbox` or `production`. |
 
 ## Runtime Providers
 

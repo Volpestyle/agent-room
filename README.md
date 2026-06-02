@@ -210,6 +210,19 @@ Open the copied `agentroom://connect?...` link on the phone. The daemon URL and
 token are saved by the mobile client, and `/v1/*` routes require the bearer
 token when tailnet mode or `AGENTROOM_API_TOKEN` is active.
 
+After the iOS app has registered a device token, the daemon can send the current
+connection settings over APNs:
+
+```bash
+export AGENTROOM_APNS_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8
+export AGENTROOM_APNS_KEY_ID=XXXXXXXXXX
+export AGENTROOM_APNS_TEAM_ID=TEAMID1234
+agent-room mobile-connect --push
+```
+
+Use `AGENTROOM_APNS_BUNDLE_ID` and `AGENTROOM_APNS_ENV=production` when the app
+bundle id or APNs host differs from the default development build.
+
 <!-- Capture backlog:
 - docs/assets/gifs/mobile-room-check.gif: daemon pairing, phone connection, and a quick room status check.
 -->

@@ -4,7 +4,7 @@
  * Folds the daemon's `RoomEvent` stream (F1 SSE) into the denormalized
  * {@link WorldSnapshot} the renderer binds to (GAME_BRIDGE §4.2). All spatial
  * presentation (position, animation, badge, effect, link) is **derived here**,
- * never in the backend domain (GAME_BRIDGE §3, `agent-room/CLAUDE.md`).
+ * never in the backend domain (GAME_BRIDGE §3, `agent-room/AGENTS.md`).
  *
  * Invariants:
  *  - PURE & IMMUTABLE: {@link reduceEvent} returns new objects and never mutates
@@ -16,11 +16,11 @@
  *  - DETERMINISTIC: all positions/animations come from the injected
  *    {@link LayoutStrategy} / {@link SkinMap}; no randomness, no wall-clock reads.
  *
- * AgentRoom has no task model (`agent-room/CLAUDE.md`): {@link WorldObject}s are
+ * AgentRoom has no task model (`agent-room/AGENTS.md`): {@link WorldObject}s are
  * derived ONLY from `taskId`s that appear inside other events.
  *
  * No `any`, no fallback/fabricated data — real logic or a typed error
- * (`dev/CLAUDE.md`).
+ * (`dev/AGENTS.md`).
  */
 
 import type {
@@ -492,7 +492,8 @@ export function reduceEvent(
       if (ttl !== undefined) effect.ttlMs = ttl;
       const effects = setEffect(snapshot.effects, effect);
       const link = messageLink(event, msg.importance, msg.recipients?.[0]?.id);
-      const links = link === null ? snapshot.links : setLink(snapshot.links, link);
+      const links =
+        link === null ? snapshot.links : setLink(snapshot.links, link);
       return { ...snapshot, effects, links, clock };
     }
 

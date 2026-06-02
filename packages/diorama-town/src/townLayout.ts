@@ -6,7 +6,7 @@
  * (workspace), surrounded by walkable ground/path tiles, with a single spawn
  * point at the town entrance and world bounds sized to fit everything.
  *
- * DETERMINISM (GAME_BRIDGE §6, `agent-room/CLAUDE.md`): every placement is a pure
+ * DETERMINISM (GAME_BRIDGE §6, `agent-room/AGENTS.md`): every placement is a pure
  * function of stable ids. There is no randomness and no wall-clock read, so the
  * same world always lays out the same town on every client and every session. The
  * hashing reuses the FNV-1a style from `diorama-core/defaults.ts`.
@@ -21,7 +21,7 @@
  * set.)
  *
  * No `any`, no fallback/fabricated data — real logic or a typed error
- * (`dev/CLAUDE.md`).
+ * (`dev/AGENTS.md`).
  */
 
 import type {
@@ -117,7 +117,10 @@ interface District {
  * Crucially this is a pure function of the entity id and the room set — adding an
  * agent leaves the room set unchanged, so no existing agent's district moves.
  */
-function districtKeyFor(entityId: string, sortedRoomIds: string[]): string | null {
+function districtKeyFor(
+  entityId: string,
+  sortedRoomIds: string[],
+): string | null {
   if (sortedRoomIds.length === 0) return null;
   const index = stableHash(entityId) % sortedRoomIds.length;
   return sortedRoomIds[index] ?? null;
@@ -274,7 +277,11 @@ function assignSlots(entityIds: string[]): Map<string, number> {
   // in sorted-id order. Deterministic and order-independent.
   if (stillLost.length > 0) {
     const free: number[] = [];
-    for (let s = 0; s < SLOTS_PER_DISTRICT && free.length < stillLost.length; s += 1) {
+    for (
+      let s = 0;
+      s < SLOTS_PER_DISTRICT && free.length < stillLost.length;
+      s += 1
+    ) {
       if (!occupied.has(s)) free.push(s);
     }
     stillLost.sort();
