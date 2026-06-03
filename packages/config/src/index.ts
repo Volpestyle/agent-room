@@ -18,6 +18,7 @@ export const AGENTROOM_SESSION_ENV_FILE = "session.env";
 export const DEFAULT_ROOM_ID = "agent-room";
 export const DEFAULT_HERDR_SESSION = DEFAULT_ROOM_ID;
 export const DEFAULT_TMUX_SESSION_PREFIX = DEFAULT_ROOM_ID;
+export const DEFAULT_ZELLIJ_SESSION = DEFAULT_ROOM_ID;
 export const DEFAULT_AGENTROOM_PROTOCOL = `# AgentRoom Protocol
 
 This file is the editable room protocol. Keep machine topology in config.yaml;
@@ -105,7 +106,7 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 export type ConfiguredRuntimeKind = Extract<
   RuntimeProviderKind,
-  "fake" | "herdr" | "tmux"
+  "fake" | "herdr" | "tmux" | "zellij"
 >;
 
 export interface AgentRoomConfig {
@@ -146,7 +147,8 @@ export type RuntimeConfig =
       cli?: string;
       layout?: HerdrLayoutConfig;
     }
-  | { type: "tmux"; sessionPrefix?: string; cli?: string };
+  | { type: "tmux"; sessionPrefix?: string; cli?: string }
+  | { type: "zellij"; session?: string; cli?: string };
 
 export interface DashboardOperatorConfig {
   agentId?: string;
@@ -311,6 +313,7 @@ export function createDefaultAgentRoomConfig(
   const defaultRuntime = options.defaultRuntime ?? "fake";
   const herdrSession = options.runtimeSession ?? DEFAULT_HERDR_SESSION;
   const tmuxSessionPrefix = options.runtimeSession ?? options.roomId;
+  const zellijSession = options.runtimeSession ?? DEFAULT_ZELLIJ_SESSION;
 
   return {
     room: {
@@ -340,6 +343,7 @@ export function createDefaultAgentRoomConfig(
         },
       },
       tmux: { type: "tmux", sessionPrefix: tmuxSessionPrefix, cli: "tmux" },
+      zellij: { type: "zellij", session: zellijSession, cli: "zellij" },
     },
     storage: {
       driver: "jsonl",
@@ -573,6 +577,12 @@ export function builtInRuntimeConfig(runtimeName: string): RuntimeConfig {
         type: "tmux",
         sessionPrefix: DEFAULT_TMUX_SESSION_PREFIX,
         cli: "tmux",
+      };
+    case "zellij":
+      return {
+        type: "zellij",
+        session: DEFAULT_ZELLIJ_SESSION,
+        cli: "zellij",
       };
     default:
       throw new Error(`Unknown runtime '${runtimeName}'`);
@@ -912,6 +922,12 @@ function formatRuntime(name: string, runtime: RuntimeConfig): string[] {
   if (runtime.type === "tmux") {
     if (runtime.sessionPrefix !== undefined)
       lines.push(`    sessionPrefix: ${yamlScalar(runtime.sessionPrefix)}`);
+    if (runtime.cli !== undefined)
+      lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
+  }
+  if (runtime.type === "zellij") {
+    if (runtime.session !== undefined)
+      lines.push(`    session: ${yamlScalar(runtime.session)}`);
     if (runtime.cli !== undefined)
       lines.push(`    cli: ${yamlScalar(runtime.cli)}`);
   }
@@ -1281,6 +1297,17 @@ function parseRuntimeConfigs(
           runtimes[name] = {
             type,
             ...(sessionPrefix !== undefined ? { sessionPrefix } : {}),
+            ...(cli !== undefined ? { cli } : {}),
+          };
+        }
+        break;
+      case "zellij":
+        {
+          const session = stringAt(runtime, "session");
+          const cli = stringAt(runtime, "cli");
+          runtimes[name] = {
+            type,
+            ...(session !== undefined ? { session } : {}),
             ...(cli !== undefined ? { cli } : {}),
           };
         }

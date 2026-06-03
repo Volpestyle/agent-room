@@ -62,7 +62,7 @@ flowchart TB
   gateways["ChatGatewayProvider<br/>optional room-owned conversation routing"]
   external["Agent-owned tools<br/>trackers, code hosts, design systems, CLIs, MCP"]
   local[".agentroom/<br/>config.yaml<br/>AGENTS.md<br/>events.jsonl<br/>SQLite planned"]
-  runtimes["Herdr<br/>tmux<br/>fake<br/>future runtimes"]
+  runtimes["Herdr<br/>Zellij<br/>tmux<br/>fake<br/>future runtimes"]
   chatAdapters["Discord<br/>future chat gateways"]
 
   surfaces --> daemon
@@ -88,7 +88,7 @@ flowchart TB
   tracker events, runtime bindings, chat ingress/egress, and terminal
   input/output observations.
 - Runtime providers own process placement and terminal control. AgentRoom uses
-  provider capabilities instead of assuming Herdr, tmux, Docker, SSH, or a
+  provider capabilities instead of assuming Herdr, Zellij, tmux, Docker, SSH, or a
   hosted scheduler.
 - Durable external systems stay external. The selected work tracker remains
   canonical for issues and workflow; agents use their own MCP servers,

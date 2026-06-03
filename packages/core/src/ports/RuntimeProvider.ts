@@ -6,7 +6,12 @@ import type {
   Id,
 } from "../domain.js";
 
-export type RuntimeProviderKind = "fake" | "herdr" | "tmux" | "custom";
+export type RuntimeProviderKind =
+  | "fake"
+  | "herdr"
+  | "tmux"
+  | "zellij"
+  | "custom";
 
 export interface RuntimeCapabilities {
   startAgent: boolean;

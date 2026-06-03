@@ -15,14 +15,14 @@ from the desk.
 
 ## Which Surface Should I Use?
 
-| Need                                                | Start here                                                     |
-| --------------------------------------------------- | -------------------------------------------------------------- |
-| I want to know what all the agents are doing.       | Open `agent-room` and ask the operator chat.                   |
-| I want one personal agent with memory and communication gateways. | Start Clanky directly.                             |
-| I want Clanky plus other agents in one shared room. | Launch Clanky from AgentRoom as a Pi harness.                  |
-| I want to script room actions.                      | Use the AgentRoom CLI reference.                               |
-| I want to check the room from my phone.             | Pair AgentRoom iOS over a private tailnet.                     |
-| I want voice or Go Live through today's Discord adapter. | Use Clanky voice; ClankVox handles the native media transport. |
+| Need                                                              | Start here                                                     |
+| ----------------------------------------------------------------- | -------------------------------------------------------------- |
+| I want to know what all the agents are doing.                     | Open `agent-room` and ask the operator chat.                   |
+| I want one personal agent with memory and communication gateways. | Start Clanky directly.                                         |
+| I want Clanky plus other agents in one shared room.               | Launch Clanky from AgentRoom as a Pi harness.                  |
+| I want to script room actions.                                    | Use the AgentRoom CLI reference.                               |
+| I want to check the room from my phone.                           | Pair AgentRoom iOS over a private tailnet.                     |
+| I want voice or Go Live through today's Discord adapter.          | Use Clanky voice; ClankVox handles the native media transport. |
 
 ## 1. What You Can Do
 
@@ -30,7 +30,7 @@ Use AgentRoom as an agent command center:
 
 - open the TUI and ask the operator what is happening in plain language
 - see active agents, messages, runtime output, and recent audit events
-- launch workers into Herdr or tmux without leaving the room model
+- launch workers into Herdr, Zellij, or tmux without leaving the room model
 - send instructions and read output through audited AgentRoom commands
 - keep durable tracker issues canonical while room coordination stays local
 - let compatible agents inspect and update room context through their tools
@@ -78,7 +78,7 @@ flowchart TB
   user["Human operator<br/>TUI, CLI, phone, chat"]
   room["AgentRoom<br/>room state, messages, reports, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini CLI, shell/custom"]
-  providers["Room providers<br/>Herdr, tmux, chat gateways"]
+  providers["Room providers<br/>Herdr, Zellij, tmux, chat gateways"]
   external["Agent-owned tools<br/>Linear, GitHub, Figma, MCP, CLI"]
   media["ClankVox<br/>current Discord voice and Go Live media plane"]
 
@@ -126,6 +126,7 @@ flowchart LR
 
   subgraph runtimes["Runtime providers"]
     herdr["Herdr"]
+    zellij["Zellij"]
     tmux["tmux"]
     future["Docker / SSH / hosted"]
   end
@@ -173,14 +174,14 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
 
 ## Repo Roles
 
-| Repo             | Role                   | What the docs should prove                                                                                                                    |
-| ---------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo             | Role                   | What the docs should prove                                                                                                                                   |
+| ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `agent-room`     | Coordination plane     | The TUI, daemon, MCP server, runtime adapters, optional room chat gateway, mobile pairing, room events, reports, and runtime audit form one control surface. |
-| `clanky-pi`      | Personal Pi agent      | Clanky is stateful, profile-scoped, memory-aware, communication-gateway-capable, voice/media-capable, and launchable as a normal AgentRoom worker. |
-| `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and framed media IPC.                |
-| `agent-room-ios` | Mobile operator client | A room can be checked and steered over a private tailnet without exposing the daemon publicly.                                                |
-| `docs`           | Shared docs shell      | Night Compiler keeps the docs sites consistent while each repo owns its content.                                                              |
-| `discord_mcp`    | Discord utility MCP    | Discord-only inspection and operations stay available without turning Discord into the room source of truth.                                  |
+| `clanky-pi`      | Personal Pi agent      | Clanky is stateful, profile-scoped, memory-aware, communication-gateway-capable, voice/media-capable, and launchable as a normal AgentRoom worker.           |
+| `clankvox`       | Native media plane     | Discord voice and Go Live need deterministic transport code: RTP, Opus, DAVE, H264/VP8, playback pacing, and framed media IPC.                               |
+| `agent-room-ios` | Mobile operator client | A room can be checked and steered over a private tailnet without exposing the daemon publicly.                                                               |
+| `docs`           | Shared docs shell      | Night Compiler keeps the docs sites consistent while each repo owns its content.                                                                             |
+| `discord_mcp`    | Discord utility MCP    | Discord-only inspection and operations stay available without turning Discord into the room source of truth.                                                 |
 
 ## Where To Go Next
 
@@ -193,7 +194,7 @@ jump to [ClankVox Overview](docs://clankvox-docs/overview).
   or a hybrid.
 - [Coordination Model](COORDINATION.md): what belongs in AgentRoom versus the
   durable work tracker.
-- [Runtime Providers](RUNTIMES.md): Herdr, tmux, fake runtime, adoption, and
+- [Runtime Providers](RUNTIMES.md): Herdr, Zellij, tmux, fake runtime, adoption, and
   audited commands.
 - [Security Model](SECURITY.md): token ownership, terminal audit, and local
   trust boundaries.

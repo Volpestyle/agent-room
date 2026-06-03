@@ -728,7 +728,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
 
   async function setupRuntime(runtimeName: string | undefined): Promise<void> {
     if (runtimeName === undefined || runtimeName.trim().length === 0) {
-      addErrorNote("usage: /setup runtime herdr|tmux|fake");
+      addErrorNote("usage: /setup runtime herdr|zellij|tmux|fake");
       return;
     }
     try {
@@ -1076,6 +1076,7 @@ function setupSummaryMarkdown(
     "Edit runtime, work tracker, and Discord token/channel in the **Settings** view (Esc → Settings). These commands are equivalent shortcuts:",
     "- `/login openai` - sign in the dashboard agent",
     "- `/setup runtime herdr` - choose the default runtime",
+    "- `/setup runtime zellij` - use Zellij as the visible runtime",
     "- `/setup tracker linear team_123` - select Linear defaults",
     "- `/setup mcp linear https://mcp.linear.app/mcp` - add Linear MCP for the dashboard agent",
     "- `/setup clanky agent .clanky-room lead` - set Clanky room defaults",
@@ -1091,7 +1092,7 @@ function setupHelpMarkdown(): string {
     "",
     "- `/setup` or `/config` - show current setup and next steps",
     "- `/protocol` - show `.agentroom/AGENTS.md`, the editable room protocol",
-    "- `/setup runtime herdr|tmux|fake` - set the default runtime",
+    "- `/setup runtime herdr|zellij|tmux|fake` - set the default runtime",
     "- `/setup tracker native|linear|github-issues|jira|custom [teamId]` - set work tracker defaults",
     "- `/setup mcp <id> <url>` - add an HTTP MCP server",
     "- `/setup mcp <id> stdio <command> [args...]` - add a stdio MCP server",
@@ -1484,6 +1485,14 @@ function runtimeSummaryMarkdown(input: {
         ? `${cli} --session ${session}`
         : session
           ? `herdr --session ${session}`
+          : undefined;
+    if (attach) lines.push(`- join: \`${attach}\``);
+  } else if (provider.kind === "zellij") {
+    const attach =
+      cli && session
+        ? `${cli} attach ${session}`
+        : session
+          ? `zellij attach ${session}`
           : undefined;
     if (attach) lines.push(`- join: \`${attach}\``);
   }

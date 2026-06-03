@@ -4,11 +4,11 @@ Status: proposed
 
 ## Context
 
-AgentRoom needs local runtime adapters such as Herdr and tmux without being locked to either one.
+AgentRoom needs local runtime adapters such as Herdr, Zellij, and tmux without being locked to any one of them.
 
 ## Decision
 
-The core domain never imports Herdr, tmux, Docker, SSH, ECS, Kubernetes, or any runtime-specific SDK.
+The core domain never imports Herdr, Zellij, tmux, Docker, SSH, ECS, Kubernetes, or any runtime-specific SDK.
 
 The core imports only the `RuntimeProvider` port:
 
@@ -31,6 +31,7 @@ Runtime-specific details live in provider packages:
 
 ```text
 packages/runtime-herdr
+packages/runtime-zellij
 packages/runtime-tmux
 packages/runtime-fake
 packages/runtime-docker      # future

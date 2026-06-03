@@ -16,7 +16,8 @@ EventStore Runtime   ChatGateway
    │          │        │
    ▼          ▼        ▼
  local     Herdr     Discord
- JSONL     tmux      future chat
+ JSONL     Zellij    future chat
+           tmux
            future
 ```
 
@@ -73,6 +74,7 @@ See `docs/ADR/0003-chat-gateway-port.md`.
 Adapters implement ports:
 
 - `runtime-herdr`
+- `runtime-zellij`
 - `runtime-tmux`
 - `runtime-fake`
 - `chat-discord` (`ChatGatewayProvider`, bot-token and user-token modes)

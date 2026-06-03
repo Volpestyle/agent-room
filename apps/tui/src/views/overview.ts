@@ -145,6 +145,10 @@ function runtimeDetailLines(
     lines.push(
       `join: ${palette.accent(`${cli ?? "herdr"} --session ${session}`)}`,
     );
+  } else if (provider.kind === "zellij" && session) {
+    lines.push(
+      `join: ${palette.accent(`${cli ?? "zellij"} attach ${session}`)}`,
+    );
   }
   if (lines.length === 0 && provider.health?.message) {
     const firstLine = provider.health.message.split(/\r?\n/).find(Boolean);

@@ -26,6 +26,7 @@
     "@agentroom/runtime-fake": "workspace:*",
     "@agentroom/runtime-herdr": "workspace:*",
     "@agentroom/runtime-tmux": "workspace:*",
+    "@agentroom/runtime-zellij": "workspace:*",
     "@agentroom/storage-jsonl": "workspace:*",
     "commander": "^14.0.0"
   },

@@ -29,6 +29,7 @@ Common init examples:
 ```bash
 agent-room init --runtime herdr
 agent-room init --runtime herdr --runtime-cli herdr-dev
+agent-room init --runtime zellij --runtime-cli /path/to/zellij
 agent-room init --runtime herdr --clanky --work-tracker linear --tracker-team team_123
 ```
 
@@ -60,12 +61,12 @@ Useful options:
 
 APNs push pairing requires daemon environment variables:
 
-| Env var                    | Purpose                                      |
-| -------------------------- | -------------------------------------------- |
-| `AGENTROOM_APNS_KEY_PATH`  | Path to the APNs provider `.p8` key.         |
-| `AGENTROOM_APNS_KEY_ID`    | Apple key id for that provider key.          |
-| `AGENTROOM_APNS_TEAM_ID`   | Apple Developer Team id.                     |
-| `AGENTROOM_APNS_BUNDLE_ID` | Optional app bundle id override.             |
+| Env var                    | Purpose                                        |
+| -------------------------- | ---------------------------------------------- |
+| `AGENTROOM_APNS_KEY_PATH`  | Path to the APNs provider `.p8` key.           |
+| `AGENTROOM_APNS_KEY_ID`    | Apple key id for that provider key.            |
+| `AGENTROOM_APNS_TEAM_ID`   | Apple Developer Team id.                       |
+| `AGENTROOM_APNS_BUNDLE_ID` | Optional app bundle id override.               |
 | `AGENTROOM_APNS_ENV`       | Optional APNs host: `sandbox` or `production`. |
 
 ## Runtime Providers
@@ -77,22 +78,22 @@ APNs push pairing requires daemon environment variables:
 | `agent-room runtime doctor`        | Check the selected runtime provider.  |
 | `agent-room runtime fake-smoke`    | Run the fake provider contract smoke. |
 
-Supported runtime kinds today: `herdr`, `tmux`, and `fake`.
+Supported runtime kinds today: `herdr`, `zellij`, `tmux`, and `fake`.
 
 ## Agent Runtime Control
 
-| Command                                | Purpose                                                       |
-| -------------------------------------- | ------------------------------------------------------------- |
-| `agent-room launch <agentId>`          | Launch an opted-in agent through a runtime provider.          |
-| `agent-room delegate <agentId> <work>` | DM a tracker-linked work assignment and wake the agent if idle. |
-| `agent-room enroll`                    | Enroll the current pane or shell into the room.               |
-| `agent-room agents`                    | Show enrolled agents, roles, state, and heartbeat.            |
-| `agent-room wait-agent <agentId>`      | Wait until an agent reaches a state such as `done` or `idle`. |
-| `agent-room read <agentId>`            | Read recent output from a runtime-backed agent.               |
-| `agent-room search-runtime <query>`    | Search recent output across AgentRoom-bound runtime agents.   |
-| `agent-room send <agentId> <text>`     | Send input to a runtime-backed agent.                         |
+| Command                                | Purpose                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------ |
+| `agent-room launch <agentId>`          | Launch an opted-in agent through a runtime provider.                           |
+| `agent-room delegate <agentId> <work>` | DM a tracker-linked work assignment and wake the agent if idle.                |
+| `agent-room enroll`                    | Enroll the current pane or shell into the room.                                |
+| `agent-room agents`                    | Show enrolled agents, roles, state, and heartbeat.                             |
+| `agent-room wait-agent <agentId>`      | Wait until an agent reaches a state such as `done` or `idle`.                  |
+| `agent-room read <agentId>`            | Read recent output from a runtime-backed agent.                                |
+| `agent-room search-runtime <query>`    | Search recent output across AgentRoom-bound runtime agents.                    |
+| `agent-room send <agentId> <text>`     | Send input to a runtime-backed agent.                                          |
 | `agent-room activate <agentId>`        | Inject the activation prompt so an enrolled agent loads the `agentroom` skill. |
-| `agent-room stop <agentId>`            | Stop a runtime-backed agent.                                  |
+| `agent-room stop <agentId>`            | Stop a runtime-backed agent.                                                   |
 
 Launch requires an explicit harness and command:
 
@@ -114,6 +115,10 @@ Herdr placement options:
 | `--workspace <label>`              | Place the agent in a named Herdr workspace. |
 | `--panes-per-tab <number>`         | Cap pane-grid density.                      |
 | `--split largest\|focused`         | Choose the pane split strategy.             |
+
+Zellij and tmux launches are pane-based today. Use `--cwd`, `--harness`, and
+`--command` for placement and process selection; Herdr-only layout flags are
+rejected for non-Herdr providers.
 
 By default, `read`, `send`, and `stop` require an AgentRoom runtime binding so
 terminal IO stays audited. `--unaudited` is for manual recovery only.
@@ -141,16 +146,16 @@ work tracker and reports room progress through `status`, `report`, `block`, and
 
 ## Messages And Waits
 
-| Command                           | Purpose                                                  |
-| --------------------------------- | -------------------------------------------------------- |
-| `agent-room post <body>`          | Post a room channel message.                             |
-| `agent-room status --mode ...`    | Post a parseable status update with standard fields.     |
-| `agent-room dm <agentIds> <body>` | Send a direct message to one or more agents.             |
-| `agent-room messages`             | Show recent room messages.                               |
-| `agent-room wait`                 | Wait until a matching room event appears.                |
-| `agent-room events`               | Show recent local room events.                           |
-| `agent-room events --follow`      | Stream new events.                                       |
-| `agent-room feed`                 | Show the user-visible tracker/report feed.               |
+| Command                           | Purpose                                              |
+| --------------------------------- | ---------------------------------------------------- |
+| `agent-room post <body>`          | Post a room channel message.                         |
+| `agent-room status --mode ...`    | Post a parseable status update with standard fields. |
+| `agent-room dm <agentIds> <body>` | Send a direct message to one or more agents.         |
+| `agent-room messages`             | Show recent room messages.                           |
+| `agent-room wait`                 | Wait until a matching room event appears.            |
+| `agent-room events`               | Show recent local room events.                       |
+| `agent-room events --follow`      | Stream new events.                                   |
+| `agent-room feed`                 | Show the user-visible tracker/report feed.           |
 
 Examples:
 
@@ -174,13 +179,13 @@ AgentRoom has no built-in task store. Issues, ownership, workflow state, and
 durable comments live in the configured work tracker. Use AgentRoom for runtime
 coordination and user-visible execution summaries.
 
-| Command                             | Purpose                                                       |
-| ----------------------------------- | ------------------------------------------------------------- |
-| `agent-room block --reason <reason>` | Report that the current enrolled agent is blocked.            |
-| `agent-room done --summary <summary>` | Report that the current enrolled agent finished its work.     |
-| `agent-room report --summary <text>` | Add a narrative agent report to the user-visible feed.        |
-| `agent-room ask-human <question>`    | Create a human escalation question in the room.               |
-| `agent-room feed`                    | Read tracker webhook/importer events plus narrative reports.  |
+| Command                               | Purpose                                                      |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `agent-room block --reason <reason>`  | Report that the current enrolled agent is blocked.           |
+| `agent-room done --summary <summary>` | Report that the current enrolled agent finished its work.    |
+| `agent-room report --summary <text>`  | Add a narrative agent report to the user-visible feed.       |
+| `agent-room ask-human <question>`     | Create a human escalation question in the room.              |
+| `agent-room feed`                     | Read tracker webhook/importer events plus narrative reports. |
 
 `block` and `done` update agent state for room coordination. They are not task
 tracker commands. If the configured tracker is unavailable when an issue update

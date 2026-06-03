@@ -95,6 +95,51 @@ The Herdr adapter implements `adoptAgent`. When the AgentRoom daemon is running 
 
 For one-off manual enrollment when the daemon is not running, use `agent-room enroll --json` from inside the pane.
 
+## Zellij Adapter
+
+Zellij support lives behind `@agentroom/runtime-zellij`. The local default is
+the singleton Zellij session named `agent-room`:
+
+```bash
+agent-room runtime use zellij
+zellij attach agent-room
+agent-room runtime doctor
+```
+
+The room id and default Zellij session are both `agent-room`. The Zellij CLI
+command defaults to `zellij`. A launch cwd becomes the pane cwd, and AgentRoom
+sets the pane title to `agentroom:<agentId>` so later daemon reconciliation can
+recognize the pane without adopting unrelated shells.
+
+When using a local Zellij checkout or wrapper script, set the executable in
+config:
+
+```bash
+agent-room init --runtime zellij --runtime-cli /path/to/zellij
+```
+
+```yaml
+runtimes:
+  zellij:
+    type: zellij
+    session: agent-room
+    cli: /path/to/zellij
+```
+
+Zellij placement is pane-based today. AgentRoom creates the configured session
+in the background when needed, launches each agent with `zellij run --cwd ...
+--name agentroom:<agentId> -- ...`, and uses the returned pane id as the
+runtime binding. `read`, `send`, `send-keys`, `stop`, and `attach` go through
+the same audited RuntimeProvider path as other adapters.
+
+### Adopting Zellij panes
+
+The Zellij adapter implements `adoptAgent`. The daemon periodically lists panes
+in the configured Zellij session and auto-enrolls only panes that report an
+AgentRoom identity, either through an `agentroom:<agentId>` title or an
+`AGENTROOM_AGENT_ID=<id>` command environment. Ordinary Zellij shells are left
+alone. Missing panes are marked stopped for AgentRoom-bound agents.
+
 ## tmux Adapter
 
 tmux support lives behind `@agentroom/runtime-tmux`.

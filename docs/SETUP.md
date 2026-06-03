@@ -22,7 +22,7 @@ Prerequisites:
 - Node.js 24 LTS or newer within the supported engine range
 - Corepack
 - pnpm 11
-- any runtime provider CLI you choose, such as `tmux` or `herdr`
+- any runtime provider CLI you choose, such as `herdr`, `zellij`, or `tmux`
 - any agent harness CLI you choose, such as Codex, Claude Code, Pi, Gemini CLI, or a custom command
 
 From the AgentRoom checkout:
@@ -45,7 +45,7 @@ lives in the nearest `.agentroom/config.yaml`, found by walking upward from the
 current directory. The editable room protocol lives beside it at
 `.agentroom/AGENTS.md`. `AGENTROOM_HOME` is an explicit override for singleton
 or operator deployments. The default visible runtime is `herdr --session
-agent-room`.
+agent-room`, with Zellij and tmux available as first-class alternatives.
 
 Start with the human surface:
 
@@ -59,7 +59,7 @@ but the TUI should be the first interface a human learns.
 
 - The room config is shared by every process launched inside that project tree.
 - A cwd is workspace context inside the room, not a separate room identity.
-- Herdr workspaces/tabs/panes are the visible layout under the same session.
+- Runtime sessions and panes are the visible layout under the same room.
 
 See `docs/TOPOLOGY.md` for the tradeoffs.
 
@@ -96,8 +96,9 @@ line above is only for a source checkout before the CLI is installed globally.
 
 Runtime choices:
 
-- `tmux`: local terminal multiplexer via `@agentroom/runtime-tmux`.
 - `herdr`: Herdr adapter via `@agentroom/runtime-herdr`.
+- `zellij`: Zellij adapter via `@agentroom/runtime-zellij`.
+- `tmux`: local terminal multiplexer via `@agentroom/runtime-tmux`.
 - `fake`: contract tests and smoke checks only; not a real agent runtime.
 
 Runtime-specific setup belongs in AgentRoom config and

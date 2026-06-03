@@ -71,6 +71,7 @@ import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
 import { HerdrRuntimeProvider } from "@agentroom/runtime-herdr";
 import { TmuxRuntimeProvider } from "@agentroom/runtime-tmux";
+import { ZellijRuntimeProvider } from "@agentroom/runtime-zellij";
 
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -226,7 +227,7 @@ program
   .option("--name <name>", "human-readable room name")
   .option(
     "--runtime <runtime>",
-    "runtime provider to write as the room default: herdr|tmux|fake",
+    "runtime provider to write as the room default: herdr|tmux|zellij|fake",
     "herdr",
   )
   .option(
@@ -1098,6 +1099,7 @@ runtime
         { id: "fake", kind: "fake", default: false },
         { id: "herdr", kind: "herdr", default: false },
         { id: "tmux", kind: "tmux", default: false },
+        { id: "zellij", kind: "zellij", default: false },
       ],
       options.json,
     );
@@ -1106,7 +1108,7 @@ runtime
 runtime
   .command("use")
   .description("Set the default runtime provider in AgentRoom config")
-  .argument("<runtime>", "configured runtime name, or built-in herdr|tmux|fake")
+  .argument("<runtime>", "configured runtime name, or built-in herdr|tmux|zellij|fake")
   .option("--json", "print JSON")
   .action(async (runtimeName: string, options: { json?: boolean }) => {
     const config = await loadAgentRoomConfigForCwd();
@@ -1825,6 +1827,14 @@ function makeRuntimeProvider(
         ...(runtime.sessionPrefix !== undefined
           ? { sessionPrefix: runtime.sessionPrefix }
           : {}),
+      });
+    case "zellij":
+      if (herdrLayout !== undefined)
+        throw new Error("Herdr layout options require a Herdr runtime");
+      return new ZellijRuntimeProvider({
+        id: name,
+        ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
+        ...(runtime.session !== undefined ? { session: runtime.session } : {}),
       });
     case "herdr": {
       const session = runtime.session ?? process.env.HERDR_SESSION;
@@ -3803,16 +3813,27 @@ function bindingFor(
     providerId: provider.id,
     bindingId,
     kind:
-      provider.kind === "tmux" || provider.kind === "herdr"
+      provider.kind === "tmux" ||
+      provider.kind === "herdr" ||
+      provider.kind === "zellij"
         ? "pane"
         : "process",
     ...(metadata !== undefined ? { metadata } : {}),
   };
 }
 
-function parseConfiguredRuntime(value: string): "fake" | "herdr" | "tmux" {
-  if (value === "fake" || value === "herdr" || value === "tmux") return value;
-  throw new Error(`Invalid runtime '${value}'. Expected fake, herdr, or tmux.`);
+function parseConfiguredRuntime(value: string): ConfiguredRuntimeKind {
+  if (
+    value === "fake" ||
+    value === "herdr" ||
+    value === "tmux" ||
+    value === "zellij"
+  ) {
+    return value;
+  }
+  throw new Error(
+    `Invalid runtime '${value}'. Expected fake, herdr, tmux, or zellij.`,
+  );
 }
 
 function formatGatewayRouteTarget(target: ChatRouteTargetConfig): string {
@@ -3843,14 +3864,21 @@ function formatGatewayOutboundSource(source: ChatOutboundSourceConfig): string {
  * Resolve the runtime to write when the user did NOT pass --runtime. We never
  * leave a fresh room on `fake` (the in-process contract-test runtime that never
  * actually runs an agent). Prefer the requested default runtime (herdr); if its
- * CLI is not installed but tmux is, fall back to tmux so the room is usable out
- * of the box. Detection-only — nothing is installed here.
+ * CLI is not installed but another local multiplexer is, fall back so the room
+ * is usable out of the box. Detection-only — nothing is installed here.
  */
 async function resolveFreshSetupRuntime(
   preferred: ConfiguredRuntimeKind,
 ): Promise<ConfiguredRuntimeKind> {
   if (preferred !== "herdr") return preferred;
   if (await commandAvailable("herdr")) return "herdr";
+  if (await commandAvailable("zellij")) {
+    console.log(
+      "herdr CLI not found on PATH — defaulting this room to the zellij runtime. " +
+        "Install herdr and run `agent-room runtime use herdr` to switch.",
+    );
+    return "zellij";
+  }
   if (await commandAvailable("tmux")) {
     console.log(
       "herdr CLI not found on PATH — defaulting this room to the tmux runtime. " +
@@ -3859,7 +3887,7 @@ async function resolveFreshSetupRuntime(
     return "tmux";
   }
   console.log(
-    "Neither herdr nor tmux found on PATH — defaulting to herdr. " +
+    "Neither herdr, zellij, nor tmux found on PATH — defaulting to herdr. " +
       "Install herdr (or run `agent-room doctor` for install hints) before launching agents.",
   );
   return "herdr";
@@ -3893,7 +3921,7 @@ function applyRuntimeCliOverride(
   if (runtimeCli === undefined) return;
   const runtime = ensureRuntimeConfig(config, runtimeName);
   if (runtime.type === "fake") {
-    throw new Error("--runtime-cli requires a Herdr or tmux runtime");
+    throw new Error("--runtime-cli requires a Herdr, tmux, or Zellij runtime");
   }
   runtime.cli = runtimeCli;
 }
@@ -3984,7 +4012,7 @@ interface DoctorReport {
   // `config.runtime.default` is a free-form string in config; a configured
   // runtime id need not be one of the built-in kinds.
   defaultRuntime: string | undefined;
-  /** The runtime CLI the configured default depends on (herdr/tmux), if any. */
+  /** The runtime CLI the configured default depends on (herdr/zellij/tmux), if any. */
   runtimeCli: string | undefined;
   prerequisites: DoctorPrerequisite[];
   warnings: string[];
@@ -3999,12 +4027,15 @@ const DOCTOR_INSTALL_HINTS: {
   pnpm: string;
   herdr: string;
   tmux: string;
+  zellij: string;
   [key: string]: string | undefined;
 } = {
   node: "Install Node.js >= 24: https://nodejs.org or `brew install node`",
   pnpm: "Install pnpm: `npm install -g pnpm` or `brew install pnpm`",
   herdr: "Install herdr (the default runtime): see /Users/jamesvolpe/dev/herdr/README.md",
   tmux: "Install tmux: `brew install tmux` or your package manager",
+  zellij:
+    "Install zellij: `brew install zellij` or build /Users/jamesvolpe/dev/zellij",
 };
 
 /**
@@ -4066,7 +4097,7 @@ async function buildDoctorReport(): Promise<DoctorReport> {
   if (defaultRuntime === "fake") {
     warnings.push(
       "Default runtime is 'fake' — agents launched against it never actually run. " +
-        "'fake' is for contract tests only. Set a real runtime with `agent-room runtime use herdr` (or tmux).",
+        "'fake' is for contract tests only. Set a real runtime with `agent-room runtime use herdr` (or zellij/tmux).",
     );
   }
   for (const prerequisite of prerequisites) {

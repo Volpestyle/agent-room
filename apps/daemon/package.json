@@ -22,6 +22,7 @@
     "@agentroom/runtime-fake": "workspace:*",
     "@agentroom/runtime-herdr": "workspace:*",
     "@agentroom/runtime-tmux": "workspace:*",
+    "@agentroom/runtime-zellij": "workspace:*",
     "@agentroom/storage-jsonl": "workspace:*",
     "@hono/node-server": "^1.18.0",
     "hono": "^4.9.0"

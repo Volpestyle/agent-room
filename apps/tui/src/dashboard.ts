@@ -657,7 +657,7 @@ export class Dashboard {
       case "runtime":
         return {
           title: "Set default runtime",
-          hint: `Current: ${action.current ?? "(unset)"}. Enter herdr | tmux | fake.`,
+          hint: `Current: ${action.current ?? "(unset)"}. Enter herdr | zellij | tmux | fake.`,
           mask: false,
           allowEmpty: false,
         };
@@ -724,8 +724,15 @@ export class Dashboard {
         }
         case "runtime": {
           const runtime = value.trim();
-          if (runtime !== "herdr" && runtime !== "tmux" && runtime !== "fake") {
-            overlay.setError("runtime must be one of: herdr, tmux, fake");
+          if (
+            runtime !== "herdr" &&
+            runtime !== "zellij" &&
+            runtime !== "tmux" &&
+            runtime !== "fake"
+          ) {
+            overlay.setError(
+              "runtime must be one of: herdr, zellij, tmux, fake",
+            );
             return;
           }
           await this.options.api.updateSetupConfig({ runtimeDefault: runtime });

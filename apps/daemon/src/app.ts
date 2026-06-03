@@ -49,6 +49,7 @@ import {
 } from "@agentroom/config";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { HerdrPaneObserver, resolveHerdrSocketPath } from "./herdrObserver.js";
+import { ZellijPaneObserver } from "./zellijObserver.js";
 import { ProviderRegistry } from "./providerRegistry.js";
 import { RuntimeMessageNotifier } from "./runtimeMessageNotifier.js";
 import { ChatGatewayOutboundTail } from "./chatGatewayOutboundTail.js";
@@ -204,6 +205,12 @@ export function createAppWithLifecycle(
       : chatRegistry.start(chatRouter);
 
   const herdrObservers = startHerdrObservers({
+    ...(configured !== undefined ? { config: configured } : {}),
+    registry,
+    service,
+    roomId,
+  });
+  const zellijObservers = startZellijObservers({
     ...(configured !== undefined ? { config: configured } : {}),
     registry,
     service,
@@ -1211,6 +1218,7 @@ export function createAppWithLifecycle(
       await messageNotifier?.stop();
       await chatOutboundTail?.stop();
       await Promise.all(herdrObservers.map((observer) => observer.stop()));
+      await Promise.all(zellijObservers.map((observer) => observer.stop()));
       await chatRegistry.stop();
     },
   };
@@ -1768,6 +1776,7 @@ function asRecord(value: unknown, name: string): Record<string, unknown> {
 // enrollment for panes that predate the observer and self-heals after missed
 // push events or a daemon restart.
 const HERDR_RECONCILE_INTERVAL_MS = 15_000;
+const ZELLIJ_RECONCILE_INTERVAL_MS = 15_000;
 
 function startHerdrObservers(input: {
   config?: AgentRoomConfig;
@@ -1803,6 +1812,75 @@ function startHerdrObservers(input: {
     });
   }
   return observers;
+}
+
+function startZellijObservers(input: {
+  config?: AgentRoomConfig;
+  registry: ProviderRegistry;
+  service: AgentRoomService;
+  roomId: string;
+}): ZellijPaneObserver[] {
+  if (!input.config) return [];
+  const observers: ZellijPaneObserver[] = [];
+  const trackerLabel = workTrackerLabel(input.config);
+  for (const [providerId, runtime] of Object.entries(input.config.runtimes)) {
+    if (runtime.type !== "zellij") continue;
+    const session = runtime.session ?? "agent-room";
+
+    let provider;
+    try {
+      provider = input.registry.runtime(providerId);
+    } catch {
+      continue;
+    }
+    if (!provider.adoptAgent) continue;
+
+    void startZellijObserver({
+      providerId,
+      session,
+      provider,
+      service: input.service,
+      roomId: input.roomId,
+      ...(trackerLabel !== undefined ? { workTracker: trackerLabel } : {}),
+      observers,
+    });
+  }
+  return observers;
+}
+
+async function startZellijObserver(input: {
+  providerId: string;
+  session: string;
+  provider: RuntimeProvider;
+  service: AgentRoomService;
+  roomId: string;
+  workTracker?: string;
+  observers: ZellijPaneObserver[];
+}): Promise<void> {
+  try {
+    const health = await input.provider.health();
+    if (!health.ok) return;
+    const observer = new ZellijPaneObserver({
+      session: input.session,
+      service: input.service,
+      provider: input.provider,
+      roomId: input.roomId,
+      ...(input.workTracker !== undefined
+        ? { workTracker: input.workTracker }
+        : {}),
+      reconcileIntervalMs: ZELLIJ_RECONCILE_INTERVAL_MS,
+      logger: (message) => console.log("[zellij-observer] " + message),
+    });
+    input.observers.push(observer);
+    await observer.start();
+  } catch (error) {
+    console.error(
+      "[zellij-observer] failed to start for " +
+        input.providerId +
+        ": " +
+        errorMessage(error),
+    );
+  }
 }
 
 async function startHerdrObserver(input: {
@@ -1878,7 +1956,9 @@ function bindingFor(
     providerId: provider.id,
     bindingId,
     kind:
-      provider.kind === "tmux" || provider.kind === "herdr"
+      provider.kind === "tmux" ||
+      provider.kind === "herdr" ||
+      provider.kind === "zellij"
         ? "pane"
         : "process",
     ...(metadata !== undefined ? { metadata } : {}),
@@ -1942,7 +2022,10 @@ function stopTargetFor(
   agentId: string,
   binding?: RuntimeBinding,
 ): string {
-  if (provider.kind === "herdr" && binding?.providerId === provider.id) {
+  if (
+    (provider.kind === "herdr" || provider.kind === "zellij") &&
+    binding?.providerId === provider.id
+  ) {
     return binding.bindingId;
   }
   return agentId;
@@ -1953,7 +2036,10 @@ function attachTargetFor(
   agentId: string,
   binding?: RuntimeBinding,
 ): string {
-  if (provider.kind === "herdr" && binding?.providerId === provider.id) {
+  if (
+    (provider.kind === "herdr" || provider.kind === "zellij") &&
+    binding?.providerId === provider.id
+  ) {
     return binding.bindingId;
   }
   return agentId;

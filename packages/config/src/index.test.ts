@@ -41,7 +41,7 @@ describe("AgentRoom config", () => {
     );
   });
 
-  it("includes Herdr and tmux runtime settings without making them implicit choices", () => {
+  it("includes Herdr, tmux, and Zellij runtime settings without making them implicit choices", () => {
     const config = createDefaultAgentRoomConfig({ roomId: "my-project" });
 
     expect(config.runtime.default).toBe("fake");
@@ -63,6 +63,13 @@ describe("AgentRoom config", () => {
     );
     expect(config.runtimes.tmux).toEqual(
       expect.objectContaining({ sessionPrefix: "my-project" }),
+    );
+    expect(config.runtimes.zellij).toEqual(
+      expect.objectContaining({
+        type: "zellij",
+        session: "agent-room",
+        cli: "zellij",
+      }),
     );
   });
 
@@ -112,6 +119,32 @@ storage:
         balance: false,
       },
     });
+  });
+
+  it("parses Zellij runtime settings from YAML", () => {
+    const parsed = parseAgentRoomConfig(`room:
+  id: agent-room
+
+runtime:
+  default: zellij
+
+runtimes:
+  zellij:
+    type: zellij
+    session: agent-room
+    cli: /opt/homebrew/bin/zellij
+
+storage:
+  driver: jsonl
+  path: events.jsonl
+`);
+
+    expect(parsed.runtimes.zellij).toEqual({
+      type: "zellij",
+      session: "agent-room",
+      cli: "/opt/homebrew/bin/zellij",
+    });
+    expect(formatAgentRoomConfig(parsed)).toContain("type: zellij");
   });
 
   it("parses chat gateways and routes from YAML", () => {

@@ -64,6 +64,7 @@ Useful setup commands:
 ```text
 /setup
 /setup runtime herdr
+/setup runtime zellij
 /setup tracker linear team_123
 /setup clanky agent .clanky-room lead
 /config
@@ -90,7 +91,7 @@ flowchart LR
   tui["AgentRoom TUI<br/>chat + dashboard"]
   daemon["agentroomd"]
   room["Room events<br/>messages, reports, audit"]
-  runtime["Runtime provider<br/>Herdr, tmux, future"]
+  runtime["Runtime provider<br/>Herdr, Zellij, tmux, future"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, custom"]
 
   human --> tui
@@ -102,7 +103,7 @@ flowchart LR
 ```
 
 The TUI is a surface. The daemon and event store hold the room state. Runtime
-providers place processes in Herdr, tmux, or future execution backends. Agents
+providers place processes in Herdr, Zellij, tmux, or future execution backends. Agents
 coordinate through the room rather than through private terminal assumptions.
 
 ## When To Use The CLI Instead

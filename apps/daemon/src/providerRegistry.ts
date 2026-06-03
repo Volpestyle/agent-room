@@ -7,6 +7,7 @@ import {
 import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
 import { HerdrRuntimeProvider } from "@agentroom/runtime-herdr";
 import { TmuxRuntimeProvider } from "@agentroom/runtime-tmux";
+import { ZellijRuntimeProvider } from "@agentroom/runtime-zellij";
 
 export class ProviderRegistry {
   private readonly runtimes = new Map<string, RuntimeProvider>();
@@ -25,6 +26,9 @@ export class ProviderRegistry {
       );
       this.registerRuntime(
         providerForConfig("tmux", builtInRuntimeConfig("tmux")),
+      );
+      this.registerRuntime(
+        providerForConfig("zellij", builtInRuntimeConfig("zellij")),
       );
     }
   }
@@ -67,6 +71,12 @@ function providerForConfig(
         ...(runtime.sessionPrefix !== undefined
           ? { sessionPrefix: runtime.sessionPrefix }
           : {}),
+      });
+    case "zellij":
+      return new ZellijRuntimeProvider({
+        id,
+        ...(runtime.cli !== undefined ? { cli: runtime.cli } : {}),
+        ...(runtime.session !== undefined ? { session: runtime.session } : {}),
       });
   }
 }

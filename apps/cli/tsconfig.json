@@ -26,6 +26,9 @@
     },
     {
       "path": "../../packages/runtime-tmux"
+    },
+    {
+      "path": "../../packages/runtime-zellij"
     }
   ],
   "include": [

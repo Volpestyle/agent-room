@@ -6,6 +6,8 @@ durable state lives in the nearest `.agentroom/` directory unless
 
 ```bash
 herdr --session agent-room
+# or:
+zellij attach agent-room
 ```
 
 A working directory is workspace context. It should not create a separate room
@@ -19,6 +21,8 @@ Herdr session agent-room       visible local runtime surface
 Herdr workspace                cwd/project grouping
 Herdr tab                      workstream or subcontext grouping
 Herdr pane                     visible agent/process binding
+Zellij session agent-room      alternate visible runtime surface
+Zellij pane                    visible agent/process binding
 Headless agent                 room agent with no pane binding
 ```
 
@@ -75,5 +79,15 @@ tmux does not have Herdr's workspace concept. The intended mapping is:
 - AgentRoom workspace -> tmux window
 - workstream/subcontext -> window name or pane grouping
 - agent/process -> pane
+
+The durable AgentRoom workspace record remains the same either way.
+
+## Zellij Mapping
+
+Zellij does not have Herdr's workspace concept. The intended mapping is:
+
+- AgentRoom workspace -> pane cwd and optional tab naming
+- workstream/subcontext -> tab or pane title
+- agent/process -> pane titled `agentroom:<agentId>`
 
 The durable AgentRoom workspace record remains the same either way.

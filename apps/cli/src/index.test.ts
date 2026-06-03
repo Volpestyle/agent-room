@@ -90,6 +90,37 @@ describe("agent-room init", () => {
     }
   });
 
+  it("writes Zellij runtime settings when selected explicitly", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-zellij-"));
+    const env = testEnv("cli-init-zellij-test");
+
+    try {
+      await execAgentRoom(
+        cwd,
+        [
+          "init",
+          "--room",
+          "cli-init-zellij-test",
+          "--runtime",
+          "zellij",
+          "--runtime-session",
+          "agent-room",
+          "--runtime-cli",
+          "zellij-dev",
+        ],
+        env,
+      );
+
+      const config = await readFile(configPathFor(cwd), "utf8");
+      expect(config).toContain("default: zellij");
+      expect(config).toContain("type: zellij");
+      expect(config).toContain("session: agent-room");
+      expect(config).toContain("cli: zellij-dev");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("defaults the room and Herdr session to the singleton AgentRoom", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-init-session-room-"));
     const env = {
@@ -245,7 +276,6 @@ describe("agent-room wait", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
-
 });
 
 describe("agent-room events --follow", () => {

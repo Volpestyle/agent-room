@@ -33,7 +33,7 @@ AgentRoom is the control layer in the agent-first workspace:
 
 - open the singleton TUI from anywhere and ask what is happening in plain
   language
-- launch agents into Herdr, tmux, or any future runtime provider
+- launch agents into Herdr, Zellij, tmux, or any future runtime provider
 - send and read through audited room commands instead of raw terminal input
 - let compatible agents inspect room context and coordinate through MCP
 - connect a phone over a private tailnet for on-the-go room checks
@@ -68,7 +68,7 @@ flowchart TB
   human["Human<br/>TUI, CLI, iOS, chat"]
   room["AgentRoom<br/>messages, reports, audit, runtime control"]
   agents["Agents<br/>Clanky, Codex, Claude Code, Pi, Gemini, custom"]
-  runtimes["Runtime providers<br/>Herdr, tmux, future hosted"]
+  runtimes["Runtime providers<br/>Herdr, Zellij, tmux, future hosted"]
   gateways["Room-owned chat gateways<br/>Discord first"]
   external["Agent-owned external tools<br/>Linear, GitHub, Figma, MCP, CLI"]
 
@@ -126,6 +126,7 @@ packages/
   config/          typed AgentRoom home config parser and writer
   storage-jsonl/   append-only event store for local rooms
   runtime-herdr/   Herdr runtime adapter
+  runtime-zellij/  Zellij runtime adapter
   runtime-tmux/    tmux runtime adapter
   runtime-fake/    contract-test runtime
   integrations/    room-owned chat gateway adapters
@@ -154,6 +155,8 @@ agent-room runtime doctor
 agent-room daemon start
 agent-room
 herdr --session agent-room
+# or:
+zellij attach agent-room
 ```
 
 Launch a real agent through the selected runtime:
@@ -232,8 +235,8 @@ bundle id or APNs host differs from the default development build.
 AgentRoom core owns local room behavior. Provider ports keep the rest
 replaceable:
 
-- `RuntimeProvider`: Herdr, tmux, fake today; Docker, SSH, ECS, Kubernetes, or
-  custom adapters later.
+- `RuntimeProvider`: Herdr, Zellij, tmux, fake today; Docker, SSH, ECS,
+  Kubernetes, or custom adapters later.
 - Work tracker config: provider-neutral selection plus room protocol. Agents
   use the selected tracker's MCP server, connector, CLI, or skill and link
   external refs back to room messages, reports, or tracker events.
@@ -309,8 +312,8 @@ High-signal pages:
 
 AgentRoom is a runnable local coordination plane. It includes the core room
 model, CLI, daemon HTTP API, TUI, MCP server, Expo mobile client, JSONL event
-storage, tmux/Herdr/fake runtime providers, audited runtime launch/read/send/
-stop, Herdr pane adoption, wait/events-follow, tracker refs/events,
+storage, Herdr/Zellij/tmux/fake runtime providers, audited runtime launch/read/send/
+stop, Herdr and Zellij pane adoption, wait/events-follow, tracker refs/events,
 user-visible reports/feed, chat gateway routing primitives with a Discord
 adapter today, and mobile tailnet pairing.
 

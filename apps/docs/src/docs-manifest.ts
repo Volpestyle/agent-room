@@ -96,7 +96,7 @@ export const docsMeta: DocMeta[] = [
     slug: "runtimes",
     title: "Runtime Providers",
     description:
-      "Provider-neutral runtime model, bindings, Herdr/tmux adapters, adoption, and where exact command flags live.",
+      "Provider-neutral runtime model, bindings, Herdr/Zellij/tmux adapters, adoption, and where exact command flags live.",
     source: "docs/RUNTIMES.md",
     group: "Operations",
   },

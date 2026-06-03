@@ -37,6 +37,9 @@
       "@agentroom/runtime-tmux": [
         "packages/runtime-tmux/src/index.ts"
       ],
+      "@agentroom/runtime-zellij": [
+        "packages/runtime-zellij/src/index.ts"
+      ],
       "@agentroom/tui": [
         "apps/tui/src/index.ts"
       ],

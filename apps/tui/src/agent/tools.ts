@@ -432,7 +432,7 @@ export function createDashboardTools(env: ToolEnv): AgentTool[] {
     name: "list_runtime_agents",
     label: "List runtime agents",
     description:
-      "List agents currently known to a runtime provider (id, binding, state). Herdr agents include labels like metadata.agent/displayName=claude or codex; use those labels to resolve phrases like 'a Claude instance'.",
+      "List agents currently known to a runtime provider (id, binding, state). Herdr/Zellij agents can include provider-specific labels in metadata/displayName; use those labels to resolve phrases like 'a Claude instance'.",
     parameters: Type.Object({
       providerId: Type.String(),
     }),

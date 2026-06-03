@@ -41,6 +41,9 @@ importers:
       '@agentroom/runtime-tmux':
         specifier: workspace:*
         version: link:../../packages/runtime-tmux
+      '@agentroom/runtime-zellij':
+        specifier: workspace:*
+        version: link:../../packages/runtime-zellij
       '@agentroom/storage-jsonl':
         specifier: workspace:*
         version: link:../../packages/storage-jsonl
@@ -84,6 +87,9 @@ importers:
       '@agentroom/runtime-tmux':
         specifier: workspace:*
         version: link:../../packages/runtime-tmux
+      '@agentroom/runtime-zellij':
+        specifier: workspace:*
+        version: link:../../packages/runtime-zellij
       '@agentroom/storage-jsonl':
         specifier: workspace:*
         version: link:../../packages/storage-jsonl
@@ -363,6 +369,22 @@ importers:
         version: 3.2.4(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
 
   packages/runtime-tmux:
+    dependencies:
+      '@agentroom/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.4
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.4(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/runtime-zellij:
     dependencies:
       '@agentroom/core':
         specifier: workspace:*

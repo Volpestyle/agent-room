@@ -7,6 +7,7 @@
     { "path": "packages/runtime-fake" },
     { "path": "packages/runtime-herdr" },
     { "path": "packages/runtime-tmux" },
+    { "path": "packages/runtime-zellij" },
     { "path": "packages/integrations/chat-discord" },
     { "path": "packages/diorama-core" },
     { "path": "packages/diorama-town" },
