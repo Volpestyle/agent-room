@@ -13,10 +13,20 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/runtime-fake"
+    },
+    {
+      "path": "../../packages/runtime-herdr"
+    },
+    {
+      "path": "../../packages/runtime-tmux"
+    },
+    {
+      "path": "../../packages/runtime-zellij"
+    },
+    {
       "path": "../../packages/storage-jsonl"
     }
   ],
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

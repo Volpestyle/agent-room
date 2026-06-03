@@ -152,6 +152,18 @@ importers:
       '@agentroom/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agentroom/runtime-fake':
+        specifier: workspace:*
+        version: link:../../packages/runtime-fake
+      '@agentroom/runtime-herdr':
+        specifier: workspace:*
+        version: link:../../packages/runtime-herdr
+      '@agentroom/runtime-tmux':
+        specifier: workspace:*
+        version: link:../../packages/runtime-tmux
+      '@agentroom/runtime-zellij':
+        specifier: workspace:*
+        version: link:../../packages/runtime-zellij
       '@agentroom/storage-jsonl':
         specifier: workspace:*
         version: link:../../packages/storage-jsonl

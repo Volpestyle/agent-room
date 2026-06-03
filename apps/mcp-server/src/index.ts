@@ -1,26 +1,41 @@
 #!/usr/bin/env node
 import { setTimeout as sleep } from "node:timers/promises";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   type ActorRef,
   type AgentState,
+  type AgentRole,
   AgentRoomService,
   type EventCursor,
+  type HarnessSpec,
   type Importance,
   type MessageKind,
   type RoomEvent,
+  type RuntimeBinding,
+  type RuntimeProvider,
+  type StartAgentRequest,
+  agentRoleSchema,
 } from "@agentroom/core";
 import {
+  type AgentRoomConfig,
+  type RuntimeConfig,
+  agentRoomProtocolPath,
+  builtInRuntimeConfig,
   createDefaultAgentRoomConfig,
   defaultRoomIdFromEnv,
+  ensureRuntimeConfig,
   loadAgentRoomConfig,
   readAgentRoomSessionIdentity,
   resolveStoragePath,
   writeAgentRoomSessionIdentity,
 } from "@agentroom/config";
+import { FakeRuntimeProvider } from "@agentroom/runtime-fake";
+import { HerdrRuntimeProvider } from "@agentroom/runtime-herdr";
+import { TmuxRuntimeProvider } from "@agentroom/runtime-tmux";
+import { ZellijRuntimeProvider } from "@agentroom/runtime-zellij";
 import { JsonlEventStore } from "@agentroom/storage-jsonl";
 import { z } from "zod";
 
@@ -46,6 +61,22 @@ const messageKindSchema = z.enum([
 
 const importanceSchema = z.enum(["low", "normal", "high", "urgent"]);
 
+const harnessKindInputSchema = z.enum([
+  "claude-code",
+  "pi",
+  "codex",
+  "gemini-cli",
+  "shell",
+  "custom",
+]);
+
+const runtimeOutputSourceSchema = z.enum([
+  "visible",
+  "recent",
+  "recent-unwrapped",
+  "all",
+]);
+
 const agentStateSchema = z.enum([
   "created",
   "starting",
@@ -65,8 +96,13 @@ const agentStateSchema = z.enum([
 interface RoomContext {
   cwd: string;
   roomId: string;
+  config: AgentRoomConfig;
   service: AgentRoomService;
   events: JsonlEventStore;
+}
+
+interface RuntimeContext extends RoomContext {
+  providers: RuntimeProvider[];
 }
 
 async function main(): Promise<void> {
@@ -77,7 +113,7 @@ async function main(): Promise<void> {
     },
     {
       instructions:
-        "AgentRoom coordination tools for room messages, DMs, waits, audit context, and user-visible reports. Prefer bounded reads. AgentRoom does not track tasks — use the configured work tracker's MCP, CLI, or skill for issue/task state, and use AgentRoom reports only for narrative updates.",
+        "AgentRoom coordination tools for room messages, DMs, waits, audit context, runtime-backed agent launch/read/send/stop, and user-visible reports. Prefer bounded reads. AgentRoom does not track tasks — use the configured work tracker's MCP, CLI, or skill for issue/task state, and use AgentRoom reports only for narrative updates.",
     },
   );
 
@@ -244,6 +280,119 @@ function registerTools(server: McpServer): void {
       const ctx = await roomContext();
       return jsonResult(await ctx.service.listAgentPresence());
     },
+  );
+
+  server.registerTool(
+    "agentroom_runtime_providers",
+    {
+      description:
+        "List configured AgentRoom runtime providers and capabilities for launching and controlling runtime-backed agents.",
+      inputSchema: {},
+    },
+    async () => {
+      const ctx = await runtimeContext();
+      return jsonResult({
+        defaultRuntime: ctx.config.runtime.default,
+        providers: ctx.providers.map((provider) => ({
+          id: provider.id,
+          kind: provider.kind,
+          default: provider.id === ctx.config.runtime.default,
+          capabilities: provider.capabilities,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "agentroom_runtime_agents",
+    {
+      description:
+        "List runtime agents from one runtime provider or all configured providers.",
+      inputSchema: {
+        providerId: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const ctx = await runtimeContext();
+      const providers =
+        input.providerId === undefined
+          ? ctx.providers
+          : [selectRuntimeProvider(ctx, input.providerId)];
+      return jsonResult({
+        providers: await Promise.all(
+          providers.map(async (provider) => ({
+            id: provider.id,
+            kind: provider.kind,
+            agents: await provider.listAgents(),
+          })),
+        ),
+      });
+    },
+  );
+
+  server.registerTool(
+    "agentroom_launch_agent",
+    {
+      description:
+        "Launch/start/spawn a runtime-backed AgentRoom agent through the configured runtime provider, then bind it to the room event log.",
+      inputSchema: {
+        providerId: z.string().optional(),
+        agentId: z.string().min(1).optional(),
+        role: agentRoleSchema.optional(),
+        harnessKind: harnessKindInputSchema.optional(),
+        command: z.string().min(1).optional(),
+        args: z.array(z.string()).optional(),
+        cwd: z.string().optional(),
+        workspace: z.string().optional(),
+        displayName: z.string().optional(),
+        env: z.record(z.string(), z.string()).optional(),
+      },
+    },
+    async (input) => jsonResult(await launchRuntimeAgent(input)),
+  );
+
+  server.registerTool(
+    "agentroom_read_agent",
+    {
+      description:
+        "Read the last N lines of terminal output for a runtime-backed AgentRoom agent and record the observation in the audit log.",
+      inputSchema: {
+        providerId: z.string().optional(),
+        agentId: z.string().min(1),
+        lines: z.number().int().min(1).max(1000).optional(),
+        source: runtimeOutputSourceSchema.optional(),
+      },
+    },
+    async (input) => jsonResult(await readRuntimeAgent(input)),
+  );
+
+  server.registerTool(
+    "agentroom_send_agent",
+    {
+      description:
+        "Send terminal input to a runtime-backed AgentRoom agent through the audited runtime provider path.",
+      inputSchema: {
+        providerId: z.string().optional(),
+        agentId: z.string().min(1),
+        text: z.string().min(1),
+        submit: z.boolean().optional(),
+      },
+    },
+    async (input) => jsonResult(await sendRuntimeAgent(input)),
+  );
+
+  server.registerTool(
+    "agentroom_stop_agent",
+    {
+      description:
+        "Stop a runtime-backed AgentRoom agent through its runtime provider and mark it stopped in the room.",
+      inputSchema: {
+        providerId: z.string().optional(),
+        agentId: z.string().min(1),
+        reason: z.string().optional(),
+      },
+    },
+    async (input) => jsonResult(await stopRuntimeAgent(input)),
   );
 
   server.registerTool(
@@ -477,6 +626,211 @@ function registerTools(server: McpServer): void {
   );
 }
 
+type LaunchRuntimeAgentInput = {
+  providerId?: string | undefined;
+  agentId?: string | undefined;
+  role?: AgentRole | undefined;
+  harnessKind?: HarnessSpec["kind"] | undefined;
+  command?: string | undefined;
+  args?: string[] | undefined;
+  cwd?: string | undefined;
+  workspace?: string | undefined;
+  displayName?: string | undefined;
+  env?: Record<string, string> | undefined;
+};
+
+type RuntimeAgentTargetInput = {
+  providerId?: string | undefined;
+  agentId: string;
+};
+
+async function launchRuntimeAgent(
+  input: LaunchRuntimeAgentInput,
+): Promise<unknown> {
+  const ctx = await runtimeContext();
+  const provider = selectRuntimeProvider(
+    ctx,
+    input.providerId ?? ctx.config.runtime.default,
+  );
+  if (!provider.capabilities.startAgent) {
+    throw new Error(`runtime provider cannot launch agents: ${provider.id}`);
+  }
+
+  const role = input.role ?? "implementer";
+  const harnessKind = input.harnessKind ?? "codex";
+  const command = input.command ?? defaultCommandForHarness(harnessKind);
+  const cwd = resolve(ctx.cwd, input.cwd ?? ".");
+  const workspace =
+    cleanOptionalString(input.workspace) ?? workspaceLabelFromCwd(cwd);
+  const runtimeAgents = await provider.listAgents();
+  const agentId =
+    cleanOptionalString(input.agentId) ?? nextAgentId(role, runtimeAgents);
+  const env = input.env ?? {};
+  const harness: HarnessSpec = {
+    kind: harnessKind,
+    command,
+    ...(input.args !== undefined ? { args: input.args } : {}),
+    cwd,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+  };
+
+  await ctx.service.registerAgent({
+    id: agentId,
+    role,
+    harness,
+    ...(input.displayName !== undefined
+      ? { displayName: input.displayName }
+      : {}),
+  });
+  await ctx.service.registerWorkspace({ cwd, label: workspace });
+
+  let agent: Awaited<ReturnType<RuntimeProvider["startAgent"]>>;
+  try {
+    agent = await provider.startAgent({
+      agentId,
+      roomId: ctx.roomId,
+      role,
+      harness,
+      ...(input.displayName !== undefined
+        ? { displayName: input.displayName }
+        : {}),
+      cwd,
+      workspace,
+      env: {
+        ...env,
+        ...agentRoomProtocolEnv(
+          ctx.config,
+          { agentId, role, roomId: ctx.roomId },
+          ctx.cwd,
+        ),
+      },
+    });
+  } catch (error) {
+    await ctx.service.leaveAgent({
+      agentId,
+      reason: `runtime launch failed: ${errorMessage(error)}`,
+    });
+    throw error;
+  }
+
+  if (agent.id !== agentId) {
+    await stopRuntimeAfterLaunchFailure(provider, agent);
+    await ctx.service.leaveAgent({
+      agentId,
+      reason: `runtime returned mismatched agent id ${agent.id}`,
+    });
+    throw new Error(
+      `runtime provider returned mismatched agent id: expected ${agentId}, got ${agent.id}`,
+    );
+  }
+
+  const existingByBinding = await ctx.service.findAgentByBinding(
+    agent.bindingId,
+  );
+  if (existingByBinding !== undefined && existingByBinding !== agentId) {
+    const existingAgent = await ctx.service.getAgent(existingByBinding);
+    if (existingAgent?.state !== "stopped") {
+      await stopRuntimeAfterLaunchFailure(provider, agent);
+      await ctx.service.leaveAgent({
+        agentId,
+        reason: `runtime binding ${agent.bindingId} already owned by ${existingByBinding}`,
+      });
+      throw new Error(
+        `runtime binding ${agent.bindingId} is already owned by active agent ${existingByBinding}`,
+      );
+    }
+  }
+
+  await ctx.service.bindRuntime({
+    agentId,
+    runtime: bindingFor(provider, agent.bindingId, agent.metadata),
+  });
+
+  return {
+    agent,
+    provider: {
+      id: provider.id,
+      kind: provider.kind,
+    },
+    defaults: {
+      role,
+      harnessKind,
+      command,
+      cwd,
+      workspace,
+    },
+  };
+}
+
+async function readRuntimeAgent(
+  input: RuntimeAgentTargetInput & {
+    lines?: number | undefined;
+    source?: "visible" | "recent" | "recent-unwrapped" | "all" | undefined;
+  },
+): Promise<unknown> {
+  const ctx = await runtimeContext();
+  const { provider, binding } = await runtimeProviderForAgent(ctx, input);
+  if (!provider.capabilities.readOutput) {
+    throw new Error(`runtime provider cannot read agents: ${provider.id}`);
+  }
+  const output = await provider.readAgent({
+    agentId: input.agentId,
+    ...bindingIdFor(provider, binding),
+    lines: input.lines ?? 80,
+    ...(input.source !== undefined ? { source: input.source } : {}),
+  });
+  await ctx.service.recordRuntimeOutput({
+    agentId: input.agentId,
+    text: output.text,
+    ...(output.lineCount !== undefined ? { lineCount: output.lineCount } : {}),
+  });
+  return { output };
+}
+
+async function sendRuntimeAgent(
+  input: RuntimeAgentTargetInput & {
+    text: string;
+    submit?: boolean | undefined;
+  },
+): Promise<unknown> {
+  const ctx = await runtimeContext();
+  const { provider, binding } = await runtimeProviderForAgent(ctx, input);
+  if (!provider.capabilities.sendInput) {
+    throw new Error(`runtime provider cannot send input: ${provider.id}`);
+  }
+  const source = await currentActor(ctx.service);
+  await provider.sendInput({
+    agentId: input.agentId,
+    ...bindingIdFor(provider, binding),
+    text: input.text,
+    ...(input.submit !== undefined ? { submit: input.submit } : {}),
+    source,
+  });
+  await ctx.service.recordRuntimeInput({
+    agentId: input.agentId,
+    text: input.text,
+    source,
+  });
+  return { ok: true, agentId: input.agentId, runtime: provider.id };
+}
+
+async function stopRuntimeAgent(
+  input: RuntimeAgentTargetInput & {
+    reason?: string | undefined;
+  },
+): Promise<unknown> {
+  const ctx = await runtimeContext();
+  const { provider, binding } = await runtimeProviderForAgent(ctx, input);
+  if (!provider.capabilities.stopAgent) {
+    throw new Error(`runtime provider cannot stop agents: ${provider.id}`);
+  }
+  await provider.stopAgent(stopTargetFor(provider, input.agentId, binding));
+  await ctx.service.leaveAgent({
+    agentId: input.agentId,
+    reason: input.reason ?? "stopped via agentroom MCP",
+  });
+  return { ok: true, agentId: input.agentId, runtime: provider.id };
+}
 
 async function waitForEvent(input: {
   message?: string | undefined;
@@ -643,6 +997,16 @@ function compileMessagePattern(
   }
 }
 
+async function runtimeContext(): Promise<RuntimeContext> {
+  const ctx = await roomContext();
+  return {
+    ...ctx,
+    providers: Object.entries(ctx.config.runtimes).map(([id, runtime]) =>
+      makeRuntimeProvider(id, runtime),
+    ),
+  };
+}
+
 async function roomContext(): Promise<RoomContext> {
   const cwd = process.env.AGENTROOM_CWD ?? process.cwd();
   const config = await loadAgentRoomConfig(cwd).catch(() =>
@@ -656,8 +1020,209 @@ async function roomContext(): Promise<RoomContext> {
   return {
     cwd,
     roomId: config.room.id,
+    config,
     service: new AgentRoomService(events, { roomId: config.room.id }),
     events,
+  };
+}
+
+function selectRuntimeProvider(
+  ctx: RuntimeContext,
+  providerId: string,
+): RuntimeProvider {
+  const provider = ctx.providers.find((entry) => entry.id === providerId);
+  if (provider !== undefined) return provider;
+  const runtime = ensureRuntimeConfig(ctx.config, providerId);
+  return makeRuntimeProvider(providerId, runtime);
+}
+
+async function runtimeProviderForAgent(
+  ctx: RuntimeContext,
+  input: RuntimeAgentTargetInput,
+): Promise<{ provider: RuntimeProvider; binding: RuntimeBinding }> {
+  const binding = await ctx.service.getRuntimeBinding(input.agentId);
+  if (binding === undefined) {
+    throw new Error(
+      `No runtime binding found for agent '${input.agentId}'. Launch or enroll the agent before using MCP runtime IO.`,
+    );
+  }
+  const providerId = input.providerId ?? binding.providerId;
+  if (providerId !== binding.providerId) {
+    throw new Error(
+      `Runtime '${providerId}' does not match bound runtime '${binding.providerId}' for agent '${input.agentId}'.`,
+    );
+  }
+  return {
+    provider: selectRuntimeProvider(ctx, providerId),
+    binding,
+  };
+}
+
+function makeRuntimeProvider(
+  id: string,
+  runtime: RuntimeConfig | undefined,
+): RuntimeProvider {
+  const config = runtime ?? builtInRuntimeConfig(id);
+  switch (config.type) {
+    case "fake":
+      return new FakeRuntimeProvider({ id });
+    case "herdr": {
+      const session = config.session ?? process.env.HERDR_SESSION;
+      return new HerdrRuntimeProvider({
+        id,
+        ...(config.cli !== undefined ? { cli: config.cli } : {}),
+        ...(session !== undefined ? { session } : {}),
+        ...(config.layout !== undefined ? { layout: config.layout } : {}),
+      });
+    }
+    case "tmux":
+      return new TmuxRuntimeProvider({
+        id,
+        ...(config.cli !== undefined ? { cli: config.cli } : {}),
+        ...(config.sessionPrefix !== undefined
+          ? { sessionPrefix: config.sessionPrefix }
+          : {}),
+      });
+    case "zellij":
+      return new ZellijRuntimeProvider({
+        id,
+        ...(config.cli !== undefined ? { cli: config.cli } : {}),
+        ...(config.session !== undefined ? { session: config.session } : {}),
+      });
+  }
+}
+
+function defaultCommandForHarness(kind: HarnessSpec["kind"]): string {
+  switch (kind) {
+    case "claude-code":
+      return "claude";
+    case "codex":
+      return "codex";
+    case "gemini-cli":
+      return "gemini";
+    case "pi":
+      return "pi";
+    case "shell":
+      return "bash";
+    case "custom":
+      throw new Error("custom harness requires command");
+  }
+}
+
+function nextAgentId(role: AgentRole, agents: Array<{ id: string }>): string {
+  const base = role === "implementer" ? "implementer" : role;
+  const ids = new Set(agents.map((agent) => agent.id));
+  for (let index = 1; index < 1000; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!ids.has(candidate)) return candidate;
+  }
+  throw new Error(`could not allocate agent id for role ${role}`);
+}
+
+function workspaceLabelFromCwd(cwd: string): string {
+  const label = basename(cwd)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return label || "workspace";
+}
+
+function cleanOptionalString(value: string | undefined): string | undefined {
+  const cleaned = value?.trim();
+  return cleaned === undefined || cleaned.length === 0 ? undefined : cleaned;
+}
+
+async function stopRuntimeAfterLaunchFailure(
+  provider: RuntimeProvider,
+  agent: { id: string; bindingId: string; metadata?: Record<string, unknown> },
+): Promise<void> {
+  if (!provider.capabilities.stopAgent) return;
+  const runtime = bindingFor(provider, agent.bindingId, agent.metadata);
+  await provider
+    .stopAgent(stopTargetFor(provider, agent.id, runtime))
+    .catch(() => {});
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function bindingFor(
+  provider: RuntimeProvider,
+  bindingId: string,
+  metadata?: Record<string, unknown>,
+): RuntimeBinding {
+  return {
+    providerId: provider.id,
+    bindingId,
+    kind:
+      provider.kind === "tmux" ||
+      provider.kind === "herdr" ||
+      provider.kind === "zellij"
+        ? "pane"
+        : "process",
+    ...(metadata !== undefined ? { metadata } : {}),
+  };
+}
+
+function bindingIdFor(
+  provider: RuntimeProvider,
+  binding?: RuntimeBinding,
+): { bindingId?: string } {
+  return binding?.providerId === provider.id
+    ? { bindingId: binding.bindingId }
+    : {};
+}
+
+function stopTargetFor(
+  provider: RuntimeProvider,
+  agentId: string,
+  binding?: RuntimeBinding,
+): string {
+  if (provider.kind === "herdr" && binding?.providerId === provider.id) {
+    return binding.bindingId;
+  }
+  return agentId;
+}
+
+function agentRoomProtocolEnv(
+  config: AgentRoomConfig,
+  input: {
+    agentId: string;
+    role: StartAgentRequest["role"];
+    roomId?: string;
+  },
+  cwd: string,
+): Record<string, string> {
+  return {
+    AGENTROOM: "1",
+    AGENTROOM_AGENT_ID: input.agentId,
+    AGENTROOM_ROOM_ID: input.roomId ?? config.room.id,
+    AGENTROOM_ROLE: input.role,
+    AGENTROOM_PROTOCOL_FILE: agentRoomProtocolPath(cwd),
+    ...workTrackerProtocolEnv(config),
+  };
+}
+
+function workTrackerProtocolEnv(
+  config: AgentRoomConfig,
+): Record<string, string> {
+  const trackerId = config.workTracker?.default;
+  if (trackerId === undefined) return {};
+  const provider = config.workTracker?.providers[trackerId];
+  if (provider === undefined) return { AGENTROOM_WORK_TRACKER: trackerId };
+  return {
+    AGENTROOM_WORK_TRACKER: trackerId,
+    AGENTROOM_WORK_TRACKER_PROVIDER_KIND: provider.type,
+    ...(provider.teamId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_TEAM_ID: provider.teamId }
+      : {}),
+    ...(provider.projectId !== undefined
+      ? { AGENTROOM_WORK_TRACKER_PROJECT_ID: provider.projectId }
+      : {}),
+    ...(provider.baseUrl !== undefined
+      ? { AGENTROOM_WORK_TRACKER_BASE_URL: provider.baseUrl }
+      : {}),
   };
 }
 
@@ -864,7 +1429,6 @@ function parseRole(value: string | undefined) {
     | "observer"
     | "custom";
 }
-
 
 function parseSince(value: string): string {
   const timestamp = Date.parse(value);

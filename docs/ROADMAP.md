@@ -14,7 +14,7 @@ maintainers but noisy for the public product narrative.
 - Hono daemon with health, dashboard config, protocol/config reads, events/feed, messages, reports, tracker event import, runtime providers/agents/input/output/search, chat gateway route inspection, and bearer-token protection for `/v1/*` when configured.
 - Interactive TUI dashboard with chat, overview, workspaces, agents, messages, events, logs, settings, slash-command templates, and optional operator bootstrap.
 - Expo/React Native mobile client for health, messages, events, runtime providers/agents, room posting, and runtime input.
-- MCP stdio server for room context, messages, events, feed, posts, DMs, reports, directed-message reads, iOS diagnostics, and waits.
+- MCP stdio server for room context, messages, events, feed, posts, DMs, reports, directed-message reads, runtime provider/agent inspection, runtime-backed launch/read/send/stop, iOS diagnostics, and waits.
 - Chat gateway port, Discord adapter, inbound router, outbound dispatcher, webhook-mode attribution, and daemon config loading.
 - Herdr pane adoption, Zellij AgentRoom-marked pane adoption, and one-off `agent-room enroll`.
 
