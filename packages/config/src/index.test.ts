@@ -483,7 +483,7 @@ storage:
     }
   });
 
-  it("does not apply a pane-scoped session identity to a caller in a different pane", async () => {
+  it("does not apply a pane-scoped session identity outside its pane", async () => {
     const previousHome = process.env.AGENTROOM_HOME;
     delete process.env.AGENTROOM_HOME;
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-session-pane-"));
@@ -496,6 +496,18 @@ storage:
         paneId: "p_owner",
         updatedAt: "2026-05-31T00:00:00.000Z",
       });
+      await writeFile(
+        join(agentRoomDir(cwd), "session.json"),
+        JSON.stringify({
+          agentId: "herdr:agent-room:stale-worker",
+          roomId: "agent-room",
+          role: "implementer",
+          bindingId: "stale-worker",
+          paneId: "p_stale",
+          updatedAt: "2026-05-31T00:00:00.000Z",
+        }),
+        "utf8",
+      );
 
       // Same pane → the enrolled agent resolves.
       const samePane = await readAgentRoomSessionIdentity(cwd, "p_owner");
@@ -505,9 +517,36 @@ storage:
       const otherPane = await readAgentRoomSessionIdentity(cwd, "p_other");
       expect(otherPane).toBeUndefined();
 
-      // No pane env still inherits it (intentional "persist for later shells").
+      // A normal shell with no pane must not inherit a pane worker identity.
       const noPane = await readAgentRoomSessionIdentity(cwd, undefined);
-      expect(noPane?.agentId).toBe("herdr:agent-room:worker");
+      expect(noPane).toBeUndefined();
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.AGENTROOM_HOME;
+      } else {
+        process.env.AGENTROOM_HOME = previousHome;
+      }
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("still applies a non-pane session identity globally", async () => {
+    const previousHome = process.env.AGENTROOM_HOME;
+    delete process.env.AGENTROOM_HOME;
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-session-global-"));
+    try {
+      await writeAgentRoomSessionIdentity(cwd, {
+        agentId: "manual-agent",
+        roomId: "agent-room",
+        role: "lead",
+        updatedAt: "2026-05-31T00:00:00.000Z",
+      });
+
+      const noPane = await readAgentRoomSessionIdentity(cwd, undefined);
+      expect(noPane?.agentId).toBe("manual-agent");
+
+      const pane = await readAgentRoomSessionIdentity(cwd, "p_any");
+      expect(pane?.agentId).toBe("manual-agent");
     } finally {
       if (previousHome === undefined) {
         delete process.env.AGENTROOM_HOME;

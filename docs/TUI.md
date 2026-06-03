@@ -2,7 +2,7 @@
 
 The AgentRoom TUI is the normal front door for humans. It is a terminal
 dashboard with an operator chat on the first screen. Start there, ask the room
-what is happening, and let the dashboard agent use the room tools for you.
+what is happening, or type `/` and use the arrow-key command menu.
 
 ```bash
 agent-room
@@ -38,20 +38,24 @@ summaries. You do not need to know the full CLI for day-to-day operation.
 
 ## Views
 
-Use the views when you want to inspect state directly:
+Use slash commands when you want to inspect state directly:
 
 | View       | Use it for                                                         |
 | ---------- | ------------------------------------------------------------------ |
-| Chat       | Ask the operator what is happening and request room actions.       |
-| Overview   | Check daemon health, runtime provider, room id, and recent status. |
-| Workspaces | See registered cwd/project contexts.                               |
-| Agents     | See launched or adopted agents and their runtime bindings.         |
-| Messages   | Read room channels, direct messages, and handoffs.                 |
-| Events     | Audit room activity, runtime reads/sends, and provider changes.    |
-| Logs       | Search dashboard-agent prompts, tool calls/results, and errors.    |
-| Help       | See hotkeys, slash commands, and environment knobs.                |
+| `/chat`       | Ask the operator what is happening and request room actions.       |
+| `/overview`   | Check daemon health, runtime provider, room id, and recent status. |
+| `/workspaces` | See registered cwd/project contexts.                               |
+| `/agents`     | See launched or adopted agents and their runtime bindings.         |
+| `/messages`   | Read room channels, direct messages, and handoffs.                 |
+| `/events`     | Audit room activity, runtime reads/sends, and provider changes.    |
+| `/settings`   | Edit runtime, tracker, MCP, chat tokens, and channels.             |
+| `/logs`       | Search dashboard-agent prompts, tool calls/results, and errors.    |
+| `/help`       | See hotkeys, slash commands, and environment knobs.                |
 
-`Ctrl+G` and `Ctrl+L` cycle views. `Esc` opens the view picker. `?` opens Help.
+Press `/` from any view to jump back to Chat command mode. Press `Tab` after
+`/`, or keep typing, then use `↑`/`↓` and `Enter` to select a command. `/views`
+and `Esc` open the arrow-key view picker. `Ctrl+G` and `Ctrl+L` still cycle
+views, and `Ctrl+C` quits.
 
 ## Setup
 
@@ -69,6 +73,8 @@ Useful setup commands:
 /setup clanky agent .clanky-room lead
 /config
 /protocol
+/settings
+/views
 ```
 
 Setup commands write the same `.agentroom/config.yaml` model as the CLI.

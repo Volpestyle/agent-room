@@ -43,35 +43,11 @@ import type {
   Message,
   RuntimeAgent,
 } from "../types.js";
+import {
+  DASHBOARD_VIEW_COMMAND_IDS,
+  SLASH_COMMANDS,
+} from "./slash-commands.js";
 import type { View } from "./types.js";
-
-const SLASH_COMMANDS = [
-  { name: "help", description: "Show help view" },
-  { name: "setup", description: "Show guided AgentRoom setup" },
-  { name: "config", description: "Show AgentRoom configuration summary" },
-  { name: "protocol", description: "Show editable room protocol" },
-  { name: "clear", description: "Clear the chat transcript" },
-  {
-    name: "copy",
-    description: "Copy the last dashboard reply to the clipboard",
-  },
-  { name: "refresh", description: "Force a dashboard refresh" },
-  {
-    name: "post",
-    description: "Post raw text to the room as the dashboard agent",
-  },
-  { name: "login", description: "Sign in to a provider (default: openai)" },
-  { name: "logout", description: "Sign out of a provider" },
-  { name: "effort", description: "Show or set model effort level" },
-  { name: "trace", description: "Show or set transcript trace mode" },
-  { name: "logs", description: "Open searchable dashboard-agent logs" },
-  { name: "runtime", description: "Show runtime session/socket status" },
-  { name: "setup runtime", description: "Set the default runtime" },
-  { name: "setup tracker", description: "Set the work tracker defaults" },
-  { name: "setup mcp", description: "Add or remove a dashboard MCP server" },
-  { name: "setup clanky", description: "Set Clanky room defaults" },
-  { name: "quit", description: "Exit the dashboard" },
-];
 
 const OPENAI_LOGIN_PROVIDER = "openai-codex";
 const TRACE_MODES = ["off", "tools", "full"] as const;
@@ -137,7 +113,7 @@ export interface ChatViewOptions {
   rebuildAgent(
     thinkingLevel?: DashboardThinkingLevel,
   ): DashboardAgent | DashboardAgentError;
-  onCommand(cmd: string): boolean;
+  onCommand(cmd: string, args: string[]): boolean;
 }
 
 interface ChatViewHandle extends View {
@@ -156,10 +132,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
   let agentUnsubscribe: (() => void) | undefined;
 
   const autocompleteProvider = new CombinedAutocompleteProvider(
-    SLASH_COMMANDS.map((c) => ({
-      name: c.name,
-      description: c.description,
-    })),
+    SLASH_COMMANDS,
     process.cwd(),
   );
   editor.setAutocompleteProvider(autocompleteProvider);
@@ -298,7 +271,7 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       banner.addChild(
         new Text(
           palette.muted(
-            "Talk to it in plain language. /setup · /protocol · /help · /clear · /copy · /refresh · /post · /login · /logout · /effort · /trace · /logs · /runtime · /quit",
+            "Ask in plain language, or type / for commands (↑/↓ Enter). /views · /settings · /setup · /protocol · /runtime · /logs · /quit",
           ),
           1,
           0,
@@ -909,6 +882,12 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
     const cmd = (cmdRaw ?? "").toLowerCase();
     const remainder = input.slice(1 + (cmdRaw ?? "").length).trim();
 
+    if (!cmd) {
+      addSystemNote(
+        "type / plus a command, or press Tab after / and use ↑/↓ Enter.",
+      );
+      return true;
+    }
     if (cmd === "clear") {
       transcript.clear();
       renderBanner(currentAgent);
@@ -975,7 +954,30 @@ export function createChatView(options: ChatViewOptions): ChatViewHandle {
       await runRuntime(rest[0]);
       return true;
     }
-    if (onCommand(cmd)) return true;
+    if (cmd === "view") {
+      const target = rest[0]?.toLowerCase();
+      if (!target) {
+        addErrorNote(
+          "usage: /view <chat|overview|workspaces|agents|messages|events|logs|settings|help>",
+        );
+        return true;
+      }
+      if (!DASHBOARD_VIEW_COMMAND_IDS.has(target)) {
+        addErrorNote(`unknown view: ${target}`);
+        return true;
+      }
+      if (!onCommand(cmd, [target])) {
+        addErrorNote(`cannot switch to view: ${target}`);
+      }
+      return true;
+    }
+    if (DASHBOARD_VIEW_COMMAND_IDS.has(cmd) || cmd === "views") {
+      if (!onCommand(cmd, rest)) {
+        addErrorNote(`cannot run dashboard command: /${cmd}`);
+      }
+      return true;
+    }
+    if (onCommand(cmd, rest)) return true;
     addErrorNote(`unknown command: /${cmd}`);
     return true;
   }

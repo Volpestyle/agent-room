@@ -714,7 +714,7 @@ describe("agent-room enroll", () => {
     }
   });
 
-  it("persists enrollment for later shells without pane env", async () => {
+  it("does not leak pane enrollment into later shells without pane env", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agentroom-whoami-session-"));
     const enrollEnv = {
       ...process.env,
@@ -748,16 +748,12 @@ describe("agent-room enroll", () => {
         (await execAgentRoom(cwd, ["whoami", "--json"], whoamiEnv)).stdout,
       ) as {
         enrolled: boolean;
-        agentId: string;
-        roomId: string;
         source: string;
       };
 
       expect(whoami).toMatchObject({
-        enrolled: true,
-        agentId: "herdr:agent-room:p_222",
-        roomId: "cli-whoami-session",
-        source: "session",
+        enrolled: false,
+        source: "none",
       });
 
       const envFile = (
@@ -905,6 +901,63 @@ describe("agent-room daemon lifecycle", () => {
         cwd,
         ["daemon", "stop", "--port", String(port), "--json"],
         env,
+      ).catch(() => undefined);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a normal shell to start the daemon after pane enrollment", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agentroom-daemon-human-pane-"));
+    const port = await freePort();
+    const enrollEnv = {
+      ...process.env,
+      HERDR_SESSION: "agent-room",
+      HERDR_PANE_ID: "p_333",
+      AGENTROOM: undefined,
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined,
+    } as NodeJS.ProcessEnv;
+    const humanEnv = {
+      ...process.env,
+      AGENTROOM_HOME: testHomeFor(cwd),
+      HERDR_SESSION: undefined,
+      HERDR_PANE_ID: undefined,
+      AGENTROOM: undefined,
+      AGENTROOM_AGENT_ID: undefined,
+      AGENTROOM_ROOM_ID: undefined,
+      AGENTROOM_ROLE: undefined,
+    } as NodeJS.ProcessEnv;
+
+    try {
+      await execAgentRoom(
+        cwd,
+        ["init", "--room", "cli-daemon-human-pane", "--runtime", "fake"],
+        enrollEnv,
+      );
+      await execAgentRoom(cwd, ["enroll", "--json"], enrollEnv);
+
+      const whoami = JSON.parse(
+        (await execAgentRoom(cwd, ["whoami", "--json"], humanEnv)).stdout,
+      ) as { enrolled: boolean; source: string };
+      expect(whoami).toMatchObject({ enrolled: false, source: "none" });
+
+      const start = JSON.parse(
+        (
+          await execAgentRoom(
+            cwd,
+            ["daemon", "start", "--port", String(port), "--json"],
+            humanEnv,
+          )
+        ).stdout,
+      ) as { state: string; pid: number };
+      expect(start.state).toBe("running");
+      expect(start.pid).toEqual(expect.any(Number));
+    } finally {
+      await execAgentRoom(
+        cwd,
+        ["daemon", "stop", "--port", String(port), "--json"],
+        humanEnv,
       ).catch(() => undefined);
       await rm(cwd, { recursive: true, force: true });
     }

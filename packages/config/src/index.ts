@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parse } from "yaml";
@@ -420,13 +420,15 @@ export async function writeAgentRoomSessionIdentity(
   identity: AgentRoomSessionIdentity,
 ): Promise<void> {
   await mkdir(agentRoomDir(cwd), { recursive: true });
-  await writePrivateJson(agentRoomSessionPath(cwd), identity);
   if (identity.paneId !== undefined) {
     await writePrivateJson(
       agentRoomSessionPath(cwd, identity.paneId),
       identity,
     );
+    await removePaneScopedGlobalSession(cwd);
+    return;
   }
+  await writePrivateJson(agentRoomSessionPath(cwd), identity);
 }
 
 export async function readAgentRoomSessionIdentity(
@@ -449,16 +451,14 @@ export async function readAgentRoomSessionIdentity(
         parsed.roomId.length > 0 &&
         typeof parsed.updatedAt === "string"
       ) {
-        // A pane-scoped identity must never leak to a caller in a *different*
-        // pane — otherwise one pane's worker identity (and its role) is applied
-        // to everyone running commands in the directory, including a human in
-        // another pane. A caller with no pane still inherits it (that's the
-        // intentional "persist enrollment for later shells" behavior).
+        // A pane-scoped identity must only apply inside that exact pane.
+        // Otherwise one pane's worker identity (and role) leaks into normal
+        // shells in the directory and makes human CLI commands look like
+        // ordinary enrolled agents.
         if (
           typeof parsed.paneId === "string" &&
           parsed.paneId.length > 0 &&
-          paneId !== undefined &&
-          parsed.paneId !== paneId
+          (paneId === undefined || parsed.paneId !== paneId)
         ) {
           continue;
         }
@@ -483,6 +483,20 @@ export async function readAgentRoomSessionIdentity(
     }
   }
   return undefined;
+}
+
+async function removePaneScopedGlobalSession(cwd: string): Promise<void> {
+  const path = agentRoomSessionPath(cwd);
+  try {
+    const parsed = JSON.parse(
+      await readFile(path, "utf8"),
+    ) as Partial<AgentRoomSessionIdentity>;
+    if (typeof parsed.paneId === "string" && parsed.paneId.length > 0) {
+      await rm(path, { force: true });
+    }
+  } catch {
+    // Missing or invalid global session: nothing to clean up.
+  }
 }
 
 export async function writeAgentRoomSessionEnvFile(

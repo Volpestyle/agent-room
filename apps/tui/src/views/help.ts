@@ -5,6 +5,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { PanelBase } from "../components/panel.js";
 import { palette } from "../theme.js";
+import { SLASH_COMMANDS } from "./slash-commands.js";
 import type { View } from "./types.js";
 
 class HelpPanel extends PanelBase {
@@ -27,7 +28,9 @@ class HelpPanel extends PanelBase {
     lines.push("  " + this.hotkeyHint());
     lines.push(
       "  " +
-        palette.muted("Ctrl+G / Ctrl+L cycle views · Esc opens the view menu"),
+        palette.muted(
+          "Press / from any view to jump to Chat command mode · Esc opens the arrow-key view menu",
+        ),
     );
 
     lines.push("");
@@ -47,79 +50,21 @@ class HelpPanel extends PanelBase {
           "Scroll transcript history with terminal scrollback (trackpad/mouse or Shift+PgUp/PgDn).",
         ),
     );
-    lines.push("  " + palette.muted("Built-in slash commands:"));
     lines.push(
-      "    " +
-        palette.accent("/help") +
-        palette.muted("           this screen"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/setup") +
-        palette.muted("          guided room setup and config status"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/config") +
-        palette.muted("         current AgentRoom config summary"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/refresh") +
-        palette.muted("        force a poll"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/clear") +
-        palette.muted("          clear the chat transcript"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/copy") +
+      "  " +
         palette.muted(
-          "           copy the last dashboard reply to the clipboard",
+          "Slash commands: type /, use ↑/↓ to choose, then press Enter.",
         ),
     );
-    lines.push(
-      "    " +
-        palette.accent("/login [provider]") +
-        palette.muted(" OAuth sign-in (default: openai → ChatGPT Plus/Pro)"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/logout <provider>") +
-        palette.muted(" clear stored credentials"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/effort [level]") +
-        palette.muted(" show or set effort: off|minimal|low|medium|high|xhigh"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/trace [mode]") +
-        palette.muted("  show or set stream trace: off|tools|full"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/logs") +
-        palette.muted("          open searchable dashboard-agent logs"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/runtime [provider]") +
-        palette.muted(" show runtime sessions, sockets, and workspace ids"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/post <text>") +
-        palette.muted("     post raw text to the room as the dashboard agent"),
-    );
-    lines.push(
-      "    " +
-        palette.accent("/quit") +
-        palette.muted("           exit the dashboard"),
-    );
+    for (const command of SLASH_COMMANDS) {
+      const args = command.argumentHint ? " " + command.argumentHint : "";
+      const label = `/${command.name}${args}`;
+      lines.push(
+        "    " +
+          palette.accent(label.padEnd(28)) +
+          palette.muted(command.description ?? ""),
+      );
+    }
 
     lines.push("");
     lines.push(palette.label("ENVIRONMENT"));

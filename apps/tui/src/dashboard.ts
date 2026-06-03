@@ -46,6 +46,7 @@ import {
   type FieldEditorOptions,
   type SettingsAction,
 } from "./views/settings.js";
+import { DASHBOARD_VIEW_COMMAND_IDS } from "./views/slash-commands.js";
 import { createWorkspacesView } from "./views/workspaces.js";
 import type { View } from "./views/types.js";
 
@@ -329,18 +330,21 @@ export class Dashboard {
         }
         return next;
       },
-      onCommand: (cmd) => {
+      onCommand: (cmd, args) => {
         if (cmd === "quit" || cmd === "exit") {
           void this.shutdown();
           return true;
         }
-        if (cmd === "help") {
-          this.switchToId("help");
+        if (cmd === "views") {
+          this.openViewPicker();
           return true;
         }
-        if (cmd === "logs") {
-          this.switchToId("logs");
-          return true;
+        if (cmd === "view") {
+          const viewId = args[0];
+          return viewId === undefined ? false : this.switchToId(viewId);
+        }
+        if (DASHBOARD_VIEW_COMMAND_IDS.has(cmd)) {
+          return this.switchToId(cmd);
         }
         return false;
       },
@@ -395,8 +399,11 @@ export class Dashboard {
       .map((binding) => binding.hint)
       .join(" · ");
     return (
+      palette.accent("/ commands") +
+      palette.muted(" from any view (↑/↓ Enter)") +
+      "  " +
       this.views
-        .map((v) => `${palette.accent(v.label)} ${palette.faint(v.hotkey)}`)
+        .map((v) => `${palette.accent(v.label)} ${palette.faint("/" + v.id)}`)
         .join("  ") +
       "  " +
       palette.muted(globalHints)
@@ -535,10 +542,11 @@ export class Dashboard {
     this.tui.requestRender(forceFullRender);
   }
 
-  private switchToId(id: string): void {
+  private switchToId(id: string): boolean {
     const index = this.viewIndexById.get(id);
-    if (index === undefined) return;
+    if (index === undefined) return false;
     this.activateView(index);
+    return true;
   }
 
   private async restartDaemon(): Promise<void> {
@@ -568,7 +576,9 @@ export class Dashboard {
     this.activateView(next);
   }
 
-  private onGlobalInput(data: string): { consume?: boolean } | undefined {
+  private onGlobalInput(
+    data: string,
+  ): { consume?: boolean; data?: string } | undefined {
     if (matchesKey(data, GLOBAL_HOTKEYS.quit.match)) {
       void this.shutdown();
       return { consume: true };
@@ -584,6 +594,14 @@ export class Dashboard {
         void this.restartDaemon();
       }
       return { consume: true };
+    }
+    if (
+      matchesKey(data, Key.slash) &&
+      !this.tui.hasOverlay() &&
+      this.views[this.activeIndex]?.id !== "chat"
+    ) {
+      this.switchToId("chat");
+      return { consume: false };
     }
     if (matchesKey(data, GLOBAL_HOTKEYS.nextView.match)) {
       this.cycleView(1);
