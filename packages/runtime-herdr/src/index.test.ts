@@ -65,6 +65,11 @@ describe("HerdrRuntimeProvider", () => {
         displayName: "demo",
         state: "working",
         sessionId: "w1",
+        metadata: expect.objectContaining({
+          workspaceId: "w1",
+          tabId: "w1:1",
+          workspaceLabel: "agentroom:demo",
+        }),
       }),
       expect.objectContaining({
         id: "w2-1",
@@ -72,6 +77,11 @@ describe("HerdrRuntimeProvider", () => {
         displayName: "codex",
         state: "idle",
         sessionId: "w2",
+        metadata: expect.objectContaining({
+          workspaceId: "w2",
+          tabId: "w2:1",
+          workspaceLabel: "other",
+        }),
       }),
     ]);
   });

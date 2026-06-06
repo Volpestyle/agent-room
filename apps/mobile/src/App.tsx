@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -26,6 +27,7 @@ import {
   isLikelyTailnetUrl,
   loadConnectionSettings,
   normalizeBaseUrl,
+  parsePairingUrl,
   saveConnectionSettings,
   type ConnectionMode,
   type ConnectionSettings,
@@ -66,6 +68,22 @@ export function App() {
         ...(settings.token ? { token: settings.token } : {}),
       }),
     [settings],
+  );
+
+  const applyConnectionSettings = useCallback(
+    async (next: ConnectionSettings) => {
+      const normalized: ConnectionSettings = {
+        mode: next.mode,
+        baseUrl: normalizeBaseUrl(next.baseUrl),
+        token: next.token.trim(),
+      };
+      await saveConnectionSettings(normalized);
+      setSettings(normalized);
+      setDraftMode(normalized.mode);
+      setDraftUrl(normalized.baseUrl);
+      setDraftToken(normalized.token);
+    },
+    [],
   );
 
   const refresh = useCallback(async () => {
@@ -129,6 +147,34 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    async function applyPairingUrl(url: string) {
+      const paired = parsePairingUrl(url);
+      if (!paired) return;
+      setSaving(true);
+      setError(null);
+      try {
+        await applyConnectionSettings(paired);
+      } catch (err) {
+        if (mounted) setError(formatError(err));
+      } finally {
+        if (mounted) setSaving(false);
+      }
+    }
+
+    void Linking.getInitialURL().then((url) => {
+      if (mounted && url) void applyPairingUrl(url);
+    });
+    const subscription = Linking.addEventListener("url", (event) => {
+      void applyPairingUrl(event.url);
+    });
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, [applyConnectionSettings]);
+
+  useEffect(() => {
     void refresh();
   }, [refresh]);
 
@@ -141,8 +187,7 @@ export function App() {
         baseUrl: normalizeBaseUrl(draftUrl),
         token: draftToken.trim(),
       };
-      await saveConnectionSettings(next);
-      setSettings(next);
+      await applyConnectionSettings(next);
     } catch (err) {
       setError(formatError(err));
     } finally {

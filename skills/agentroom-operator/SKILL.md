@@ -145,7 +145,7 @@ Workers with the `agentroom` skill use `agent-room wait` to block on events inst
 
 The wake is gated on agent state so it never corrupts active work: while a worker is `working`/`reviewing`, or still booting (`starting`/`created`) on a runtime that reports readiness, the directed message is **held and re-attempted, not dropped** — it lands the moment the agent next becomes reachable (turn ends, or the harness finishes booting). Messages that queue during that window are coalesced into a single nudge. So DMing a worker you launched a moment ago, or one that is mid-task, is now safe: the wake catches up.
 
-Two caveats remain. A runtime with no semantic state (tmux) cannot tell the daemon when its prompt is live, so its DMs are delivered best-effort and can still race a boot — prefer launching the harness with the task baked into `--command`, or read back the prompt before `agent-room send`, for tmux workers. And a held wake is bounded: if a recipient never becomes reachable it is abandoned after a couple of minutes and logged, rather than waiting forever.
+Two caveats remain. A runtime with no semantic state (currently tmux and Zellij) cannot tell the daemon when its prompt is live, so its DMs are delivered best-effort and can still race a boot — prefer launching the harness with the task baked into `--command`, or read back the prompt before `agent-room send`, for those workers. And a held wake is bounded: if a recipient never becomes reachable it is abandoned after a couple of minutes and logged, rather than waiting forever.
 
 ## Reading worker output
 

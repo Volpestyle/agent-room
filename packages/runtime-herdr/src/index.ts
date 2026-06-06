@@ -867,6 +867,8 @@ function normalizeHerdrPane(
     ...(input.workspace_id ? { sessionId: input.workspace_id } : {}),
     metadata: {
       ...(input.metadata ?? {}),
+      ...(input.workspace_id ? { workspaceId: input.workspace_id } : {}),
+      ...(input.tab_id ? { tabId: input.tab_id } : {}),
       ...(workspaceLabel ? { workspaceLabel } : {}),
     },
   };
