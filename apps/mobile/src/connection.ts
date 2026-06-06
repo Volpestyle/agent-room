@@ -53,6 +53,36 @@ export function normalizeBaseUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+export function parsePairingUrl(value: string): ConnectionSettings | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "agentroom:") return null;
+  const host = parsed.hostname.toLowerCase();
+  const path = parsed.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  if (!((host === "connect" && path === "") || (host === "" && path === "connect"))) {
+    return null;
+  }
+
+  const baseUrl = parsed.searchParams.get("baseUrl");
+  const mode = parsed.searchParams.get("mode");
+  if (!baseUrl || !isConnectionMode(mode)) return null;
+  let normalizedBaseUrl: string;
+  try {
+    normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  } catch {
+    return null;
+  }
+  return {
+    mode,
+    baseUrl: normalizedBaseUrl,
+    token: parsed.searchParams.get("token") ?? "",
+  };
+}
+
 export function isLikelyTailnetUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname.toLowerCase();
